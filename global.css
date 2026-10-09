@@ -673,8 +673,31 @@
             animation: slideDown 0.2s ease-out;
         }
 
+        .filter-menu:not(.show) {
+            display: none !important;
+        }
+
         .filter-menu .menu-item+.menu-item {
             border-top: 1px solid #e5e7eb;
+        }
+
+        .dob-calendar-menu {
+            padding: 0 !important;
+            overflow: hidden !important;
+            width: 300px !important;
+            max-width: min(94vw, 308px) !important;
+            user-select: none;
+            touch-action: manipulation;
+        }
+
+        .dob-calendar-menu:not(.show) {
+            display: none !important;
+        }
+
+        .dob-calendar-menu.show {
+            display: flex !important;
+            flex-direction: column;
+            animation: slideDown 0.2s ease-out;
         }
 
         .filter-btn {
@@ -1359,6 +1382,8 @@
             font-size: 12px;
             color: #05996c;
             font-weight: 600;
+            pointer-events: none;
+            user-select: none;
         }
 
         .age-badge.error {

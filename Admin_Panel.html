@@ -2279,14 +2279,18 @@
             function calculateStudentAge(dob) {
                 if (!dob) return '--';
                 const p = parseDateParts(dob);
-                if (!p || !p.y || !p.m || !p.d) return '--';
-                const birthDate = new Date(`${p.y}-${p.m}-${p.d}`);
-                if (Number.isNaN(birthDate.getTime())) return '--';
+                if (!p || !p.y || !p.m || !p.d || String(p.y).length !== 4) return '--';
+                const yNum = parseInt(p.y, 10);
+                const mNum = parseInt(p.m, 10);
+                const dNum = parseInt(p.d, 10);
                 const today = new Date();
+                if (yNum < 1900 || yNum > today.getFullYear() || mNum < 1 || mNum > 12 || dNum < 1 || dNum > 31) return '--';
+                const birthDate = new Date(yNum, mNum - 1, dNum);
+                if (Number.isNaN(birthDate.getTime())) return '--';
                 let age = today.getFullYear() - birthDate.getFullYear();
                 const monthDiff = today.getMonth() - birthDate.getMonth();
                 if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) age--;
-                return age >= 0 ? age : '--';
+                return (age >= 0 && age <= 120) ? age : '--';
             }
             function refreshBlankAgeBadge(value) {
                 const ageEl = document.getElementById('blank-age-val');
@@ -2294,31 +2298,398 @@
                 if (!ageEl) return;
                 const age = calculateStudentAge(value);
                 ageEl.innerText = age;
-                if (badgeEl) badgeEl.classList.toggle('error', age === '--' && String(value || '').trim() !== '');
+                if (badgeEl) badgeEl.classList.toggle('error', age === '--' && String(value || '').trim().length >= 10);
             }
             function syncBlankDobField(value) {
                 syncBlankField('in-dob', value);
                 refreshBlankAgeBadge(value);
             }
-            function handleDobInput(el) {
-                let v = el.value.replace(/\D/g, '');
-                if (v.length > 8) v = v.slice(0, 8);
-                let f = '';
-                if (v.length > 0) f += v.slice(0, 2);
-                if (v.length > 2) f += '-' + v.slice(2, 4);
-                if (v.length > 4) f += '-' + v.slice(4, 8);
-                el.value = f;
-                syncBlankDobField(f);
+            function handleDobInput(el, event) {
+                const oldVal = el.value || '';
+                const cursorPos = el.selectionStart !== null ? el.selectionStart : oldVal.length;
+                const isDeleting = (event && event.inputType && event.inputType.startsWith('delete'));
+
+                let digits = oldVal.replace(/\D/g, '');
+                if (digits.length > 8) digits = digits.slice(0, 8);
+
+                let formatted = '';
+                if (digits.length > 0) {
+                    formatted += digits.slice(0, 2);
+                    if (digits.length > 2) {
+                        formatted += '-' + digits.slice(2, 4);
+                    }
+                    if (digits.length > 4) {
+                        formatted += '-' + digits.slice(4, 8);
+                    }
+                }
+
+                if (isDeleting && (oldVal.endsWith('-') || oldVal.endsWith('/')) && formatted.length < oldVal.length) {
+                    formatted = oldVal.replace(/[^0-9\-]/g, '');
+                }
+
+                if (el.value !== formatted) {
+                    const diff = formatted.length - oldVal.length;
+                    el.value = formatted;
+                    const newPos = Math.max(0, Math.min(formatted.length, cursorPos + diff));
+                    try { el.setSelectionRange(newPos, newPos); } catch(e){}
+                }
+
+                syncBlankDobField(formatted);
             }
-            function handleCustomDateInput(el, fieldId) {
-                let v = el.value.replace(/\D/g, '');
-                if (v.length > 8) v = v.slice(0, 8);
-                let f = '';
-                if (v.length > 0) f += v.slice(0, 2);
-                if (v.length > 2) f += '-' + v.slice(2, 4);
-                if (v.length > 4) f += '-' + v.slice(4, 8);
-                el.value = f;
-                syncBlankField(fieldId, f, el);
+
+            let dobCalState = {
+                year: new Date().getFullYear() - 8,
+                month: new Date().getMonth(),
+                selectedDay: null,
+                selectedMonth: null,
+                selectedYear: null,
+                view: 'days',
+                targetInputId: 'blank-dob'
+            };
+
+            const DOB_CAL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+            function closeDobCalendar() {
+                const menu = document.getElementById('dobCalendarMenu');
+                if (menu) {
+                    menu.classList.remove('show');
+                    menu.style.display = 'none';
+                    menu.style.top = ''; menu.style.bottom = ''; menu.style.left = ''; menu.style.right = '';
+                    menu.style.maxHeight = ''; menu.style.minWidth = ''; menu.style.width = '';
+                    menu.style.position = '';
+                }
+                const backdrop = document.getElementById('dobCalendarBackdrop');
+                if (backdrop) {
+                    backdrop.classList.add('hidden');
+                    backdrop.style.display = 'none';
+                }
+            }
+
+            function triggerDobCalendar(btn, event, targetInputId = 'blank-dob') {
+                if (event) {
+                    event.stopPropagation();
+                    event.preventDefault();
+                }
+
+                let backdrop = document.getElementById('dobCalendarBackdrop');
+                if (!backdrop) {
+                    backdrop = document.createElement('div');
+                    backdrop.id = 'dobCalendarBackdrop';
+                    backdrop.className = 'fixed inset-0 z-[999990] bg-transparent select-none cursor-default';
+                    backdrop.setAttribute('aria-hidden', 'true');
+                    backdrop.onclick = (e) => { e.stopPropagation(); closeDobCalendar(); };
+                    backdrop.ontouchstart = (e) => { e.stopPropagation(); closeDobCalendar(); };
+                    document.body.appendChild(backdrop);
+                }
+
+                let menu = document.getElementById('dobCalendarMenu');
+                if (!menu) {
+                    menu = document.createElement('div');
+                    menu.id = 'dobCalendarMenu';
+                    menu.className = 'filter-menu dob-calendar-menu !p-0 !w-[300px] !max-w-[94vw] !overflow-hidden flex flex-col shadow-2xl border border-slate-200/80 rounded-2xl bg-white select-none';
+                    document.body.appendChild(menu);
+                }
+
+                if (menu.classList.contains('show') && menu.style.display !== 'none') {
+                    closeDobCalendar();
+                    return;
+                }
+
+                closeAllMenus();
+
+                dobCalState.targetInputId = targetInputId || 'blank-dob';
+                const inputEl = document.getElementById(dobCalState.targetInputId);
+                const currentVal = inputEl ? inputEl.value : '';
+                const p = parseDateParts(currentVal);
+                const today = new Date();
+
+                if (p && p.y && p.m && p.d && String(p.y).length === 4) {
+                    const parsedY = parseInt(p.y, 10);
+                    const parsedM = parseInt(p.m, 10) - 1;
+                    const parsedD = parseInt(p.d, 10);
+                    dobCalState.year = parsedY;
+                    dobCalState.month = (parsedM >= 0 && parsedM <= 11) ? parsedM : today.getMonth();
+                    dobCalState.selectedDay = parsedD;
+                    dobCalState.selectedMonth = dobCalState.month;
+                    dobCalState.selectedYear = dobCalState.year;
+                } else {
+                    dobCalState.year = today.getFullYear() - 8;
+                    dobCalState.month = today.getMonth();
+                    dobCalState.selectedDay = null;
+                    dobCalState.selectedMonth = null;
+                    dobCalState.selectedYear = null;
+                }
+                dobCalState.view = 'days';
+
+                renderDobCalendar();
+
+                backdrop.classList.remove('hidden');
+                backdrop.style.display = 'block';
+
+                menu.style.display = 'flex';
+                menu.classList.add('show');
+                const anchor = btn || document.getElementById('blank-dob-cal-btn') || inputEl;
+                positionFloatingMenu(menu, anchor, { align: 'right', gap: 6, minWidth: 290, fixed: true });
+            }
+
+            function setDobCalView(view) {
+                dobCalState.view = view;
+                renderDobCalendar();
+                if (view === 'years') {
+                    setTimeout(() => {
+                        const activeYearBtn = document.getElementById(`dob-cal-yr-${dobCalState.year}`);
+                        if (activeYearBtn) {
+                            activeYearBtn.scrollIntoView({ block: 'center', behavior: 'auto' });
+                        }
+                    }, 20);
+                }
+            }
+
+            function changeDobCalMonth(delta) {
+                let m = dobCalState.month + delta;
+                let y = dobCalState.year;
+                if (m > 11) {
+                    m = 0;
+                    y++;
+                } else if (m < 0) {
+                    m = 11;
+                    y--;
+                }
+                dobCalState.month = m;
+                dobCalState.year = y;
+                renderDobCalendar();
+            }
+
+            function selectDobCalMonth(mIndex) {
+                dobCalState.month = mIndex;
+                dobCalState.view = 'days';
+                renderDobCalendar();
+            }
+
+            function selectDobCalYear(yearNum) {
+                dobCalState.year = yearNum;
+                dobCalState.view = 'days';
+                renderDobCalendar();
+            }
+
+            function selectDobCalDay(day) {
+                const dd = String(day).padStart(2, '0');
+                const mm = String(dobCalState.month + 1).padStart(2, '0');
+                const yyyy = String(dobCalState.year);
+                const formatted = `${dd}-${mm}-${yyyy}`;
+                const targetId = dobCalState.targetInputId || 'blank-dob';
+                const input = document.getElementById(targetId);
+                if (input) input.value = formatted;
+                if (targetId === 'blank-dob') {
+                    syncBlankDobField(formatted);
+                } else {
+                    syncBlankField(targetId.replace('blank-', 'in-'), formatted, input);
+                }
+                closeDobCalendar();
+            }
+
+            function selectDobCalToday() {
+                const now = new Date();
+                const dd = String(now.getDate()).padStart(2, '0');
+                const mm = String(now.getMonth() + 1).padStart(2, '0');
+                const yyyy = String(now.getFullYear());
+                const formatted = `${dd}-${mm}-${yyyy}`;
+                const targetId = dobCalState.targetInputId || 'blank-dob';
+                const input = document.getElementById(targetId);
+                if (input) input.value = formatted;
+                if (targetId === 'blank-dob') {
+                    syncBlankDobField(formatted);
+                } else {
+                    syncBlankField(targetId.replace('blank-', 'in-'), formatted, input);
+                }
+                closeDobCalendar();
+            }
+
+            function clearDobCalDate() {
+                const targetId = dobCalState.targetInputId || 'blank-dob';
+                const input = document.getElementById(targetId);
+                if (input) input.value = '';
+                if (targetId === 'blank-dob') {
+                    syncBlankDobField('');
+                } else {
+                    syncBlankField(targetId.replace('blank-', 'in-'), '', input);
+                }
+                closeDobCalendar();
+            }
+
+            function renderDobCalendar() {
+                const menu = document.getElementById('dobCalendarMenu');
+                if (!menu) return;
+
+                const today = new Date();
+                const currentYear = today.getFullYear();
+
+                if (dobCalState.view === 'months') {
+                    menu.innerHTML = `
+                        <div class="flex items-center justify-between px-3 py-2.5 bg-slate-50 border-b border-slate-100">
+                            <button type="button" onclick="setDobCalView('days')" class="text-[12px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1.5 py-1 px-2 rounded-lg hover:bg-emerald-50 active:scale-95 transition-all">
+                                <i class="fa-solid fa-arrow-left text-[11px]"></i> Back
+                            </button>
+                            <span class="font-extrabold text-slate-800 text-[13px]">Select Month</span>
+                            <span class="w-12"></span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1.5 p-3 max-h-[260px] overflow-y-auto custom-scroll">
+                            ${DOB_CAL_MONTHS.map((mName, idx) => {
+                                const isCurrent = (idx === dobCalState.month);
+                                return `
+                                    <button type="button" onclick="selectDobCalMonth(${idx})" class="py-2.5 px-1 rounded-xl text-[12px] font-bold transition-all text-center ${
+                                        isCurrent 
+                                            ? '!bg-emerald-600 text-white shadow-xs' 
+                                            : 'text-slate-700 hover:bg-slate-100 active:scale-95'
+                                    }">
+                                        ${mName}
+                                    </button>
+                                `;
+                            }).join('')}
+                        </div>
+                        <div class="flex items-center justify-between px-3 py-2 bg-slate-50 border-t border-slate-100 text-[11px] font-bold">
+                            <button type="button" onclick="clearDobCalDate()" class="text-rose-600 hover:text-rose-700 px-2 py-1 rounded hover:bg-rose-50 transition-colors">Clear</button>
+                            <button type="button" onclick="selectDobCalToday()" class="text-emerald-700 hover:text-emerald-800 px-2 py-1 rounded hover:bg-emerald-50 transition-colors">Today</button>
+                            <button type="button" onclick="closeDobCalendar()" class="text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-200 transition-colors">Close</button>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (dobCalState.view === 'years') {
+                    const years = [];
+                    for (let y = currentYear; y >= 1960; y--) {
+                        years.push(y);
+                    }
+                    menu.innerHTML = `
+                        <div class="flex items-center justify-between px-3 py-2.5 bg-slate-50 border-b border-slate-100">
+                            <button type="button" onclick="setDobCalView('days')" class="text-[12px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1.5 py-1 px-2 rounded-lg hover:bg-emerald-50 active:scale-95 transition-all">
+                                <i class="fa-solid fa-arrow-left text-[11px]"></i> Back
+                            </button>
+                            <span class="font-extrabold text-slate-800 text-[13px]">Select Year</span>
+                            <span class="w-12"></span>
+                        </div>
+                        <div class="grid grid-cols-4 gap-1.5 p-3 max-h-[260px] overflow-y-auto custom-scroll">
+                            ${years.map(yr => {
+                                const isCurrent = (yr === dobCalState.year);
+                                return `
+                                    <button type="button" id="dob-cal-yr-${yr}" onclick="selectDobCalYear(${yr})" class="py-2 px-1 rounded-xl text-[12px] font-bold transition-all text-center ${
+                                        isCurrent 
+                                            ? '!bg-emerald-600 text-white shadow-xs' 
+                                            : 'text-slate-700 hover:bg-slate-100 active:scale-95'
+                                    }">
+                                        ${yr}
+                                    </button>
+                                `;
+                            }).join('')}
+                        </div>
+                        <div class="flex items-center justify-between px-3 py-2 bg-slate-50 border-t border-slate-100 text-[11px] font-bold">
+                            <button type="button" onclick="clearDobCalDate()" class="text-rose-600 hover:text-rose-700 px-2 py-1 rounded hover:bg-rose-50 transition-colors">Clear</button>
+                            <button type="button" onclick="selectDobCalToday()" class="text-emerald-700 hover:text-emerald-800 px-2 py-1 rounded hover:bg-emerald-50 transition-colors">Today</button>
+                            <button type="button" onclick="closeDobCalendar()" class="text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-200 transition-colors">Close</button>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Default 'days' view
+                const firstDayIndex = new Date(dobCalState.year, dobCalState.month, 1).getDay();
+                const daysInMonth = new Date(dobCalState.year, dobCalState.month + 1, 0).getDate();
+                const prevMonthDays = new Date(dobCalState.year, dobCalState.month, 0).getDate();
+
+                let dayCellsHtml = '';
+                for (let i = firstDayIndex - 1; i >= 0; i--) {
+                    dayCellsHtml += `<div class="h-8 flex items-center justify-center text-[11px] text-slate-300 font-medium select-none">${prevMonthDays - i}</div>`;
+                }
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const isSelected = (
+                        dobCalState.selectedDay === d &&
+                        dobCalState.selectedMonth === dobCalState.month &&
+                        dobCalState.selectedYear === dobCalState.year
+                    );
+                    const isToday = (
+                        today.getDate() === d &&
+                        today.getMonth() === dobCalState.month &&
+                        today.getFullYear() === dobCalState.year
+                    );
+
+                    let cellClass = 'h-8 rounded-lg flex items-center justify-center text-[12px] font-semibold cursor-pointer active:scale-90 transition-all ';
+                    if (isSelected) {
+                        cellClass += '!bg-emerald-600 text-white font-extrabold shadow-xs';
+                    } else if (isToday) {
+                        cellClass += 'border border-emerald-500 text-emerald-700 font-bold bg-emerald-50/50 hover:bg-emerald-100';
+                    } else {
+                        cellClass += 'text-slate-700 hover:bg-slate-100';
+                    }
+
+                    dayCellsHtml += `<button type="button" onclick="selectDobCalDay(${d})" class="${cellClass}">${d}</button>`;
+                }
+                const totalCellsSoFar = firstDayIndex + daysInMonth;
+                const nextPadding = (7 - (totalCellsSoFar % 7)) % 7;
+                for (let n = 1; n <= nextPadding; n++) {
+                    dayCellsHtml += `<div class="h-8 flex items-center justify-center text-[11px] text-slate-300 font-medium select-none">${n}</div>`;
+                }
+
+                menu.innerHTML = `
+                    <div class="flex items-center justify-between px-3 py-2.5 bg-slate-50 border-b border-slate-100 select-none">
+                        <button type="button" onclick="changeDobCalMonth(-1)" class="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-200/70 active:scale-90 transition-all" title="Previous Month">
+                            <i class="fa-solid fa-chevron-left text-[11px]"></i>
+                        </button>
+                        <div class="flex items-center gap-1 font-bold text-slate-800 text-[13px]">
+                            <button type="button" onclick="setDobCalView('months')" class="px-2 py-0.5 rounded-md hover:bg-white hover:shadow-xs hover:text-emerald-700 transition-all flex items-center gap-1" title="Change Month">
+                                <span>${DOB_CAL_MONTHS[dobCalState.month]}</span>
+                                <i class="fa-solid fa-caret-down text-[10px] text-slate-400"></i>
+                            </button>
+                            <button type="button" onclick="setDobCalView('years')" class="px-2 py-0.5 rounded-md hover:bg-white hover:shadow-xs hover:text-emerald-700 transition-all flex items-center gap-1" title="Change Year">
+                                <span>${dobCalState.year}</span>
+                                <i class="fa-solid fa-caret-down text-[10px] text-slate-400"></i>
+                            </button>
+                        </div>
+                        <button type="button" onclick="changeDobCalMonth(1)" class="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-200/70 active:scale-90 transition-all" title="Next Month">
+                            <i class="fa-solid fa-chevron-right text-[11px]"></i>
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-7 gap-1 px-3 pt-2 pb-1 text-center font-bold text-[11px] text-slate-400 select-none">
+                        <span class="text-rose-400">Su</span>
+                        <span>Mo</span>
+                        <span>Tu</span>
+                        <span>We</span>
+                        <span>Th</span>
+                        <span>Fr</span>
+                        <span>Sa</span>
+                    </div>
+
+                    <div class="grid grid-cols-7 gap-1 px-3 pb-2 select-none">
+                        ${dayCellsHtml}
+                    </div>
+
+                    <div class="flex items-center justify-between px-3 py-2 bg-slate-50 border-t border-slate-100 text-[11px] font-bold">
+                        <button type="button" onclick="clearDobCalDate()" class="text-rose-600 hover:text-rose-700 px-2 py-1 rounded hover:bg-rose-50 transition-colors">Clear</button>
+                        <button type="button" onclick="selectDobCalToday()" class="text-emerald-700 hover:text-emerald-800 px-2 py-1 rounded hover:bg-emerald-50 transition-colors">Today</button>
+                        <button type="button" onclick="closeDobCalendar()" class="text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-200 transition-colors">Close</button>
+                    </div>
+                `;
+            }
+
+            function handleCustomDateInput(el, fieldId, event) {
+                const oldVal = el.value || '';
+                const cursorPos = el.selectionStart !== null ? el.selectionStart : oldVal.length;
+                let digits = oldVal.replace(/\D/g, '');
+                if (digits.length > 8) digits = digits.slice(0, 8);
+                let formatted = '';
+                if (digits.length > 0) {
+                    formatted += digits.slice(0, 2);
+                    if (digits.length > 2) formatted += '-' + digits.slice(2, 4);
+                    if (digits.length > 4) formatted += '-' + digits.slice(4, 8);
+                }
+                if (el.value !== formatted) {
+                    const diff = formatted.length - oldVal.length;
+                    el.value = formatted;
+                    const newPos = Math.max(0, Math.min(formatted.length, cursorPos + diff));
+                    try { el.setSelectionRange(newPos, newPos); } catch(e){}
+                }
+                syncBlankField(fieldId, formatted, el);
             }
             function triggerCustomPhotoUpload(idx) {
                 const input = document.getElementById(`blank-custom-img-file-${idx}`);
@@ -2621,7 +2992,8 @@
 
                 if (fixed) {
                     menu.style.position = 'fixed';
-                    menu.style.left = `${Math.max(viewportPadding, Math.min(anchorRect.left, viewportWidth - safeWidth - viewportPadding))}px`;
+                    const rawLeft = align === 'right' ? (anchorRect.right - safeWidth) : anchorRect.left;
+                    menu.style.left = `${Math.max(viewportPadding, Math.min(rawLeft, viewportWidth - safeWidth - viewportPadding))}px`;
                     menu.style.right = 'auto';
                     menu.style.top = openUp ? `${Math.max(viewportPadding, anchorRect.top - maxHeight - gap)}px` : `${anchorRect.bottom + gap}px`;
                     menu.style.bottom = 'auto';
@@ -3077,6 +3449,8 @@
                 if (logo) logo.classList.remove('show');
                 closeYearMenu();
                 closeFilterMenus();
+                closeFormDropdown();
+                closeDobCalendar();
                 if (typeof collapseAllExpandedCards === 'function') {
                     collapseAllExpandedCards();
                 }
@@ -3093,6 +3467,20 @@
                 }
                 closeAllMenus();
             }, { capture: true });
+
+            // Instant touch/pointerdown handler for mobile screens
+            window.addEventListener('pointerdown', (e) => {
+                if (e.target.closest('.filter-menu') ||
+                    e.target.closest('#toggle-form-btn') ||
+                    e.target.closest('.logo-btn-container') ||
+                    e.target.closest('#blank-dob-cal-btn')) {
+                    return;
+                }
+                const cal = document.getElementById('dobCalendarMenu');
+                if (cal && (cal.classList.contains('show') || cal.style.display === 'flex')) {
+                    closeDobCalendar();
+                }
+            }, { passive: true });
 
             function handleSortToggle(event) {
                 if (event) event.stopPropagation();
@@ -3142,6 +3530,113 @@
                         m.style.position = ''; // Clear fixed if set
                     }
                 });
+            }
+
+            function closeFormDropdown() {
+                const menu = document.getElementById('formDropdownMenu');
+                if (menu) {
+                    menu.classList.remove('show');
+                    menu.style.top = ''; menu.style.bottom = ''; menu.style.left = ''; menu.style.right = '';
+                    menu.style.maxHeight = ''; menu.style.minWidth = ''; menu.style.width = '';
+                    menu.style.position = '';
+                    delete menu.dataset.activeType;
+                }
+            }
+
+            function toggleFormDropdown(type, btn, event) {
+                if (event) {
+                    event.stopPropagation();
+                    event.preventDefault();
+                }
+                let menu = document.getElementById('formDropdownMenu');
+                if (!menu) {
+                    menu = document.createElement('div');
+                    menu.id = 'formDropdownMenu';
+                    menu.className = 'filter-menu';
+                    document.body.appendChild(menu);
+                }
+
+                if (menu.classList.contains('show') && menu.dataset.activeType === type) {
+                    closeFormDropdown();
+                    return;
+                }
+
+                closeAllMenus();
+                menu.dataset.activeType = type;
+
+                let items = [];
+                let currentVal = '';
+
+                if (type === 'sclass') {
+                    const classOptions = fb_getStandardSelectOptions('sclass');
+                    currentVal = document.getElementById('in-sclass')?.value || document.getElementById('blank-class')?.value || 'Class 1';
+                    const classOptionsWithCurrent = classOptions.includes(currentVal) || !currentVal ? classOptions : [...classOptions, currentVal];
+
+                    const counts = {};
+                    if (Array.isArray(db)) {
+                        db.forEach(r => {
+                            if (!r.isDeleted && r.sclass) {
+                                const c = String(r.sclass).trim();
+                                counts[c] = (counts[c] || 0) + 1;
+                            }
+                        });
+                    }
+
+                    items = classOptionsWithCurrent.map(opt => ({
+                        value: opt,
+                        label: opt,
+                        count: counts[opt] !== undefined ? counts[opt] : 0,
+                        selected: (opt === currentVal)
+                    }));
+                } else if (type === 'gender') {
+                    const genderOptions = fb_getStandardSelectOptions('gender');
+                    currentVal = document.getElementById('in-gender')?.value || document.getElementById('blank-gender')?.value || 'Male';
+                    const genderOptionsWithCurrent = genderOptions.includes(currentVal) || !currentVal ? genderOptions : [...genderOptions, currentVal];
+
+                    const counts = {};
+                    if (Array.isArray(db)) {
+                        db.forEach(r => {
+                            if (!r.isDeleted && r.gender) {
+                                const g = String(r.gender).trim();
+                                counts[g] = (counts[g] || 0) + 1;
+                            }
+                        });
+                    }
+
+                    items = genderOptionsWithCurrent.map(opt => ({
+                        value: opt,
+                        label: opt,
+                        count: counts[opt] !== undefined ? counts[opt] : 0,
+                        selected: (opt === currentVal)
+                    }));
+                }
+
+                menu.innerHTML = items.map(item => `
+                    <div class="menu-item ${item.selected ? '!bg-emerald-50 !text-emerald-800' : ''}" onclick="selectFormDropdownOption('${type}', '${String(item.value).replace(/'/g, "\\'")}')">
+                        <span class="menu-item-label font-bold text-slate-700 ${item.selected ? '!text-emerald-700' : ''}">${item.label}</span>
+                        <span class="menu-item-count text-slate-400 font-extrabold text-[12px]">${item.count}</span>
+                    </div>
+                `).join('');
+
+                menu.classList.add('show');
+                positionFloatingMenu(menu, btn, { align: 'left', gap: 6, minWidth: Math.max(btn.offsetWidth || 140, 160), fixed: true });
+            }
+
+            function selectFormDropdownOption(type, value) {
+                if (type === 'sclass') {
+                    syncBlankSelect('in-sclass', value);
+                    const textEl = document.getElementById('blank-class-text');
+                    if (textEl) textEl.innerText = value;
+                    const hiddenEl = document.getElementById('blank-class');
+                    if (hiddenEl) hiddenEl.value = value;
+                } else if (type === 'gender') {
+                    syncBlankSelect('in-gender', value);
+                    const textEl = document.getElementById('blank-gender-text');
+                    if (textEl) textEl.innerText = value;
+                    const hiddenEl = document.getElementById('blank-gender');
+                    if (hiddenEl) hiddenEl.value = value;
+                }
+                closeFormDropdown();
             }
             function setFilterValue(type, value, label) {
                 const map = { class: 'Class' };
@@ -3860,6 +4355,8 @@
                 if (document.getElementById('blank-dob')) document.getElementById('blank-dob').value = r.dob || '';
                 if (document.getElementById('blank-gender')) document.getElementById('blank-gender').value = r.gender || 'Other';
                 if (document.getElementById('blank-class')) document.getElementById('blank-class').value = r.sclass || 'General';
+                if (document.getElementById('blank-gender-text')) document.getElementById('blank-gender-text').innerText = r.gender || 'Other';
+                if (document.getElementById('blank-class-text')) document.getElementById('blank-class-text').innerText = r.sclass || 'General';
                 if (document.getElementById('mainSearch')) document.getElementById('mainSearch').value = r.studentName || '';
                 if (document.getElementById('global-search')) document.getElementById('global-search').value = r.fatherName || '';
 
@@ -6154,9 +6651,14 @@
                         dob: () => `
                     <div class="premium-input-group">
                         ${renderLabel('dob', 'fa-calendar-days', 'Date of Birth')}
-                        <div class="relative">
-                            <input id="blank-dob" type="text" value="${escapeAttr(dobValue)}" oninput="handleDobInput(this)" class="premium-input" placeholder="DD-MM-YYYY" inputmode="numeric">
-                            <div id="blank-age-badge" class="absolute right-4 top-1/2 -translate-y-1/2 age-badge">Age: <span id="blank-age-val">${calculateStudentAge(dobValue)}</span></div>
+                        <div class="relative flex items-center">
+                            <input id="blank-dob" type="text" value="${escapeAttr(dobValue)}" oninput="handleDobInput(this, event)" class="premium-input !pr-28" placeholder="DD-MM-YYYY" inputmode="numeric" autocomplete="off">
+                            <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                                <div id="blank-age-badge" class="age-badge pointer-events-none select-none text-[12px] font-bold">Age: <span id="blank-age-val">${calculateStudentAge(dobValue)}</span></div>
+                                <button type="button" id="blank-dob-cal-btn" onclick="triggerDobCalendar(this, event)" class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center hover:bg-emerald-100 active:scale-90 transition-all border border-emerald-200 shadow-xs cursor-pointer" title="Select Date from Calendar">
+                                    <i class="fa-regular fa-calendar text-[13px]"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>`,
                         mobile: () => `
@@ -6232,7 +6734,7 @@
                                          </div>
                                       `;
                                  } else if (f.type === 'date') {
-                                     inputHtml = `<input type="text" inputmode="numeric" placeholder="DD-MM-YYYY" value="${escapeAttr(val)}" oninput="handleCustomDateInput(this, 'in-customField${idx + 1}')" class="premium-input">`;
+                                     inputHtml = `<input type="text" inputmode="numeric" placeholder="DD-MM-YYYY" value="${escapeAttr(val)}" oninput="handleCustomDateInput(this, 'in-customField${idx + 1}', event)" class="premium-input">`;
                                  } else if (f.type === 'number') {
                                      inputHtml = `<input type="text" inputmode="numeric" pattern="[0-9]*" value="${escapeAttr(val)}" placeholder="Enter ${f.label}" oninput="this.value = this.value.replace(/[^0-9]/g, ''); syncBlankField('in-customField${idx + 1}', this.value, this)" class="premium-input">`;
                                  } else {
@@ -6328,17 +6830,25 @@
                                 ${classCfg.enabled ? `
                                 <div class="premium-input-group !mb-0">
                                     <label class="premium-label !text-[12px] !mb-1.5"><i class="fa-solid fa-book-open"></i> Class ${classCfg.required ? '<span class="text-rose-500">*</span>' : ''}</label>
-                                    <select id="blank-class" onchange="syncBlankSelect('in-sclass', this.value)" class="premium-input premium-select">
-                                        ${classOptionsWithCurrent.map(opt => `<option value="${escapeAttr(opt)}" ${classValue === opt ? 'selected' : ''}>${opt}</option>`).join('')}
-                                    </select>
+                                    <div class="relative">
+                                        <button type="button" id="blank-class-btn" onclick="toggleFormDropdown('sclass', this, event)" class="premium-input flex items-center justify-between text-left cursor-pointer active:scale-[0.99] transition-all">
+                                            <span id="blank-class-text" class="font-bold text-slate-700 text-[13px] truncate">${escapeAttr(classValue || 'Select Class')}</span>
+                                            <i class="fa-solid fa-chevron-down text-slate-400 text-[11px] shrink-0 ml-2"></i>
+                                        </button>
+                                        <input type="hidden" id="blank-class" value="${escapeAttr(classValue)}">
+                                    </div>
                                 </div>` : ''}
                                 
                                 ${genderCfg.enabled ? `
                                 <div class="premium-input-group !mb-0">
                                     <label class="premium-label !text-[12px] !mb-1.5"><i class="fa-solid fa-users"></i> Gender ${genderCfg.required ? '<span class="text-rose-500">*</span>' : ''}</label>
-                                    <select id="blank-gender" onchange="syncBlankSelect('in-gender', this.value)" class="premium-input premium-select">
-                                        ${genderOptionsWithCurrent.map(opt => `<option value="${escapeAttr(opt)}" ${genderValue === opt ? 'selected' : ''}>${opt}</option>`).join('')}
-                                    </select>
+                                    <div class="relative">
+                                        <button type="button" id="blank-gender-btn" onclick="toggleFormDropdown('gender', this, event)" class="premium-input flex items-center justify-between text-left cursor-pointer active:scale-[0.99] transition-all">
+                                            <span id="blank-gender-text" class="font-bold text-slate-700 text-[13px] truncate">${escapeAttr(genderValue || 'Select Gender')}</span>
+                                            <i class="fa-solid fa-chevron-down text-slate-400 text-[11px] shrink-0 ml-2"></i>
+                                        </button>
+                                        <input type="hidden" id="blank-gender" value="${escapeAttr(genderValue)}">
+                                    </div>
                                 </div>` : ''}
                             </div>
                         </div>
@@ -7281,6 +7791,10 @@
                 const genderField = document.getElementById('in-gender');
                 if (classField) classField.value = 'General';
                 if (genderField) genderField.value = 'Other';
+                if (document.getElementById('blank-class')) document.getElementById('blank-class').value = 'General';
+                if (document.getElementById('blank-gender')) document.getElementById('blank-gender').value = 'Other';
+                if (document.getElementById('blank-class-text')) document.getElementById('blank-class-text').innerText = 'General';
+                if (document.getElementById('blank-gender-text')) document.getElementById('blank-gender-text').innerText = 'Other';
                 if (document.getElementById('blank-mobile')) document.getElementById('blank-mobile').value = '';
                 if (document.getElementById('blank-aadhar')) document.getElementById('blank-aadhar').value = '';
                 removePhoto();
