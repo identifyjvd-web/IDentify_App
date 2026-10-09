@@ -7,8 +7,10 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/png" href="./fevicon.png">
+    <link rel="icon" type="image/x-icon" href="./favicon.ico">
+    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png">
     <link rel="apple-touch-icon" href="./idapplogo.png">
+    <link rel="manifest" href="manifest.json">
     <title id="page-title">IDentify</title>
     <!-- External Libraries -->
     <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
@@ -264,7 +266,8 @@
                             <i id="search-icon" class="fa-solid fa-magnifying-glass text-slate-400 ml-2"></i>
                             <input type="text" id="mainSearch" placeholder="Search students..."
                                 class="bg-transparent border-none outline-none w-full text-sm font-medium ml-2 text-slate-700 placeholder-slate-400 transition-all"
-                                oninput="onSearchInput()">
+                                oninput="onSearchInput()"
+                                onkeydown="if(event.key==='Enter'){if(filterDebounceTimer)clearTimeout(filterDebounceTimer);filterRecords();}">
                             <h2 id="records-page-info-db"
                                 class="absolute inset-y-0 left-0 right-10 flex items-center text-[16px] font-extrabold text-[#059669] tracking-tight truncate leading-none pt-[1px] bg-white pointer-events-none hidden pl-2">
                             </h2>
@@ -2168,7 +2171,7 @@
                     if (serverDb && Array.isArray(serverDb)) {
                         // Mark all records fetched from server as successfully synced
                         serverDb.forEach(r => {
-                            if (r && (r.verified === true || String(r.verified).toLowerCase() === 'true')) {
+                            if (r) {
                                 r._syncStatus = 'synced';
                                 r._serverSaved = true;
                                 r._pending = false;
@@ -3841,6 +3844,9 @@
                         icon.className = 'fa-solid fa-plus';
                         btn.className = 'w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg active:scale-90 transition-transform';
                     }, 12000);
+
+                    // Smooth live search with 250ms debounce
+                    filterDebounceTimer = setTimeout(() => { filterRecords(); }, 250);
                 } else {
                     icon.className = 'fa-solid fa-plus';
                     btn.className = 'w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg active:scale-90 transition-transform';
@@ -4884,6 +4890,7 @@
                 if (document.getElementById('blank-class')) document.getElementById('blank-class').value = r.sclass || 'General';
                 if (document.getElementById('blank-gender-text')) document.getElementById('blank-gender-text').innerText = r.gender || 'Other';
                 if (document.getElementById('blank-class-text')) document.getElementById('blank-class-text').innerText = r.sclass || 'General';
+                refreshBlankAgeBadge(r.dob || '');
                 if (document.getElementById('mainSearch')) document.getElementById('mainSearch').value = r.studentName || '';
                 if (document.getElementById('global-search')) document.getElementById('global-search').value = r.fatherName || '';
 
@@ -5341,7 +5348,9 @@
                 try {
                     const getCfg = (id) => fb_standard_config[id] || { enabled: true, required: false };
                     const getVal = (id) => {
-                        const el = document.getElementById('blank-' + id) || document.getElementById('in-' + id);
+                        const el = document.getElementById('blank-' + id) || 
+                                   (id === 'sclass' ? document.getElementById('blank-class') : null) || 
+                                   document.getElementById('in-' + id);
                         return el ? el.value : '';
                     };
 
@@ -5391,10 +5400,15 @@
                         return;
                     }
 
-                    // Calculate Local SN if missing
+                    // Calculate clean Sequential SN if missing
                     let nextSn = existing ? existing.sn : null;
-                    if (!nextSn) {
-                        nextSn = Date.now();
+                    if (!nextSn || Number(nextSn) >= 1000000000 || Number(nextSn) <= 0) {
+                        let maxSn = 0;
+                        db.forEach(r => {
+                            const val = parseInt(r.sn, 10);
+                            if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+                        });
+                        nextSn = maxSn + 1;
                     }
 
                     // Check duplicate record locally (Student Name, Father Name, Class)
@@ -5465,15 +5479,9 @@
                     let finalId = eid || '';
                     let oldId = '';
 
-                    // Use reserved ID if available, otherwise Generate Draft ID
-                    let isNewDraft = false;
-                    if (!finalId || finalId === '') {
-                        if (draftServerRecordId && draftServerRecordId !== '') {
-                            finalId = draftServerRecordId;
-                        } else {
-                            isNewDraft = true;
-                            finalId = 'draft_' + Date.now() + '_' + Math.floor(Math.random()*1000);
-                        }
+                    const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig.code ? schoolConfig.code : 'DPS').trim().toUpperCase() || 'DPS';
+                    if (!finalId || finalId === '' || finalId.startsWith('draft_')) {
+                        finalId = `rec_${schoolCode}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
                         const inIdEl = document.getElementById('in-idno');
                         if (inIdEl) inIdEl.value = finalId;
                     }
@@ -5549,23 +5557,27 @@
 
                     isPreviewFromSave = !eid;
                     const _immediatePhotoSrc = _getPreviewPhotoSrc();
-                    previewRecord = { ...rec, _displayPhotoSrc: _immediatePhotoSrc, _isUnsaved: !eid, _eid: eid };
+                    previewRecord = { ...rec, _displayPhotoSrc: _immediatePhotoSrc, _eid: eid };
                     
+                    // Immediately save to local DB and IndexedDB
+                    try { if (window.idbPut) idbPut(IDB_STORE_RECORDS, previewRecord).catch(()=>{}); } catch(e){}
+                    
+                    // Sync immediately to server (works for verified, unverified, and pending without photo!)
+                    serverCallSilent(eid ? 'updateRecord' : 'addRecord', [previewRecord], () => {
+                        previewRecord._serverSaved = true;
+                        previewRecord._syncStatus = 'synced';
+                        renderCurrentRecordsPage();
+                    }, () => {
+                        previewRecord._syncStatus = 'pending';
+                    });
+
+                    finalizeSave();
+
                     if (eid) {
-                        try { if (window.idbPut) idbPut(IDB_STORE_RECORDS, previewRecord).catch(()=>{}); } catch(e){}
-                        if (previewRecord.verified === true || String(previewRecord.verified).toLowerCase() === 'true' || previewRecord._serverSaved) {
-                            serverCallSilent('updateRecord', [previewRecord], () => {});
-                        }
-                        finalizeSave();
                         closeStudentForm();
                     } else {
-                        isSavingRecord = false;
-                        toggleSaveLoading(false);
                         setBlankRecordMode('preview');
                     }
-
-                    // Data is no longer saved locally or remotely here for add mode.
-                    // It will be saved when "Save & New" or "Verify" is clicked on the preview card.
                 } catch (error) {
                     console.error('Save error:', error);
                     isSavingRecord = false;
@@ -6078,7 +6090,29 @@
 
                 const res = db.filter(x => {
                     const s = (v) => (v ? String(v) : '').toLowerCase();
-                    const matchesText = !q || (s(x.sclass).includes(q) || s(x.studentName).includes(q) || s(x.fatherName).includes(q) || s(x.mobile).includes(q) || s(x.aadhar).includes(q) || s(x.address).includes(q) || s(x.id).includes(q));
+                    const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig.code ? schoolConfig.code : 'DPS').toLowerCase();
+                    const year = new Date(x.createdAt || Date.now()).getFullYear().toString().slice(-2);
+                    const snVal = (x.sn && Number(x.sn) < 1000000000) ? x.sn : '';
+                    const fullSn = snVal ? (schoolCode + year + String(snVal).padStart(3, '0')) : '';
+                    const paddedSn = snVal ? String(snVal).padStart(3, '0') : '';
+
+                    const matchesText = !q || (
+                        s(x.sclass).includes(q) || 
+                        s(x.studentName).includes(q) || 
+                        s(x.fatherName).includes(q) || 
+                        s(x.mobile).includes(q) || 
+                        s(x.aadhar).includes(q) || 
+                        s(x.address).includes(q) || 
+                        s(x.id).includes(q) ||
+                        s(x.sn).includes(q) ||
+                        paddedSn.includes(q) ||
+                        fullSn.includes(q) ||
+                        s(x.customField1).includes(q) ||
+                        s(x.customField2).includes(q) ||
+                        s(x.customField3).includes(q) ||
+                        s(x.customField4).includes(q) ||
+                        s(x.customField5).includes(q)
+                    );
                     let matchesStatus = true;
                     // Lower threshold (10 instead of 30) to catch all photo types reliably
                     // Robust verification check
@@ -6475,40 +6509,38 @@
                         let previewVerifiedIcons = '';
                         if (rec.isDeleted) {
                             previewVerifiedIcons = `
-                            <div class="flex items-center gap-1.5 shrink-0 pl-3">
-                                <i class="fa-solid fa-trash-can-arrow-up text-[16px] text-red-500" title="Deleted"></i>
+                            <div class="flex items-center gap-2 shrink-0 pl-2">
+                                <i class="fa-solid fa-trash-can-arrow-up text-[17px] text-red-500 leading-none flex items-center justify-center" title="Deleted"></i>
                             </div>`;
                         } else if (isReturned) {
                             previewVerifiedIcons = `
-                            <div class="flex items-center gap-1.5 shrink-0 pl-3">
-                                <span class="material-symbols-outlined text-[16px] text-amber-500" style="font-variation-settings: 'FILL' 1;" title="Returned">settings_backup_restore</span>
+                            <div class="flex items-center gap-2 shrink-0 pl-2">
+                                <span class="material-symbols-outlined text-[17px] text-amber-500 flex items-center justify-center leading-none" style="font-variation-settings: 'FILL' 1;" title="Returned">settings_backup_restore</span>
                             </div>`;
                         } else {
                             let syncIconHtml = '';
-                            if (hasDoc || isPreviewVerified) {
-                                if (previewRecord && previewRecord._serverSaved) {
-                                    syncIconHtml = `<span class="material-symbols-outlined status-drive-icon" style="font-variation-settings: 'FILL' 0;" title="Saved to Server">cloud_done</span>`;
-                                } else if (previewSyncStatus === 'syncing') {
-                                    syncIconHtml = `<span class="material-symbols-outlined status-drive-icon syncing" style="font-variation-settings: 'FILL' 0;" title="Uploading">cloud_upload</span>`;
-                                }
+                            if (previewRecord && (previewRecord._serverSaved || previewSyncStatus === 'synced')) {
+                                syncIconHtml = `<span class="material-symbols-outlined status-drive-icon text-[17px] flex items-center justify-center leading-none" style="font-variation-settings: 'FILL' 1;" title="Saved to Server">cloud_done</span>`;
+                            } else if (previewSyncStatus === 'syncing') {
+                                syncIconHtml = `<span class="material-symbols-outlined status-drive-icon syncing text-[17px] flex items-center justify-center leading-none" style="font-variation-settings: 'FILL' 1;" title="Uploading">cloud_upload</span>`;
                             }
                             
                             let statusIconHtml = '';
                             if (isPreviewVerified) {
-                                statusIconHtml = `<span class="material-symbols-outlined text-[16px] text-emerald-600" style="font-variation-settings: 'FILL' 1;" title="Verified">verified</span>`;
+                                statusIconHtml = `<span class="material-symbols-outlined text-[17px] text-emerald-600 flex items-center justify-center leading-none" style="font-variation-settings: 'FILL' 1;" title="Verified">verified</span>`;
                             } else if (hasDoc) {
-                                statusIconHtml = `<span class="material-symbols-outlined text-[16px] text-amber-500" style="font-variation-settings: 'FILL' 1;" title="Unverified">unpublished</span>`;
+                                statusIconHtml = `<span class="material-symbols-outlined text-[17px] text-amber-500 flex items-center justify-center leading-none" style="font-variation-settings: 'FILL' 1;" title="Unverified">unpublished</span>`;
                             } else {
-                                statusIconHtml = `<span class="material-symbols-outlined text-[16px] text-rose-500" style="font-variation-settings: 'FILL' 1;" title="No Photo">no_photography</span>`;
+                                statusIconHtml = `<span class="material-symbols-outlined text-[17px] text-rose-500 flex items-center justify-center leading-none" style="font-variation-settings: 'FILL' 1;" title="No Photo">no_photography</span>`;
                             }
 
                             let restoreIconHtml = '';
                             if (rec.isRestored) {
-                                restoreIconHtml = `<span class="material-symbols-outlined text-[16px] text-indigo-500" style="font-variation-settings: 'FILL' 1;" title="Restored">settings_backup_restore</span>`;
+                                restoreIconHtml = `<span class="material-symbols-outlined text-[17px] text-indigo-500 flex items-center justify-center leading-none" style="font-variation-settings: 'FILL' 1;" title="Restored">settings_backup_restore</span>`;
                             }
                             
                             previewVerifiedIcons = `
-                            <div class="flex items-center gap-1.5 shrink-0 pl-3">
+                            <div class="flex items-center gap-2 shrink-0 pl-2">
                                 ${restoreIconHtml}
                                 ${syncIconHtml}
                                 ${statusIconHtml}
@@ -6610,18 +6642,11 @@
                                     <i class="fa-solid fa-hashtag text-[#05996c] text-[10px]"></i>
                                     <div class="text-[10px] font-bold text-slate-400 uppercase tracking-tight">SN: ${ (() => {
                                         const isRecVerified = (rec.verified === true || String(rec.verified).toLowerCase() === 'true' || rec.verified === 'Completed');
-                                        const si = (schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('').toUpperCase() || "DPS";
-                                        if (isRecVerified) {
-                                            const snVal = (rec.sn && Number(rec.sn) < 1000000000) ? rec.sn : '0';
-                                            const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
-                                            return si + year + String(snVal).padStart(3, '0');
-                                        } else {
-                                            if (rec.id && String(rec.id).startsWith('import_')) {
-                                                return si + 'Import';
-                                            } else {
-                                                return si + 'Draft';
-                                            }
-                                        }
+                                        const si = (schoolConfig.code || (schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('')).toUpperCase() || "DPS";
+                                        const snVal = (rec.sn && Number(rec.sn) < 1000000000 && Number(rec.sn) > 0) ? rec.sn : '1';
+                                        const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
+                                        const fullSn = si + year + String(snVal).padStart(3, '0');
+                                        return isRecVerified ? fullSn : `${fullSn} (Pending)`;
                                     })() }</div>
                                 </div>
                                 <div class="flex items-center gap-2">
@@ -6672,7 +6697,7 @@
                              <button 
                                  onclick="${hasDoc ? 'verifyAndGoNext()' : 'editFromPreview()'}" 
                                  class="premium-btn-green flex-[1.12] !py-4 !rounded-[18px] active:scale-95 transition-all shadow-sm flex items-center justify-center gap-2">
-                                 ${hasDoc ? '<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: \'FILL\' 1;">verified</span>' : '<i class="fa-solid fa-cloud-arrow-up text-sm"></i>'} 
+                                 ${hasDoc ? '<span class="material-symbols-outlined text-[19px] leading-none" style="font-variation-settings: \'FILL\' 1;">verified</span>' : '<span class="material-symbols-outlined text-[19px] leading-none" style="font-variation-settings: \'FILL\' 1;">cloud_upload</span>'} 
                                  ${hasDoc ? 'Verify & Next' : 'Upload & Verify'}
                              </button>
                          </div>
@@ -7431,11 +7456,11 @@
                     const syncStatus = x._syncStatus || (x._serverSaved ? 'synced' : '');
                     
                     let syncIconStatusHtml = '';
-                    if (!x.isDeleted && (hasDoc || isRecVerified || isReturned)) {
-                        if (x._serverSaved) {
-                            syncIconStatusHtml = `<span class="material-symbols-outlined status-drive-icon" style="font-variation-settings: 'FILL' 0;" title="Saved to Server">cloud_done</span>`;
+                    if (!x.isDeleted) {
+                        if (x._serverSaved || syncStatus === 'synced') {
+                            syncIconStatusHtml = `<span class="material-symbols-outlined status-drive-icon text-[13px] leading-none flex items-center justify-center" style="font-variation-settings: 'FILL' 1;" title="Saved to Server">cloud_done</span>`;
                         } else if (syncStatus === 'syncing') {
-                            syncIconStatusHtml = `<span class="material-symbols-outlined status-drive-icon syncing" style="font-variation-settings: 'FILL' 0;" title="Uploading">cloud_upload</span>`;
+                            syncIconStatusHtml = `<span class="material-symbols-outlined status-drive-icon syncing text-[13px] leading-none flex items-center justify-center" style="font-variation-settings: 'FILL' 1;" title="Uploading">cloud_upload</span>`;
                         }
                     }
 
@@ -7456,10 +7481,9 @@
                     <div class="flex flex-col items-end justify-center gap-0.5 mr-1">
                         <div class="text-[12px] font-black text-emerald-600 uppercase tracking-tight">${sanitizeHTML(x.sclass || '-')}</div>
                         <div class="flex items-center gap-1 opacity-60">
-                            
                             ${syncIconStatusHtml}
-                            ${isRecVerified ? '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">verified</span>' : ''}
-                            ${isRecVerified ? '' : (hasDoc ? '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">unpublished</span>' : '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">no_photography</span>')}
+                            ${isRecVerified ? '<span class="material-symbols-outlined text-[13px] leading-none" style="font-variation-settings: \'FILL\' 1;">verified</span>' : ''}
+                            ${isRecVerified ? '' : (hasDoc ? '<span class="material-symbols-outlined text-[13px] leading-none" style="font-variation-settings: \'FILL\' 1;">unpublished</span>' : '<span class="material-symbols-outlined text-[13px] leading-none" style="font-variation-settings: \'FILL\' 1;">no_photography</span>')}
                         </div>
                     </div>
                     ${(selectedRecords.size > 0) ? `
@@ -7503,11 +7527,11 @@
                         ` : ''}
                     </div>
                     <div class="text-[8.5px] font-black uppercase tracking-widest ${isRecVerified ? 'text-emerald-600' : (x.isDeleted ? 'text-red-500' : (isReturned ? 'text-amber-500' : (hasDoc ? 'text-amber-500' : 'text-rose-500')))} flex items-center gap-1">
-                        ${x.isDeleted ? '<i class="fa-solid fa-trash-can-arrow-up text-red-500 text-[12px]" title="Deleted by Admin"></i>' : (isReturned ? '<span class="material-symbols-outlined text-[14px] text-amber-500" style="font-variation-settings: \'FILL\' 1;" title="Returned">settings_backup_restore</span>' : '')}
-                        ${x.isRestored && !x.isDeleted ? '<span class="material-symbols-outlined text-[12px] text-indigo-500" style="font-variation-settings: \'FILL\' 1;" title="Restored">settings_backup_restore</span>' : ''}
+                        ${x.isDeleted ? '<i class="fa-solid fa-trash-can-arrow-up text-red-500 text-[13px] leading-none" title="Deleted by Admin"></i>' : (isReturned ? '<span class="material-symbols-outlined text-[13px] leading-none text-amber-500" style="font-variation-settings: \'FILL\' 1;" title="Returned">settings_backup_restore</span>' : '')}
+                        ${x.isRestored && !x.isDeleted ? '<span class="material-symbols-outlined text-[13px] leading-none text-indigo-500" style="font-variation-settings: \'FILL\' 1;" title="Restored">settings_backup_restore</span>' : ''}
                         ${syncIconStatusHtml}
-                        ${isRecVerified ? '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">verified</span>' : ''}
-                        ${isRecVerified ? '' : (hasDoc ? '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">unpublished</span>' : '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">no_photography</span>')}
+                        ${isRecVerified ? '<span class="material-symbols-outlined text-[13px] leading-none" style="font-variation-settings: \'FILL\' 1;">verified</span>' : ''}
+                        ${isRecVerified ? '' : (hasDoc ? '<span class="material-symbols-outlined text-[13px] leading-none" style="font-variation-settings: \'FILL\' 1;">unpublished</span>' : '<span class="material-symbols-outlined text-[13px] leading-none" style="font-variation-settings: \'FILL\' 1;">no_photography</span>')}
                     </div>
                 </div>
             </div>`;
@@ -8159,6 +8183,37 @@
                 }
             }
 
+            function deleteFromPreview() {
+                if (!previewRecord || !previewRecord.id) return;
+                const id = previewRecord.id;
+                showModal('confirm', 'Delete Record?', 'Move this record to Recycle Bin?', () => {
+                    const deleted = findRecordById(db, id);
+                    if (deleted) {
+                        addActivity('DELETE', deleted);
+                        deleted.isDeleted = true;
+                        deleted.deletedAt = new Date().toISOString();
+                        storeRecordInDb(deleted);
+                        try { if (window.idbPut) idbPut(IDB_STORE_RECORDS, deleted).catch(()=>{}); } catch(e){}
+                        if (deleted.verified === true || String(deleted.verified).toLowerCase() === 'true' || deleted._serverSaved) {
+                            serverCallSilent('deleteRecord', [id], ()=>{}, ()=>{});
+                        }
+                        showToast('Record moved to Recycle Bin');
+                        
+                        const curIdx = currentRenderedRecords ? currentRenderedRecords.findIndex(r => r && String(r.id) === String(id)) : -1;
+                        const nextRec = (typeof getNextRecordAfterPreviewRemoval === 'function') ? getNextRecordAfterPreviewRemoval(id, curIdx) : null;
+                        if (nextRec) {
+                            openStudentDetailPopup(nextRec);
+                        } else {
+                            setBlankRecordMode('none');
+                        }
+                        renderCurrentRecordsPage();
+                        filterRecords();
+                    } else {
+                        showModal('error', 'Failed', 'Record not found.');
+                    }
+                });
+            }
+
             function isRecordVerifiedForList(rec) {
                 const isReturned = rec && (String(rec.verified).toLowerCase() === 'returned' || String(rec.status).toLowerCase() === 'returned' || rec.returned === true || String(rec.returned).toLowerCase() === 'true');
                 return !!(rec && (rec.verified === true || String(rec.verified).toLowerCase() === 'true' || rec.verified === 'Completed') && !isReturned);
@@ -8336,6 +8391,7 @@
                 if (document.getElementById('blank-gender')) document.getElementById('blank-gender').value = 'Other';
                 if (document.getElementById('blank-class-text')) document.getElementById('blank-class-text').innerText = 'General';
                 if (document.getElementById('blank-gender-text')) document.getElementById('blank-gender-text').innerText = 'Other';
+                if (document.getElementById('blank-dob')) document.getElementById('blank-dob').value = '';
                 if (document.getElementById('blank-mobile')) document.getElementById('blank-mobile').value = '';
                 if (document.getElementById('blank-aadhar')) document.getElementById('blank-aadhar').value = '';
                 removePhoto();

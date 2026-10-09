@@ -119,17 +119,22 @@ function shouldSyncRecordToServer(fn, args) {
     }
 
     const record = getRecordForSync(fn, args);
-    if (fn === 'deleteRecord' || fn === 'restoreRecord') {
-        return isVerifiedRecordForSync(record);
+    // Don't sync empty form drafts that have no studentName or class yet
+    if (record && typeof record === 'object') {
+        if (record.id && String(record.id).startsWith('draft_') && !record.studentName && !record.sclass) {
+            return false;
+        }
     }
 
-    return isVerifiedRecordForSync(record);
+    // ALL saved records (with or without photo, pending or verified) should safely sync to cloud!
+    return true;
 }
 
 async function syncOfflineQueueNow() {
     const queue = await SchoolLocalDB.getAllSyncQueue();
-    const syncableQueue = queue.filter(item => item.status === 'Verified' || item.status === 'Deleted');
-    const droppedQueue = queue.filter(item => item.status === 'Draft' || item.status === 'Imported');
+    // Sync all real saved records (Verified, Pending, Unverified, Deleted)
+    const syncableQueue = queue.filter(item => item && item.data && (item.data.studentName || item.fn === 'deleteRecord' || item.fn === 'permanentDelete'));
+    const droppedQueue = queue.filter(item => !syncableQueue.includes(item));
 
     // Remove non-syncable items from the offline queue silently
     for (const item of droppedQueue) {
@@ -285,14 +290,17 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
         } else if (fn === 'addManyRecords') {
             const records = args[0] || [];
             let addedCount = 0;
-            const promises = records.map(async (rec) => {
-                const cleanData = JSON.parse(JSON.stringify(rec));
-                cleanData.updatedAt = Date.now();
-                const docRef = doc(window.db, "records", String(cleanData.id));
-                await setDoc(docRef, cleanData);
-                addedCount++;
-            });
-            await Promise.all(promises);
+            const chunkSize = 25;
+            for (let i = 0; i < records.length; i += chunkSize) {
+                const chunk = records.slice(i, i + chunkSize);
+                await Promise.all(chunk.map(async (rec) => {
+                    const cleanData = JSON.parse(JSON.stringify(rec));
+                    cleanData.updatedAt = Date.now();
+                    const docRef = doc(window.db, "records", String(cleanData.id));
+                    await setDoc(docRef, cleanData);
+                    addedCount++;
+                }));
+            }
             if (onSuccess) onSuccess(addedCount);
         } else if (fn === 'updateStudentData' || fn === 'updateRecord') {
             const data = args[0];

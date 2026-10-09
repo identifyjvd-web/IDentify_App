@@ -1522,11 +1522,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 16px;
-            height: 16px;
-            margin-right: 4px;
             color: #05996c;
-            font-size: 14px;
             line-height: 1;
             opacity: 1;
         }
