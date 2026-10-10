@@ -133,7 +133,7 @@ function shouldSyncRecordToServer(fn, args) {
 async function syncOfflineQueueNow() {
     const queue = await SchoolLocalDB.getAllSyncQueue();
     // Sync all real saved records (Verified, Pending, Unverified, Deleted)
-    const syncableQueue = queue.filter(item => item && item.data && (item.data.studentName || item.fn === 'deleteRecord' || item.fn === 'permanentDelete'));
+    const syncableQueue = queue.filter(item => item && item.data && (item.data.studentName || item.fn === 'deleteRecord' || item.fn === 'permanentDelete' || item.fn === 'permDelete' || item.fn === 'restoreRecord'));
     const droppedQueue = queue.filter(item => !syncableQueue.includes(item));
 
     // Remove non-syncable items from the offline queue silently
@@ -146,12 +146,26 @@ async function syncOfflineQueueNow() {
             showToast('<span class="material-symbols-outlined mr-2">cloud_upload</span> Syncing ' + syncableQueue.length + ' offline records...');
         }
         for (const item of syncableQueue) {
-            serverCallSilent(item.fn, [item.data], async () => {
+            const latestRec = (typeof db !== 'undefined' && Array.isArray(db))
+                ? db.find(x => String(x.id) === String(item.id))
+                : null;
+            // If record is already synced in memory with newer or verified state, just dequeue
+            if (latestRec && latestRec._serverSaved && latestRec._syncStatus === 'synced' && (!item.timestamp || (latestRec.updatedAt && latestRec.updatedAt >= item.timestamp))) {
+                await SchoolLocalDB.dequeueSync(item.id);
+                continue;
+            }
+            const payloadToSync = (latestRec && item.fn !== 'deleteRecord' && item.fn !== 'permanentDelete' && item.fn !== 'permDelete')
+                ? { ...item.data, ...latestRec }
+                : item.data;
+            serverCallSilent(item.fn, [payloadToSync], async () => {
                 await SchoolLocalDB.dequeueSync(item.id);
                 if (typeof db !== 'undefined' && Array.isArray(db)) {
-                    const idx = db.findIndex(x => x.id === item.id);
+                    const idx = db.findIndex(x => String(x.id) === String(item.id));
                     if (idx > -1) {
                         db[idx]._syncStatus = 'synced';
+                        db[idx]._serverSaved = true;
+                        db[idx]._pending = false;
+                        if (typeof persistLocalUnverified === 'function') persistLocalUnverified();
                         if (typeof renderCurrentRecordsPage === 'function') renderCurrentRecordsPage();
                     }
                 }
@@ -171,7 +185,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function serverCall(fn, args, onSuccess, onFailure) {
-    if (['addRecord', 'submitStudentData', 'updateRecord', 'deleteRecord', 'restoreRecord', 'permanentDelete'].includes(fn) && !shouldSyncRecordToServer(fn, args)) {
+    if (['addRecord', 'submitStudentData', 'updateRecord', 'deleteRecord', 'restoreRecord', 'permanentDelete', 'permDelete'].includes(fn) && !shouldSyncRecordToServer(fn, args)) {
         if (onSuccess) onSuccess(args && args[0] ? args[0] : true);
         return;
     }
@@ -204,7 +218,7 @@ function serverCall(fn, args, onSuccess, onFailure) {
 
 function serverCallSilent(fn, args, onSuccess, onFailure) {
     const isOffline = !navigator.onLine;
-    const isSyncableFn = ['addRecord', 'submitStudentData', 'updateRecord', 'deleteRecord', 'restoreRecord', 'permanentDelete'].includes(fn);
+    const isSyncableFn = ['addRecord', 'submitStudentData', 'updateRecord', 'deleteRecord', 'restoreRecord', 'permanentDelete', 'permDelete'].includes(fn);
 
     if (isSyncableFn && !shouldSyncRecordToServer(fn, args)) {
         if (onSuccess) onSuccess(args && args[0] ? args[0] : true);
@@ -216,7 +230,7 @@ function serverCallSilent(fn, args, onSuccess, onFailure) {
         let recData = null;
         let status = 'Draft';
 
-        if (fn === 'deleteRecord' || fn === 'permanentDelete') {
+        if (fn === 'deleteRecord' || fn === 'permanentDelete' || fn === 'permDelete') {
             recId = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].id ? args[0].id : null);
             recData = args[0]; // Can be ID or object, backend handles both
             status = 'Deleted';
@@ -253,7 +267,12 @@ function serverCallSilent(fn, args, onSuccess, onFailure) {
             return;
         }
 
-        serverCall(fn, args, onSuccess, (err) => {
+        serverCall(fn, args, (res) => {
+            if (recId) {
+                SchoolLocalDB.dequeueSync(recId).catch(() => {});
+            }
+            if (onSuccess) onSuccess(res);
+        }, (err) => {
             handleOfflineEnqueue(); // Re-enqueue on failure
             if (onFailure) onFailure(err || new Error("Sync failed: queued for retry"));
             else if (onSuccess) onSuccess(recData); // Fail gracefully when caller has no failure path
@@ -261,6 +280,52 @@ function serverCallSilent(fn, args, onSuccess, onFailure) {
     } else {
         serverCall(fn, args, onSuccess, onFailure);
     }
+}
+
+function prepareRecordForFirestore(data) {
+    const cleanData = JSON.parse(JSON.stringify(data));
+    // Guard against race conditions: if local db already marked this record verified or uploaded a photo, never overwrite with stale state
+    if (cleanData && cleanData.id && typeof db !== 'undefined' && Array.isArray(db)) {
+        const latestLocal = db.find(r => r && String(r.id) === String(cleanData.id));
+        if (latestLocal) {
+            const isLocalVerified = latestLocal.verified === true || String(latestLocal.verified).toLowerCase() === 'true' || latestLocal.verified === 'Completed';
+            const isLocalReturned = String(latestLocal.verified).toLowerCase() === 'returned' || String(latestLocal.status).toLowerCase() === 'returned' || latestLocal.returned === true;
+            if (isLocalVerified && !isLocalReturned && !cleanData.returned) {
+                cleanData.verified = true;
+                cleanData.status = 'verified';
+                cleanData.isRestored = false;
+                cleanData.draftStatus = '';
+                if (latestLocal.sn && !cleanData.sn) cleanData.sn = latestLocal.sn;
+                if (latestLocal.verifiedBy && !cleanData.verifiedBy) cleanData.verifiedBy = latestLocal.verifiedBy;
+                if (latestLocal.verifiedAt && !cleanData.verifiedAt) cleanData.verifiedAt = latestLocal.verifiedAt;
+            }
+            // If photo was added locally right after initial save, don't let an older no-photo payload wipe it out
+            const localHasPhoto = !!(latestLocal.photoData || latestLocal.docUrl);
+            const cleanHasPhoto = !!(cleanData.photoData || cleanData.docUrl || cleanData.photo);
+            if (localHasPhoto && !cleanHasPhoto && (!cleanData.updatedAt || !latestLocal.updatedAt || latestLocal.updatedAt >= cleanData.updatedAt)) {
+                if (latestLocal.photoData) cleanData.photoData = latestLocal.photoData;
+                if (latestLocal.docUrl) cleanData.docUrl = latestLocal.docUrl;
+                if (latestLocal.fileName) cleanData.fileName = latestLocal.fileName;
+                if (cleanData.status === 'pending' && latestLocal.status) cleanData.status = latestLocal.status;
+            }
+        }
+    }
+    cleanData.createdAt = cleanData.createdAt || Date.now();
+    cleanData.updatedAt = Date.now();
+    cleanData._serverSaved = true;
+    cleanData._syncStatus = 'synced';
+    cleanData._pending = false;
+    delete cleanData._verifying;
+    delete cleanData._displayPhotoSrc;
+    delete cleanData._eid;
+    if (cleanData.photo && String(cleanData.photo).startsWith('data:image')) {
+        if (!cleanData.photoData) cleanData.photoData = cleanData.photo;
+        delete cleanData.photo;
+    }
+    if (cleanData.docUrl && String(cleanData.docUrl).startsWith('data:image') && cleanData.photoData && String(cleanData.photoData).startsWith('data:image')) {
+        cleanData.docUrl = '';
+    }
+    return cleanData;
 }
 
 async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
@@ -280,12 +345,11 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             });
         } else if (fn === 'submitStudentData' || fn === 'addRecord') {
             const data = args[0];
-            data.updatedAt = Date.now();
-            const cleanData = JSON.parse(JSON.stringify(data));
+            const cleanData = prepareRecordForFirestore(data);
             
             // Always use the local ID (e.g. draft_xxx or UUID) as the permanent Firebase Document ID
             const docRef = doc(window.db, "records", String(cleanData.id));
-            await setDoc(docRef, cleanData);
+            await setDoc(docRef, cleanData, { merge: true });
             if (onSuccess) onSuccess(data);
         } else if (fn === 'addManyRecords') {
             const records = args[0] || [];
@@ -294,24 +358,47 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             for (let i = 0; i < records.length; i += chunkSize) {
                 const chunk = records.slice(i, i + chunkSize);
                 await Promise.all(chunk.map(async (rec) => {
-                    const cleanData = JSON.parse(JSON.stringify(rec));
-                    cleanData.updatedAt = Date.now();
+                    const cleanData = prepareRecordForFirestore(rec);
                     const docRef = doc(window.db, "records", String(cleanData.id));
-                    await setDoc(docRef, cleanData);
+                    await setDoc(docRef, cleanData, { merge: true });
                     addedCount++;
                 }));
             }
             if (onSuccess) onSuccess(addedCount);
         } else if (fn === 'updateStudentData' || fn === 'updateRecord') {
             const data = args[0];
-            data.updatedAt = Date.now();
-            const cleanData = JSON.parse(JSON.stringify(data));
+            const cleanData = prepareRecordForFirestore(data);
             const docRef = doc(window.db, "records", String(cleanData.id));
             await setDoc(docRef, cleanData, { merge: true });
             
             if (onSuccess) onSuccess(data);
-        } else if (fn === 'permanentDelete' || fn === 'deleteRecord') {
-            const id = args[0];
+        } else if (fn === 'restoreRecord') {
+            const arg = args[0];
+            const id = typeof arg === 'object' && arg ? arg.id : arg;
+            const recObj = (typeof arg === 'object' && arg)
+                ? arg
+                : ((typeof db !== 'undefined' && Array.isArray(db)) ? db.find(r => r && String(r.id) === String(id)) : null);
+            if (recObj && recObj.id) {
+                const cleanData = prepareRecordForFirestore({ ...recObj, isDeleted: false, isRestored: true, deletedAt: null });
+                const docRef = doc(window.db, "records", String(cleanData.id));
+                await setDoc(docRef, cleanData, { merge: true });
+            }
+            if (onSuccess) onSuccess(true);
+        } else if (fn === 'deleteRecord') {
+            const arg = args[0];
+            const id = typeof arg === 'object' && arg ? arg.id : arg;
+            if (id && !String(id).startsWith('TEMP_')) {
+                const docRef = doc(window.db, "records", String(id));
+                await setDoc(docRef, {
+                    isDeleted: true,
+                    deletedAt: new Date().toISOString(),
+                    updatedAt: Date.now()
+                }, { merge: true });
+            }
+            if (onSuccess) onSuccess(true);
+        } else if (fn === 'permanentDelete' || fn === 'permDelete') {
+            const arg = args[0];
+            const id = typeof arg === 'object' && arg ? arg.id : arg;
             const docRef = doc(window.db, "records", String(id));
             await deleteDoc(docRef);
             if (onSuccess) onSuccess(true);

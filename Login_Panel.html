@@ -530,14 +530,132 @@
             }
         }, 4000);
     </script>
+    <!-- First-Time PWA Install Popup Modal -->
+    <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
+        <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
+            <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
+                <img src="./idapplogo.png" alt="IDentify" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
+            </div>
+            <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify App</h3>
+            <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">
+                Install this app on your device for quick access, full-screen experience, and offline support.
+            </p>
+            <div id="pwa-install-guide" class="hidden mt-3 rounded-2xl bg-emerald-50/80 border border-emerald-100 p-3.5 text-left text-[12px] font-semibold text-slate-700 leading-relaxed"></div>
+            <div class="mt-5 flex gap-2.5">
+                <button type="button" id="pwa-dismiss-btn" onclick="closePwaInstallPopup(true)" class="flex-1 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 py-3 text-[13px] font-bold text-slate-600 transition">
+                    Not Now
+                </button>
+                <button type="button" id="pwa-install-btn" onclick="triggerPwaInstall()" class="flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 py-3 text-[13px] font-extrabold text-white shadow-sm shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition">
+                    <i class="fa-solid fa-download text-xs"></i> Install App
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js').catch(err => {
-                    console.log('Service Worker registration failed:', err);
-                });
+        (function() {
+            const INSTALL_SEEN_KEY = 'identify_install_popup_seen_v1';
+            const INSTALLED_KEY = 'identify_pwa_installed_v1';
+            window.deferredPwaPrompt = null;
+
+            function isStandaloneMode() {
+                return window.matchMedia('(display-mode: standalone)').matches ||
+                       window.navigator.standalone === true ||
+                       localStorage.getItem(INSTALLED_KEY) === '1';
+            }
+
+            function shouldShowFirstTimePopup() {
+                return !isStandaloneMode() && localStorage.getItem(INSTALL_SEEN_KEY) !== '1';
+            }
+
+            window.openPwaInstallPopup = function() {
+                if (!shouldShowFirstTimePopup()) return;
+                const modal = document.getElementById('pwa-install-modal');
+                if (!modal) return;
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            };
+
+            window.closePwaInstallPopup = function(markSeen) {
+                if (markSeen) {
+                    localStorage.setItem(INSTALL_SEEN_KEY, '1');
+                }
+                const modal = document.getElementById('pwa-install-modal');
+                if (modal) {
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                }
+            };
+
+            window.triggerPwaInstall = async function() {
+                if (window.deferredPwaPrompt) {
+                    const promptEvent = window.deferredPwaPrompt;
+                    window.deferredPwaPrompt = null;
+                    localStorage.setItem(INSTALL_SEEN_KEY, '1');
+                    try {
+                        promptEvent.prompt();
+                        const choiceResult = await promptEvent.userChoice;
+                        if (choiceResult && choiceResult.outcome === 'accepted') {
+                            localStorage.setItem(INSTALLED_KEY, '1');
+                        }
+                    } catch (e) {}
+                    window.closePwaInstallPopup(true);
+                    return;
+                }
+
+                // Fallback guide when browser native prompt is not directly available (e.g., iOS Safari)
+                const guideEl = document.getElementById('pwa-install-guide');
+                const installBtn = document.getElementById('pwa-install-btn');
+                const dismissBtn = document.getElementById('pwa-dismiss-btn');
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+                if (guideEl) {
+                    guideEl.innerHTML = isIOS
+                        ? '<div class="flex items-start gap-2"><i class="fa-solid fa-arrow-up-from-bracket text-emerald-600 mt-0.5"></i><span>Tap the <b>Share</b> button in Safari and select <b>"Add to Home Screen"</b> to install.</span></div>'
+                        : '<div class="flex items-start gap-2"><i class="fa-solid fa-ellipsis-vertical text-emerald-600 mt-0.5 px-1"></i><span>Tap the browser menu <b>(⋮)</b> at the top right and select <b>"Install App"</b> or <b>"Add to Home Screen"</b>.</span></div>';
+                    guideEl.classList.remove('hidden');
+                }
+                if (dismissBtn) dismissBtn.classList.add('hidden');
+                if (installBtn) {
+                    installBtn.innerHTML = '<i class="fa-solid fa-check text-xs"></i> Got It';
+                    installBtn.onclick = function() { window.closePwaInstallPopup(true); };
+                }
+            };
+
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                window.deferredPwaPrompt = e;
+                if (shouldShowFirstTimePopup()) {
+                    const splash = document.getElementById('initial-splash-screen');
+                    if (!splash || splash.style.opacity === '0') {
+                        window.openPwaInstallPopup();
+                    }
+                }
             });
-        }
+
+            window.addEventListener('appinstalled', () => {
+                localStorage.setItem(INSTALLED_KEY, '1');
+                localStorage.setItem(INSTALL_SEEN_KEY, '1');
+                window.deferredPwaPrompt = null;
+                window.closePwaInstallPopup(true);
+            });
+
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('./sw.js').catch(err => {
+                        console.log('Service Worker registration failed:', err);
+                    });
+                });
+            }
+
+            // Show popup on first visit once splash screen finishes
+            window.addEventListener('DOMContentLoaded', () => {
+                if (shouldShowFirstTimePopup()) {
+                    setTimeout(() => {
+                        window.openPwaInstallPopup();
+                    }, 2800);
+                }
+            });
+        })();
     </script>
 </body>
 
