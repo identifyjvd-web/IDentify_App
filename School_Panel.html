@@ -7559,41 +7559,42 @@
                     <div class="absolute bottom-[90px] left-[25px] opacity-[0.15] text-blue-400 animate-pulse pointer-events-none z-0" style="animation-delay: 1s;"><i class="fa-solid fa-star text-[8px]"></i></div>
 
                     <div class="p-6 bg-transparent min-h-[500px] flex flex-col relative z-10">
-                        <div id="qr_settings_card" class="mb-5 system-card p-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 shadow-sm relative overflow-hidden transition-all duration-300 ease-in-out">
-                            <div class="flex items-center justify-between gap-3 relative z-10 flex-wrap">
-                                <!-- Left Column: Stacking the two switches vertically -->
-                                <div class="flex flex-col gap-2.5">
-                                    <!-- Active Form Toggle -->
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-xs font-black text-slate-700 uppercase tracking-wider select-none flex items-center gap-1.5 w-24">
-                                            <i class="fa-solid fa-power-off text-emerald-600 text-sm"></i> Form
-                                        </span>
-                                        <label class="relative inline-flex items-center cursor-pointer">
-                                            <input type="checkbox" id="fb_form_active_toggle" onchange="fb_toggleFormActive(this.checked)" class="sr-only peer">
-                                            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                                        </label>
-                                    </div>
-                                    <!-- Staff Form Toggle -->
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-xs font-black text-slate-700 uppercase tracking-wider select-none flex items-center gap-1.5 w-24">
-                                            <i class="fa-solid fa-id-badge text-emerald-600 text-sm"></i> Staff
-                                        </span>
-                                        <label class="relative inline-flex items-center cursor-pointer">
-                                            <input type="checkbox" id="fb_staff_enable" onchange="fb_toggleStaffActive(this.checked)" class="sr-only peer">
-                                            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                                        </label>
-                                    </div>
+                        <!-- Form & Staff Toggles Card (Side-by-Side) -->
+                        <div id="qr_settings_card" class="mb-3 system-card p-3.5 rounded-2xl border border-emerald-100 bg-emerald-50/60 shadow-sm relative overflow-hidden transition-all duration-300 ease-in-out">
+                            <div class="flex items-center justify-around gap-2 relative z-10 flex-wrap">
+                                <!-- Active Form Toggle -->
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-black text-slate-700 uppercase tracking-wider select-none flex items-center gap-1.5">
+                                        <i class="fa-solid fa-power-off text-emerald-600 text-sm"></i> Form
+                                    </span>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="fb_form_active_toggle" onchange="fb_toggleFormActive(this.checked)" class="sr-only peer">
+                                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                                    </label>
                                 </div>
-                                <!-- Right Column: Switcher between Student and Staff Form -->
-                                <div id="fb_view_switcher" class="${(typeof fb_staff_active !== 'undefined' && fb_staff_active) ? 'flex' : 'hidden'} items-center bg-white p-1 rounded-xl border border-emerald-200 shadow-sm gap-1">
-                                    <button type="button" onclick="fb_switchView('student')" id="fb_tab_student" class="px-3.5 py-1.5 rounded-lg text-xs font-black transition-all ${(typeof fb_active_form_tab === 'undefined' || fb_active_form_tab === 'student') ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-emerald-700'} flex items-center gap-1.5 active:scale-95">
-                                        <i class="fa-solid fa-user-graduate text-[11px]"></i> Student
-                                    </button>
-                                    <button type="button" onclick="fb_switchView('staff')" id="fb_tab_staff" class="px-3.5 py-1.5 rounded-lg text-xs font-black transition-all ${(typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff') ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-emerald-700'} flex items-center gap-1.5 active:scale-95">
-                                        <i class="fa-solid fa-id-badge text-[11px]"></i> Staff
-                                    </button>
+                                <!-- Vertical separator divider -->
+                                <div class="h-5 w-[1px] bg-emerald-200/80 hidden sm:block"></div>
+                                <!-- Staff Form Toggle -->
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-black text-slate-700 uppercase tracking-wider select-none flex items-center gap-1.5">
+                                        <i class="fa-solid fa-id-badge text-emerald-600 text-sm"></i> Staff
+                                    </span>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="fb_staff_enable" onchange="fb_toggleStaffActive(this.checked)" class="sr-only peer">
+                                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                                    </label>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Separate Switcher Tile between Student Form and Staff Form -->
+                        <div id="fb_view_switcher" class="${(typeof fb_staff_active !== 'undefined' && fb_staff_active) ? 'flex' : 'hidden'} mb-4 system-card p-1.5 rounded-2xl border border-emerald-100 bg-emerald-50/60 shadow-sm items-center justify-between gap-2 transition-all duration-300 ease-in-out">
+                            <button type="button" onclick="fb_switchView('student')" id="fb_tab_student" class="flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all ${(typeof fb_active_form_tab === 'undefined' || fb_active_form_tab === 'student') ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-emerald-700 bg-white/70'} flex items-center justify-center gap-1.5 active:scale-95">
+                                <i class="fa-solid fa-user-graduate text-[11px]"></i> <span>Student Form</span>
+                            </button>
+                            <button type="button" onclick="fb_switchView('staff')" id="fb_tab_staff" class="flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all ${(typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff') ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-emerald-700 bg-white/70'} flex items-center justify-center gap-1.5 active:scale-95">
+                                <i class="fa-solid fa-id-badge text-[11px]"></i> <span>Staff Form</span>
+                            </button>
                         </div>
 
                         <!-- Student Form View (Active by default) -->
@@ -10101,11 +10102,11 @@
             const tabStaff = document.getElementById('fb_tab_staff');
             if (tabStudent && tabStaff) {
                 if (fb_active_form_tab === 'staff') {
-                    tabStaff.className = 'px-3.5 py-1.5 rounded-lg text-xs font-black transition-all bg-emerald-600 text-white shadow-sm flex items-center gap-1.5 active:scale-95';
-                    tabStudent.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-600 hover:text-emerald-700 flex items-center gap-1.5 active:scale-95';
+                    tabStaff.className = 'flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all bg-emerald-600 text-white shadow-sm flex items-center justify-center gap-1.5 active:scale-95';
+                    tabStudent.className = 'flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-600 hover:text-emerald-700 bg-white/70 flex items-center justify-center gap-1.5 active:scale-95';
                 } else {
-                    tabStudent.className = 'px-3.5 py-1.5 rounded-lg text-xs font-black transition-all bg-emerald-600 text-white shadow-sm flex items-center gap-1.5 active:scale-95';
-                    tabStaff.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-600 hover:text-emerald-700 flex items-center gap-1.5 active:scale-95';
+                    tabStudent.className = 'flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all bg-emerald-600 text-white shadow-sm flex items-center justify-center gap-1.5 active:scale-95';
+                    tabStaff.className = 'flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-600 hover:text-emerald-700 bg-white/70 flex items-center justify-center gap-1.5 active:scale-95';
                 }
             }
 
