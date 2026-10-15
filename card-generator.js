@@ -23,12 +23,14 @@ async function bulkDownloadSelectedJpg() {
         const folder = zip.folder("ID_Cards_JPG");
         let doneCount = 0;
         
+        const recordsSource = (typeof window !== 'undefined' && Array.isArray(window.studentRecordsDb))
+            ? window.studentRecordsDb
+            : ((typeof db !== 'undefined' && Array.isArray(db)) ? db : []);
+
         const recordsToExport = [];
         selectedRecords.forEach(id => {
-            if (typeof db !== 'undefined' && Array.isArray(db)) {
-                const rec = db.find(x => String(x.id) === String(id));
-                if (rec) recordsToExport.push(rec);
-            }
+            const rec = recordsSource.find(x => String(x.id) === String(id));
+            if (rec) recordsToExport.push(rec);
         });
 
         for (let i = 0; i < recordsToExport.length; i++) {
@@ -54,7 +56,7 @@ async function bulkDownloadSelectedJpg() {
                 
                 const imgData = canvas.toDataURL('image/jpeg', 0.95);
                 const sn = rec.sn ? rec.sn : 'Unknown';
-                const safeName = (rec.studentName || rec.name || 'Unknown').replace(/[^a-zA-Z0-9\s]/g, '_').trim();
+                const safeName = (rec.studentName || rec.name || 'Unknown').replace(/[^\p{L}\p{N}\s_-]/gu, '_').trim();
                 folder.file(`ID_Card_${sn}_${safeName}.jpg`, imgData.split(',')[1], {base64: true});
             }
         }
@@ -110,8 +112,11 @@ function downloadPreviewCardAsJpg() {
         const imgData = canvas.toDataURL('image/jpeg', 0.95);
         const link = document.createElement('a');
         link.href = imgData;
-        const sn = (typeof previewRecord !== 'undefined' && previewRecord) ? previewRecord.sn : 'Unknown';
-        link.download = `ID_Card_${sn}.jpg`;
+        const sn = (typeof previewRecord !== 'undefined' && previewRecord && previewRecord.sn) ? previewRecord.sn : 'Unknown';
+        const safeName = (typeof previewRecord !== 'undefined' && previewRecord && (previewRecord.studentName || previewRecord.name))
+            ? (previewRecord.studentName || previewRecord.name).replace(/[^\p{L}\p{N}\s_-]/gu, '_').trim()
+            : '';
+        link.download = safeName ? `ID_Card_${sn}_${safeName}.jpg` : `ID_Card_${sn}.jpg`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

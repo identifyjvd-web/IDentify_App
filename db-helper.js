@@ -99,21 +99,32 @@ function isVerifiedRecordForSync(record) {
     return String(record.verified).toLowerCase() === 'true';
 }
 
+function getLocalRecordsArray() {
+    if (typeof window !== 'undefined' && Array.isArray(window.studentRecordsDb)) {
+        return window.studentRecordsDb;
+    }
+    if (typeof db !== 'undefined' && Array.isArray(db)) {
+        return db;
+    }
+    return [];
+}
+
 function getRecordForSync(fn, args) {
     const firstArg = args && args[0];
     if (firstArg && typeof firstArg === 'object') return firstArg;
     if (typeof firstArg === 'string') {
-        const localRecord = (typeof db !== 'undefined' && Array.isArray(db)) ? db.find(x => String(x.id) === String(firstArg)) : null;
+        const localDb = getLocalRecordsArray();
+        const localRecord = localDb.find(x => String(x.id) === String(firstArg));
         if (localRecord) return localRecord;
     }
     return firstArg || null;
 }
 
 function shouldSyncRecordToServer(fn, args) {
-    const isSyncableFn = ['addRecord', 'submitStudentData', 'updateRecord', 'deleteRecord', 'restoreRecord', 'permanentDelete'].includes(fn);
+    const isSyncableFn = ['addRecord', 'submitStudentData', 'updateRecord', 'deleteRecord', 'restoreRecord', 'permanentDelete', 'permDelete'].includes(fn);
     if (!isSyncableFn) return false;
 
-    if (fn === 'permanentDelete') {
+    if (fn === 'permanentDelete' || fn === 'permDelete') {
         const firstArg = args && args[0];
         return !!(firstArg && (typeof firstArg === 'string' || firstArg.id));
     }
@@ -145,10 +156,10 @@ async function syncOfflineQueueNow() {
         if (typeof showToast === 'function') {
             showToast('<span class="material-symbols-outlined mr-2">cloud_upload</span> Syncing ' + syncableQueue.length + ' offline records...');
         }
+        let syncedCount = 0;
         for (const item of syncableQueue) {
-            const latestRec = (typeof db !== 'undefined' && Array.isArray(db))
-                ? db.find(x => String(x.id) === String(item.id))
-                : null;
+            const localDb = getLocalRecordsArray();
+            const latestRec = localDb.find(x => String(x.id) === String(item.id)) || null;
             // If record is already synced in memory with newer or verified state, just dequeue
             if (latestRec && latestRec._serverSaved && latestRec._syncStatus === 'synced' && (!item.timestamp || (latestRec.updatedAt && latestRec.updatedAt >= item.timestamp))) {
                 await SchoolLocalDB.dequeueSync(item.id);
@@ -157,22 +168,27 @@ async function syncOfflineQueueNow() {
             const payloadToSync = (latestRec && item.fn !== 'deleteRecord' && item.fn !== 'permanentDelete' && item.fn !== 'permDelete')
                 ? { ...item.data, ...latestRec }
                 : item.data;
-            serverCallSilent(item.fn, [payloadToSync], async () => {
-                await SchoolLocalDB.dequeueSync(item.id);
-                if (typeof db !== 'undefined' && Array.isArray(db)) {
-                    const idx = db.findIndex(x => String(x.id) === String(item.id));
+            await new Promise((resolve) => {
+                serverCallSilent(item.fn, [payloadToSync], async () => {
+                    await SchoolLocalDB.dequeueSync(item.id);
+                    const currentDb = getLocalRecordsArray();
+                    const idx = currentDb.findIndex(x => String(x.id) === String(item.id));
                     if (idx > -1) {
-                        db[idx]._syncStatus = 'synced';
-                        db[idx]._serverSaved = true;
-                        db[idx]._pending = false;
+                        currentDb[idx]._syncStatus = 'synced';
+                        currentDb[idx]._serverSaved = true;
+                        currentDb[idx]._pending = false;
                         if (typeof persistLocalUnverified === 'function') persistLocalUnverified();
                         if (typeof renderCurrentRecordsPage === 'function') renderCurrentRecordsPage();
                     }
-                }
-            }, () => {});
+                    syncedCount++;
+                    resolve();
+                }, () => {
+                    resolve();
+                });
+            });
         }
-        if (typeof showToast === 'function') {
-            setTimeout(() => showToast('Offline sync completed!'), 2000);
+        if (syncedCount > 0 && typeof showToast === 'function') {
+            showToast('Offline sync completed (' + syncedCount + ' records synced)!');
         }
     }
 }
@@ -285,8 +301,9 @@ function serverCallSilent(fn, args, onSuccess, onFailure) {
 function prepareRecordForFirestore(data) {
     const cleanData = JSON.parse(JSON.stringify(data));
     // Guard against race conditions: if local db already marked this record verified or uploaded a photo, never overwrite with stale state
-    if (cleanData && cleanData.id && typeof db !== 'undefined' && Array.isArray(db)) {
-        const latestLocal = db.find(r => r && String(r.id) === String(cleanData.id));
+    const localDb = getLocalRecordsArray();
+    if (cleanData && cleanData.id && localDb.length > 0) {
+        const latestLocal = localDb.find(r => r && String(r.id) === String(cleanData.id));
         if (latestLocal) {
             const isLocalVerified = latestLocal.verified === true || String(latestLocal.verified).toLowerCase() === 'true' || latestLocal.verified === 'Completed';
             const isLocalReturned = String(latestLocal.verified).toLowerCase() === 'returned' || String(latestLocal.status).toLowerCase() === 'returned' || latestLocal.returned === true;
@@ -342,6 +359,7 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                 if (onSuccess) onSuccess(records);
             }, (error) => {
                 console.error("Firebase Snapshot Error:", error);
+                if (onFailure) onFailure(error);
             });
         } else if (fn === 'submitStudentData' || fn === 'addRecord') {
             const data = args[0];
@@ -375,9 +393,17 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
         } else if (fn === 'restoreRecord') {
             const arg = args[0];
             const id = typeof arg === 'object' && arg ? arg.id : arg;
-            const recObj = (typeof arg === 'object' && arg)
+            const localDb = getLocalRecordsArray();
+            let recObj = (typeof arg === 'object' && arg)
                 ? arg
-                : ((typeof db !== 'undefined' && Array.isArray(db)) ? db.find(r => r && String(r.id) === String(id)) : null);
+                : (localDb.find(r => r && String(r.id) === String(id)) || null);
+            if (!recObj && id) {
+                const docRef = doc(window.db, "records", String(id));
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    recObj = { id: docSnap.id, ...docSnap.data() };
+                }
+            }
             if (recObj && recObj.id) {
                 const cleanData = prepareRecordForFirestore({ ...recObj, isDeleted: false, isRestored: true, deletedAt: null });
                 const docRef = doc(window.db, "records", String(cleanData.id));
@@ -402,6 +428,41 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             const docRef = doc(window.db, "records", String(id));
             await deleteDoc(docRef);
             if (onSuccess) onSuccess(true);
+        } else if (fn === 'getRecordById') {
+            const id = args[0];
+            const docRef = doc(window.db, "records", String(id));
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                if (onSuccess) onSuccess({ id: docSnap.id, ...docSnap.data() });
+            } else {
+                if (onSuccess) onSuccess(null);
+            }
+        } else if (fn === 'deleteDriveFile') {
+            const fileId = args[0];
+            if (window.storage && fileId && window.firebaseAPI && window.firebaseAPI.deleteObject) {
+                try {
+                    const { ref, deleteObject } = window.firebaseAPI;
+                    const storageRef = ref(window.storage, `documents/${fileId}`);
+                    await deleteObject(storageRef);
+                } catch (e) {
+                    console.warn("deleteDriveFile warning:", e);
+                }
+            }
+            if (onSuccess) onSuccess(true);
+        } else if (fn === 'updateUserCredentials') {
+            const payload = args[0] || {};
+            try {
+                const authUser = window.auth && window.auth.currentUser;
+                if (authUser && payload.nextPassword && window.firebaseAPI && window.firebaseAPI.updatePassword) {
+                    await window.firebaseAPI.updatePassword(authUser, payload.nextPassword);
+                }
+            } catch (e) {
+                console.warn("updatePassword warning:", e);
+            }
+            const localUser = (typeof loadAuthUser === 'function') ? loadAuthUser() : null;
+            const updatedUser = localUser ? { ...localUser } : { userId: payload.nextUserId || 'admin', role: 'teacher' };
+            if (payload.nextUserId) updatedUser.userId = payload.nextUserId;
+            if (onSuccess) onSuccess(updatedUser);
         } else if (fn === 'deleteAllRecords') {
             const q = query(collection(window.db, "records"));
             const querySnapshot = await getDocs(q);

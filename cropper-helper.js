@@ -23,6 +23,7 @@ function openCropModal() {
         viewMode: 1,
         autoCropArea: 1,
     });
+    window.cropperInstance = cropperInstance;
 }
 
 function openCustomCropModal(idx) {
@@ -47,6 +48,7 @@ function openCustomCropModal(idx) {
         viewMode: 1,
         autoCropArea: 1,
     });
+    window.cropperInstance = cropperInstance;
 }
 
 function closeCropModal() {
@@ -57,6 +59,7 @@ function closeCropModal() {
     }
     currentlyCroppingCustomIdx = null;
     if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+    window.cropperInstance = null;
 }
 
 function applyCrop() {
@@ -133,6 +136,9 @@ function applyCrop() {
         });
         if (canvas) {
             const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+            if (typeof window.setPhotoData === 'function') {
+                window.setPhotoData(dataUrl);
+            }
             if (typeof photoData !== 'undefined') {
                 photoData = dataUrl;
             }

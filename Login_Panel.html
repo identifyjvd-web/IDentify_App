@@ -171,6 +171,18 @@
         let forgotPasswordTimer = null;
         let adminFailedAttempts = 0;
 
+        const SYSTEM_ADMIN_EMAILS = [
+            'identify.jvd@gmail.com',
+            'javedansari7566@gmail.com'
+        ];
+
+        function isSystemAdmin(emailOrUser) {
+            if (!emailOrUser) return false;
+            const email = (typeof emailOrUser === 'string' ? emailOrUser : (emailOrUser.email || emailOrUser.userId || '')).toLowerCase().trim();
+            if (!email) return false;
+            return SYSTEM_ADMIN_EMAILS.includes(email) || email === 'admin';
+        }
+
         function loadSchoolConfig() {
             try {
                 const raw = localStorage.getItem(CONFIG_KEY);
@@ -386,7 +398,7 @@
                 const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, userId, password);
                 const user = userCredential.user;
                 
-                if (user.email && (user.email.toLowerCase().includes('admin') || user.email.toLowerCase() === 'identify.jvd@gmail.com')) {
+                if (isSystemAdmin(user.email)) {
                     authUser = { userId: 'admin', name: 'Admin', role: 'teacher', viewMode: 'all', email: user.email };
                 } else {
                     authUser = { userId: user.uid, name: (user.email ? user.email.split('@')[0] : 'School User'), role: 'school', email: user.email };
@@ -414,10 +426,12 @@
                     errorEl.innerText = errMsg;
                     errorEl.classList.remove('hidden');
                 }
-                adminFailedAttempts++;
-                if (adminFailedAttempts >= 2) {
-                    const forgotContainer = document.getElementById('forgot-password-container');
-                    if (forgotContainer) forgotContainer.classList.remove('hidden');
+                if (isSystemAdmin(userId)) {
+                    adminFailedAttempts++;
+                    if (adminFailedAttempts >= 2) {
+                        const forgotContainer = document.getElementById('forgot-password-container');
+                        if (forgotContainer) forgotContainer.classList.remove('hidden');
+                    }
                 }
             } finally {
                 if (btn) {
@@ -434,12 +448,13 @@
                 updateBrandingUI();
                 
                 currentUser = loadAuthUser();
+                const lastActive = localStorage.getItem('last_active_time');
+                if (currentUser && lastActive && (Date.now() - parseInt(lastActive, 10) > 10 * 60 * 1000)) {
+                    saveAuthUser(null); // Expired session clear karein
+                    currentUser = null;
+                }
                 if (currentUser) {
-                    if (currentUser.userId === 'admin') {
-                        window.location.replace('Admin_Panel.html');
-                    } else {
-                        window.location.replace('School_Panel.html');
-                    }
+                    window.location.replace(currentUser.userId === 'admin' ? 'Admin_Panel.html' : 'School_Panel.html');
                     return;
                 }
 
@@ -503,12 +518,6 @@
                             }
                         });
                         input.addEventListener('blur', () => {
-                            if (input.type === 'email') {
-                                let val = input.value.trim();
-                                if (val && !val.includes('@')) {
-                                    input.value = val + '@gmail.com';
-                                }
-                            }
                             blurTimeout = setTimeout(() => {
                                 // Reset any page/overlay scroll shifts caused by the mobile keyboard
                                 overlay.scrollTop = 0;

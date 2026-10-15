@@ -32,8 +32,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, enableMultiTabIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
-        import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
-        import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-storage.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged, updatePassword } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
+        import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-storage.js";
 
         const firebaseConfig = {
     apiKey: "AIzaSyBMZ3LUNSQubKjanv4MNyDNsvKwPmsKQY8",
@@ -58,20 +58,31 @@
             window.storage = getStorage(app);
 
             window.firebaseAPI = {
-                initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged,
+                initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged, updatePassword,
                 db: window.db, auth: window.auth, storage: window.storage, firebaseConfig,
                 collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction,
-                signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, createUserWithEmailAndPassword,
-                getStorage, ref, uploadString, getDownloadURL,
+                getStorage, ref, uploadString, getDownloadURL, deleteObject,
                 firebaseConfig
             };
             console.log("Firebase initialized successfully.");
+
+            const SYSTEM_ADMIN_EMAILS = [
+                'identify.jvd@gmail.com',
+                'javedansari7566@gmail.com'
+            ];
+
+            function isSystemAdmin(emailOrUser) {
+                if (!emailOrUser) return false;
+                const email = (typeof emailOrUser === 'string' ? emailOrUser : (emailOrUser.email || emailOrUser.userId || '')).toLowerCase().trim();
+                if (!email) return false;
+                return SYSTEM_ADMIN_EMAILS.includes(email) || email === 'admin';
+            }
 
             onAuthStateChanged(window.auth, (user) => {
                 if (!user) {
                     localStorage.removeItem('student_auth_v1');
                     window.location.replace('Login_Panel.html?msg=session_expired');
-                } else if (user.email && (user.email.toLowerCase().includes('admin') || user.email.toLowerCase() === 'identify.jvd@gmail.com')) {
+                } else if (isSystemAdmin(user.email)) {
                     window.location.replace('Admin_Panel.html');
                 }
             });
@@ -79,8 +90,6 @@
             console.error("Firebase initialization error:", e);
         }
     </script>
-
-                            <link rel="manifest" href="manifest.json">
     <script src="db-helper.js"></script>
     <script src="cropper-helper.js"></script>
     <script src="card-generator.js"></script>
@@ -492,6 +501,15 @@
             }
 
             let photoData = null, originalFileName = '', currentFileType = '', pendingUploadedDocument = null, draftServerRecordId = '', db = [], bin = [];
+            window.setPhotoData = function(val) { photoData = val; };
+            window.getPhotoData = function() { return photoData; };
+            try {
+                Object.defineProperty(window, 'studentRecordsDb', {
+                    get: () => db,
+                    set: (val) => { db = val; },
+                    configurable: true
+                });
+            } catch(e) {}
             let isPendingBatch = false;
             let demoFallbackLoaded = false;
             let removeExistingDocument = false;
@@ -811,8 +829,8 @@
                     if (document.visibilityState === 'hidden') {
                         if (currentUser) {
                             visibilityLogoutTimer = setTimeout(() => {
-                                logoutUser('Session expired because the app was closed/inactive for 5 minutes.');
-                            }, 5 * 60 * 1000);
+                                logoutUser(true);
+                            }, AUTO_LOGOUT_MS);
                         }
                     } else {
                         if (visibilityLogoutTimer) {
@@ -823,7 +841,7 @@
                         const lastActive = localStorage.getItem('last_active_time');
                         if (currentUser && lastActive) {
                             const diff = Date.now() - parseInt(lastActive, 10);
-                            if (diff > 5 * 60 * 1000) {
+                            if (diff > AUTO_LOGOUT_MS) {
                                 logoutUser(true);
                                 return;
                             }
@@ -885,49 +903,6 @@
                 input.click();
             }
 
-            function setupPhotoUpload() {
-                const uploadInput = document.getElementById('photo-upload');
-                const captureInput = document.getElementById('photo-capture');
-                const removeBtn = document.getElementById('remove-photo-btn');
-                if (removeBtn) {
-                   const hasPhoto = !!(photoData || pendingUploadedDocument);
-                   if (!hasPhoto) removeBtn.classList.add('hidden');
-                }
-                if (uploadInput) {
-                    uploadInput.addEventListener('change', (e) => {
-                        handlePhotoFile(e.target.files[0]);
-                        e.target.value = '';
-                    });
-                }
-                if (captureInput) {
-                    captureInput.addEventListener('change', (e) => {
-                        handlePhotoFile(e.target.files[0]);
-                        e.target.value = '';
-                    });
-                }
-            }
-            function removePhoto(e) {
-                if(e) e.stopPropagation();
-                photoData = null;
-                clearPhotoPreview();
-                resetUploadFieldLabel('Upload Student');
-                clearPendingUploadedDocument(true);
-                
-                if (blankRecordMode === 'preview' || blankRecordMode === 'student') {
-                    if (previewRecord) {
-                        previewRecord.photo = '';
-                        previewRecord._displayPhotoSrc = '';
-                        previewRecord._isEditingMode = false;
-                        storeRecordInDb(previewRecord);
-                        queueServerDraftSync();
-                        
-                        if (blankRecordMode === 'preview') {
-                            renderCurrentRecordsPage();
-                        }
-                    }
-                }
-            }
-
             async function submitLogin() {
                 const userId = (document.getElementById('login-user-id').value || '').trim();
                 const password = (document.getElementById('login-password').value || '').trim();
@@ -967,7 +942,7 @@
                     const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, userId, password);
                     const user = userCredential.user;
                     
-                    if (user.email && (user.email.toLowerCase().includes('admin') || user.email.toLowerCase() === 'identify.jvd@gmail.com')) {
+                    if (isSystemAdmin(user.email)) {
                         throw new Error("This is an Admin email. Please use the Admin Panel.");
                     } else {
                         // All other emails are treated as School role in School Panel
@@ -990,7 +965,7 @@
                         errorEl.innerText = error.message;
                         errorEl.classList.remove('hidden');
                     }
-                    if (userId.toLowerCase() === 'admin' || userId.toLowerCase() === 'identify.jvd@gmail.com') {
+                    if (isSystemAdmin(userId)) {
                         adminFailedAttempts++;
                         if (adminFailedAttempts >= 2) {
                             const forgotContainer = document.getElementById('forgot-password-container');
@@ -1208,14 +1183,9 @@
                     facebook: facebook,
                     loginId: schoolId
                 };
-                delete newConfig.loginPassword; // Ensure plain text password is removed securely
+                delete newConfig.loginPassword; // Remove plain text password
                 delete newConfig.loginHash; // Remove old one-way hash if exists
-                
-                if (password) {
-                    newConfig.loginEnc = encryptLocal(password);
-                } else if (schoolConfig.loginEnc) {
-                    newConfig.loginEnc = schoolConfig.loginEnc;
-                }
+                delete newConfig.loginEnc; // Do NOT store reversible encrypted password in config!
                 
                 if (tempManageSchoolLogo) {
                     newConfig.logo = tempManageSchoolLogo;
@@ -1225,11 +1195,7 @@
                 saveSchoolConfig(newConfig);
                 updateBulkHeader();
 
-                if (schoolId || password) {
-                    if (!schoolId || !password) {
-                        showStatusCard('Notice', 'School Info Saved! But to create login, enter both User ID and Password.', { tone: 'warning', progress: 100, dismissible: true, autoHideMs: 4000 });
-                        return;
-                    }
+                if (password) {
                     if (password.length < 6) {
                         showStatusCard('Notice', 'School Info Saved! But password must be at least 6 characters.', { tone: 'warning', progress: 100, dismissible: true, autoHideMs: 4000 });
                         return;
@@ -1237,18 +1203,28 @@
 
                     if (btn) {
                         btn.disabled = true;
-                        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+                        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating Password...';
                     }
 
-                    setTimeout(() => {
-                        tempManageSchoolLogo = null;
-                        showStatusCard('Success', 'School Details & Local Login Updated Successfully!', { tone: 'success', progress: 100, dismissible: true, autoHideMs: 3000 });
-                        if (btn) {
-                            btn.disabled = false;
-                            btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save Details & Access';
-                        }
-                        openSchoolConfig(); // Goes to Settings overlay
-                    }, 500);
+                    if (window.auth && window.auth.currentUser && window.firebaseAPI && window.firebaseAPI.updatePassword) {
+                        window.firebaseAPI.updatePassword(window.auth.currentUser, password)
+                            .then(() => {
+                                showStatusCard('Success', 'School details & Firebase password updated successfully!', { tone: 'success', progress: 100, dismissible: true, autoHideMs: 3000 });
+                            })
+                            .catch(err => {
+                                console.warn('Firebase updatePassword error:', err);
+                                showStatusCard('Notice', 'School details saved, but password update failed: ' + (err.message || 'Please re-login to change password.'), { tone: 'warning', progress: 100, dismissible: true, autoHideMs: 5000 });
+                            })
+                            .finally(() => {
+                                if (btn) {
+                                    btn.disabled = false;
+                                    btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save Details & Access';
+                                }
+                                tempManageSchoolLogo = null;
+                                openSchoolConfig();
+                            });
+                        return;
+                    }
                 }
 
                 tempManageSchoolLogo = null;
@@ -1386,7 +1362,7 @@
                     const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, userId, password);
                     const user = userCredential.user;
                     
-                    if (user.email && (user.email.toLowerCase().includes('admin') || user.email.toLowerCase() === 'identify.jvd@gmail.com')) {
+                    if (isSystemAdmin(user.email)) {
                         throw new Error("This is an Admin email. Please use the Admin Panel.");
                     } else {
                         authUser = { userId: user.uid, name: (user.email ? user.email.split('@')[0] : 'School User'), role: 'school', email: user.email };
@@ -1407,7 +1383,7 @@
                         errorEl.innerText = error.message;
                         errorEl.classList.remove('hidden');
                     }
-                    if (userId.toLowerCase() === 'admin' || userId.toLowerCase() === 'identify.jvd@gmail.com') {
+                    if (isSystemAdmin(userId)) {
                         adminFailedAttempts++;
                         if (adminFailedAttempts >= 2) {
                             const forgotContainer = document.getElementById('forgot-password-container');
@@ -1459,7 +1435,7 @@
                 const lastActive = localStorage.getItem('last_active_time');
                 if (savedUser && lastActive) {
                     const diff = Date.now() - parseInt(lastActive, 10);
-                    if (diff > 5 * 60 * 1000) {
+                    if (diff > AUTO_LOGOUT_MS) {
                         localStorage.removeItem('last_active_time');
                         logoutUser(true);
                         return;
@@ -2678,7 +2654,8 @@
                 });
 
                 const nextSerial = String(maxSerial + 1).padStart(3, '0');
-                document.getElementById('in-idno').value = prefix + nextSerial;
+                const inIdEl = document.getElementById('in-idno');
+                if (inIdEl) inIdEl.value = prefix + nextSerial;
             }
 
             function generateStudentIdManual() {
@@ -2781,7 +2758,7 @@
                 return `${p.d}-${p.m}-${p.y}`;
             }
             function normalizeDateInputField() {
-                const input = document.getElementById('in-date');
+                const input = document.getElementById('in-dob') || document.getElementById('in-date');
                 if (!input) return '';
                 const rawValue = String(input.value || '').trim();
                 if (rawValue) input.dataset.displayDate = rawValue;
@@ -2795,8 +2772,8 @@
                 const p = parseDateParts(dateStr);
                 if (!p || !p.y) return '';
                 const now = new Date();
-                const nikahDate = new Date(`${p.y}-${p.m}-${p.d}`);
-                const diffMs = now - nikahDate;
+                const targetDate = new Date(`${p.y}-${p.m}-${p.d}`);
+                const diffMs = now - targetDate;
                 const diffYears = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 365));
                 if (diffYears > 0) return `${diffYears} Y`;
                 const diffMonths = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30));
@@ -3412,8 +3389,8 @@
 
                 const recentList = document.getElementById('recent-list'); 
                 if (recentList) {
-                    // Sort by most recently added/updated first and take top 8
-                    const recentSorted = db.slice().sort((a, b) => ((b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
+                    // Sort by most recently added/updated first and take top 8 (exclude deleted)
+                    const recentSorted = db.filter(r => !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true')).sort((a, b) => ((b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
                     let htmlContent = '';
                     recentSorted.slice(0, 8).forEach(x => {
                         const initial = (x.studentName || 'S').charAt(0).toUpperCase();
@@ -4216,7 +4193,7 @@
             function exportToExcel() {
                 if (db.length === 0) { showModal('error', 'Empty', 'No data to export'); return; }
                 const exportData = getSortedRecords(db).map((r, index) => {
-                    return {
+                    const row = {
                         'Sn': (() => {
                             const isRecVerified = (r.verified === true || String(r.verified).toLowerCase() === 'true' || r.verified === 'Completed');
                             const si = (schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('').toUpperCase() || "DPS";
@@ -4237,12 +4214,25 @@
                         'Father Name': r.fatherName || '',
                         'DOB': r.dob || '',
                         'Mobile': r.mobile || '',
+                        'Aadhar': r.aadhar || '',
                         'Address': r.address || '',
                         'Class': r.sclass || '',
                         'Gender': r.gender || '',
                         'Photo Name': r.fileName || '',
                         'Photo Link': r.docUrl || ''
                     };
+
+                    const activeFields = (r.recordType === 'staff' && typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields))
+                        ? fb_staff_fields
+                        : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                    if (Array.isArray(activeFields)) {
+                        activeFields.forEach((f, idx) => {
+                            if (f && f.label) {
+                                row[f.label] = r[`customField${idx + 1}`] || '';
+                            }
+                        });
+                    }
+                    return row;
                 });
                 const ws = XLSX.utils.json_to_sheet(exportData);
                 const wb = XLSX.utils.book_new();
@@ -4252,46 +4242,260 @@
             }
 
             function importFromExcel(input) {
-                const file = input.files[0]; if (!file) return;
+                const file = input && input.files ? input.files[0] : null;
+                if (!file) return;
+
                 const reader = new FileReader();
                 reader.onload = function (e) {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const json = XLSX.utils.sheet_to_json(firstSheet);
-                    const records = [];
-                    const excelDateToJSDate = (serial) => {
-                        if (typeof serial === 'string') return serial;
-                        const utc_days = Math.floor(serial - 25569);
-                        const utc_value = utc_days * 86400;
-                        const date_info = new Date(utc_value * 1000);
-                        return `${String(date_info.getDate()).padStart(2, '0')}-${String(date_info.getMonth() + 1).padStart(2, '0')}-${date_info.getFullYear()}`;
-                    }
-                    json.forEach(row => {
-                        const getVal = (k) => row[k] || row[Object.keys(row).find(key => key && key.toLowerCase().includes(k.toLowerCase()))] || '';
-                        const fmtText = (v) => toTitleCase(String(v || '').trim().replace(/\s+/g, ' '));
-                        const rec = {
-                            id: getVal('Id No') || getVal('id') || `TEMP_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-                            sn: getVal('Sn') || '',
-                            studentName: fmtText(getVal('Student Name') || getVal('Student_Name') || getVal('Name')),
-                            fatherName: fmtText(getVal('Father Name') || getVal('Father_Name') || getVal('Father')),
-                            dob: excelDateToJSDate(getVal('DOB') || getVal('Date of Birth') || ''),
-                            mobile: getVal('Mobile') || getVal('Phone'),
-                            address: fmtText(getVal('Address') || getVal('Place')),
-                            sclass: fmtText(getVal('Class') || getVal('Standard')),
-                            gender: fmtText(getVal('Gender') || getVal('Sex')),
-                            fileName: getVal('Photo Name') || getVal('fileName') || '',
-                            docUrl: getVal('Photo Link') || getVal('docUrl') || '',
-                            photoData: '', docFileId: '', docMimeType: '', docSize: ''
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+                            showModal('error', 'Import Failed', 'The selected Excel file is empty or invalid.');
+                            if (typeof closeAllMenus === 'function') closeAllMenus();
+                            input.value = '';
+                            return;
+                        }
+
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        // 1. Use sheet_to_json with defval: ''
+                        const json = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+                        if (!Array.isArray(json) || json.length === 0) {
+                            showModal('error', 'Import Failed', 'No rows found in the Excel sheet.');
+                            if (typeof closeAllMenus === 'function') closeAllMenus();
+                            input.value = '';
+                            return;
+                        }
+
+                        // 2. Smart column matcher
+                        const getColVal = (row, possibleNames, excludeWords = []) => {
+                            const rowKeys = Object.keys(row);
+                            const normExclude = excludeWords.map(w => w.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+                            // Step A: Exact normalized match
+                            for (const name of possibleNames) {
+                                const normName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                const foundKey = rowKeys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === normName);
+                                if (foundKey && row[foundKey] !== undefined && String(row[foundKey]).trim() !== '') {
+                                    return String(row[foundKey]).trim();
+                                }
+                            }
+
+                            // Step B: Partial match with strict exclusion check
+                            for (const name of possibleNames) {
+                                const normName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                const foundKey = rowKeys.find(k => {
+                                    const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                    if (!normK.includes(normName)) return false;
+                                    for (const ew of normExclude) {
+                                        if (normK.includes(ew)) return false;
+                                    }
+                                    return true;
+                                } );
+                                if (foundKey && row[foundKey] !== undefined && String(row[foundKey]).trim() !== '') {
+                                    return String(row[foundKey]).trim();
+                                }
+                            }
+                            return '';
                         };
-                        if (rec.studentName) records.push(rec);
-                    });
-                    if (records.length === 0) { showModal('error', 'Failed', 'No valid student records found.'); closeAllMenus(); input.value = ''; return; }
-                    serverCall('addManyRecords', [records], (count) => {
-                        showModal('success', 'Import Successful', `Successfully imported ${count || records.length} records into the system.`);
-                        loadAllData();
-                        closeAllMenus(); input.value = '';
-                    });
+
+                        // 3. Smart parseExcelDob helper
+                        const parseExcelDob = (val) => {
+                            if (!val && val !== 0) return '';
+                            const strVal = String(val).trim();
+                            if (!strVal) return '';
+
+                            // Handle numeric or string Excel serial date (between 10000 and 80000)
+                            const num = Number(strVal);
+                            if (!isNaN(num) && num >= 10000 && num <= 80000) {
+                                const utc_days = Math.floor(num - 25569);
+                                const utc_value = utc_days * 86400;
+                                const date_info = new Date(utc_value * 1000);
+                                const d = String(date_info.getUTCDate()).padStart(2, '0');
+                                const m = String(date_info.getUTCMonth() + 1).padStart(2, '0');
+                                const y = date_info.getUTCFullYear();
+                                return `${d}-${m}-${y}`;
+                            }
+
+                            // Handle standard date strings using formatDateDdMmYyyy
+                            if (typeof formatDateDdMmYyyy === 'function') {
+                                const formatted = formatDateDdMmYyyy(strVal);
+                                if (formatted) return formatted;
+                            }
+                            return strVal;
+                        };
+
+                        const fmtText = (v) => (typeof toTitleCase === 'function' ? toTitleCase(String(v || '').trim().replace(/\s+/g, ' ')) : String(v || '').trim().replace(/\s+/g, ' '));
+                        const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig.code ? schoolConfig.code : 'DPS').trim().toUpperCase() || 'DPS';
+                        const nowTs = Date.now();
+
+                        // 6. Calculate initial sequential SN
+                        let maxSn = 0;
+                        (Array.isArray(db) ? db : []).forEach(r => {
+                            const val = parseInt(r.sn, 10);
+                            if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+                        });
+                        let currentSn = maxSn;
+
+                        const records = [];
+
+                        // 4. Extract and format fields for each row
+                        json.forEach((row, idx) => {
+                            const studentName = fmtText(getColVal(row, ['Student Name', 'StudentName', 'Name', 'Student', 'Pupil Name'], ['father', 'mother', 'school', 'photo', 'file', 'user', 'guardian']));
+                            if (!studentName) return; // Skip rows without student name
+
+                            const fatherName = fmtText(getColVal(row, ['Father Name', 'FatherName', 'Father', 'Husband Name', 'Guardian Name', 'Parent Name'], ['student', 'mother', 'photo', 'school', 'user']));
+                            const sclass = fmtText(getColVal(row, ['Class', 'Standard', 'Grade', 'Course'], ['section', 'teacher', 'room'])) || 'General';
+                            const section = fmtText(getColVal(row, ['Section', 'Sec', 'Division', 'Div'], ['class', 'student']));
+
+                            // Gender parsing
+                            let rawGender = getColVal(row, ['Gender', 'Sex'], []);
+                            let gender = 'Male';
+                            if (rawGender) {
+                                const lowerG = rawGender.toLowerCase();
+                                if (lowerG.startsWith('f') || lowerG.includes('girl') || lowerG.includes('woman') || lowerG.includes('female')) {
+                                    gender = 'Female';
+                                } else if (lowerG.startsWith('m') || lowerG.includes('boy') || lowerG.includes('man') || lowerG.includes('male')) {
+                                    gender = 'Male';
+                                } else {
+                                    gender = fmtText(rawGender);
+                                }
+                            }
+
+                            const dob = parseExcelDob(getColVal(row, ['DOB', 'Date of Birth', 'Birth Date', 'BirthDate'], []));
+
+                            // Mobile: digits and commas only
+                            const rawMobile = getColVal(row, ['Mobile', 'Phone', 'Contact', 'Mobile No', 'Cell', 'Telephone'], ['landline']);
+                            const mobile = rawMobile.replace(/[^\d,]/g, '').trim();
+
+                            // Aadhar: 12 digits formatted as XXXX XXXX XXXX
+                            const rawAadhar = getColVal(row, ['Aadhar', 'Aadhaar', 'Aadhar No', 'UID', 'Aadhar Number'], []);
+                            const aadharDigits = rawAadhar.replace(/\D/g, '');
+                            let aadhar = '';
+                            if (aadharDigits.length === 12) {
+                                aadhar = `${aadharDigits.slice(0, 4)} ${aadharDigits.slice(4, 8)} ${aadharDigits.slice(8, 12)}`;
+                            } else if (rawAadhar) {
+                                aadhar = rawAadhar.trim();
+                            }
+
+                            const address = fmtText(getColVal(row, ['Address', 'Addr', 'City', 'Place', 'Village', 'Location', 'Residence'], []));
+                            const docUrl = getColVal(row, ['Photo Link', 'Photo URL', 'PhotoURL', 'docUrl', 'Image URL', 'Image Link', 'URL'], ['filename', 'name']);
+                            const fileName = getColVal(row, ['Photo File', 'Photo Name', 'PhotoFileName', 'fileName', 'Image File', 'Image Name', 'Photo'], ['link', 'url']);
+
+                            // 5. Generate safe unique ID
+                            const excelId = getColVal(row, ['Id No', 'Record ID', 'System ID', 'Student ID', 'RecordID', 'StudentID'], ['email', 'samagra', 'aadhar', 'photo', 'file', 'image']);
+                            const recId = (excelId && excelId.length > 3)
+                                ? excelId
+                                : `import_${schoolCode}_${nowTs}_${idx}_${Math.floor(Math.random() * 1000)}`;
+
+                            currentSn++;
+
+                            const rec = {
+                                id: recId,
+                                sn: currentSn,
+                                studentName: studentName,
+                                fatherName: fatherName,
+                                sclass: sclass,
+                                section: section,
+                                gender: gender,
+                                dob: dob,
+                                mobile: mobile,
+                                aadhar: aadhar,
+                                address: address,
+                                docUrl: docUrl,
+                                fileName: fileName,
+                                photoData: '',
+                                docFileId: '',
+                                docMimeType: '',
+                                docSize: '',
+                                // 7. Complete metadata
+                                verified: false,
+                                returned: false,
+                                isDeleted: false,
+                                isRestored: false,
+                                status: (docUrl && docUrl.length > 10) ? 'unverified' : 'pending',
+                                createdAt: nowTs + idx,
+                                updatedAt: nowTs + idx,
+                                timestamp: typeof getFormattedTimestamp === 'function' ? getFormattedTimestamp(nowTs) : new Date().toLocaleString(),
+                                createdBy: typeof getCurrentUserName === 'function' ? getCurrentUserName() : 'School',
+                                updatedBy: typeof getCurrentUserName === 'function' ? getCurrentUserName() : 'School',
+                                _syncStatus: 'syncing',
+                                _pending: true
+                            };
+
+                            // Map Custom Fields dynamically
+                            const isStaff = String(sclass).trim().toLowerCase() === 'staff';
+                            const activeCustomList = isStaff
+                                ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []))
+                                : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+
+                            if (Array.isArray(activeCustomList)) {
+                                activeCustomList.forEach((f, fIdx) => {
+                                    if (!f) return;
+                                    const cfKey = `customField${fIdx + 1}`;
+                                    const possibleNames = [];
+                                    if (f.label) possibleNames.push(f.label);
+                                    possibleNames.push(cfKey);
+                                    if (f.id) possibleNames.push(f.id);
+                                    const val = getColVal(row, possibleNames, []);
+                                    if (val) {
+                                        rec[cfKey] = val;
+                                    }
+                                });
+                            }
+
+                            records.push(rec);
+                        });
+
+                        if (records.length === 0) {
+                            showModal('error', 'Import Failed', 'No valid student records found in the Excel file.');
+                            if (typeof closeAllMenus === 'function') closeAllMenus();
+                            input.value = '';
+                            return;
+                        }
+
+                        // 8. Immediately store imported records into db and refresh UI
+                        records.forEach(r => {
+                            if (typeof storeRecordInDb === 'function') storeRecordInDb(r);
+                        });
+                        if (typeof persistLocalUnverified === 'function') persistLocalUnverified();
+                        if (typeof populateFilters === 'function') populateFilters();
+                        if (typeof renderHomeAnalysis === 'function') renderHomeAnalysis();
+                        if (typeof filterRecords === 'function') filterRecords();
+
+                        // 9. Call serverCall('addManyRecords', ...)
+                        serverCall('addManyRecords', [records],
+                            (count) => {
+                                records.forEach(r => {
+                                    if (typeof setRecordSyncState === 'function') setRecordSyncState(r.id, 'synced');
+                                });
+                                showModal('success', 'Import Successful', `Successfully imported ${count || records.length} records into the system.`);
+                                if (typeof loadAllData === 'function') loadAllData();
+                                if (typeof closeAllMenus === 'function') closeAllMenus();
+                                input.value = '';
+                            },
+                            (err) => {
+                                console.warn('addManyRecords server sync error, records saved locally as pending:', err);
+                                records.forEach(r => {
+                                    if (typeof setRecordSyncState === 'function') setRecordSyncState(r.id, 'pending');
+                                });
+                                showModal('warning', 'Saved Locally (Sync Pending)', `${records.length} records were saved locally on this device, but could not sync to cloud yet: ${(err && err.message) ? err.message : 'Network/Server Error'}. They will sync automatically when online.`);
+                                if (typeof closeAllMenus === 'function') closeAllMenus();
+                                input.value = '';
+                            }
+                        );
+                    } catch (parseErr) {
+                        console.error('Error importing Excel file:', parseErr);
+                        showModal('error', 'Import Error', 'Failed to read or parse the Excel file: ' + parseErr.message);
+                        if (typeof closeAllMenus === 'function') closeAllMenus();
+                        input.value = '';
+                    }
+                };
+                reader.onerror = function (readErr) {
+                    console.error('FileReader error:', readErr);
+                    showModal('error', 'File Read Error', 'Failed to read the file from disk.');
+                    if (typeof closeAllMenus === 'function') closeAllMenus();
+                    input.value = '';
                 };
                 reader.readAsArrayBuffer(file);
             }
@@ -4448,6 +4652,7 @@
                     const item = findRecordById(db, id);
                     db = db.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
                     try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
+                    registerLocalDeletion(id);
                     serverCallSilent('permanentDelete', [id]);
                     if (item) addActivity('PERM_DELETE', item);
                     count++;
@@ -4532,7 +4737,7 @@
             }
 
             function openDevPhoto() {
-                const photoUrl = schoolConfig.adminPhoto || 'Adminphoto .jpeg';
+                const photoUrl = schoolConfig.adminPhoto || 'idapplogo.png';
                 const overlay = document.createElement('div');
                 overlay.id = 'dev-photo-lightbox';
                 overlay.className = 'fixed inset-0 bg-black/85 backdrop-blur-sm z-[9999] flex items-center justify-center cursor-pointer p-4 transition-all duration-300 opacity-0';
@@ -4642,7 +4847,7 @@
                     `;
                     document.body.appendChild(overlay);
 
-                    serverCallSilent('deleteAllRecords', [], () => {
+                    serverCallSilent('deleteAllRecords', [], async () => {
                         db = [];
                         try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
                         lastFetchedSn = null;
@@ -4651,14 +4856,14 @@
                         try { if (window.SchoolLocalDB && SchoolLocalDB.clearQueue) SchoolLocalDB.clearQueue(); } catch(e){}
                         persistLocalUnverified();
                         
-                        try { if (window.idbClear) idbClear(IDB_STORE_RECORDS).catch(()=>{}); } catch(e){}
-                        document.body.removeChild(overlay);
+                        try { if (window.idbClear) await idbClear(IDB_STORE_RECORDS).catch(()=>{}); } catch(e){}
+                        if (overlay && overlay.parentNode) overlay.remove();
                         showToast('All System Data Deleted Successfully');
                         renderHomeAnalysis();
                         filterRecords();
                         setBlankRecordMode('none');
                     }, (err) => {
-                        document.body.removeChild(overlay);
+                        if (overlay && overlay.parentNode) overlay.remove();
                         showModal('error', 'Error Deleting Data', 'An error occurred while deleting data: ' + (err.message || 'Unknown error'));
                     });
                 }, 'Delete All');
@@ -4781,9 +4986,9 @@
                 const log = JSON.parse(localStorage.getItem(ACTIVITY_KEY) || '[]');
                 const entry = {
                     action: action,
-                    sanad: rec && rec.sanad ? rec.sanad : '',
-                    gname: rec && rec.gname ? rec.gname : '',
-                    bname: rec && rec.bname ? rec.bname : '',
+                    id: rec && rec.id ? rec.id : '',
+                    studentName: rec && rec.studentName ? rec.studentName : 'Unnamed Student',
+                    sclass: rec && rec.sclass ? rec.sclass : '',
                     time: new Date().toLocaleString(),
                     user: getCurrentUserName()
                 };
@@ -4813,7 +5018,7 @@
                         return 'bg-slate-100 text-slate-700';
                     };
                     log.slice().reverse().forEach(l => {
-                        const title = `${l.gname || 'Record'}${l.bname ? ' & ' + l.bname : ''}`;
+                        const title = `${l.studentName || l.name || 'Record'}${l.sclass ? ' (' + l.sclass + ')' : ''}`;
                         const userText = l.user ? `By: ${l.user}` : 'By: Admin';
                         container.innerHTML += `<div class="flex items-center justify-between p-3 bg-slate-50 border rounded-xl"><div><div class="font-bold text-sm text-slate-700">${title}</div><div class="text-xs font-semibold text-slate-600">${userText}</div><div class="text-xs text-slate-500">${l.time}</div></div><span class="text-xs font-bold ${color(l.action)} px-2 py-1 rounded">${l.action}</span></div>`;
                     });
@@ -4965,13 +5170,6 @@
                 });
                 const mobileEl = document.getElementById('in-mobile');
                 if (mobileEl) mobileEl.value = mobileEl.value;
-                const meherEl = document.getElementById('in-meher');
-                if (meherEl) {
-                    meherEl.value = formatMeherInputValue(meherEl.value);
-                    if (typeof updateMeherHindiPreview === 'function') {
-                        updateMeherHindiPreview(meherEl.value);
-                    }
-                }
                 const dobEl = document.getElementById('in-dob');
                 if (dobEl && typeof refreshBlankAgeBadge === 'function') {
                     refreshBlankAgeBadge(dobEl.value || '');
@@ -5374,20 +5572,30 @@
                 const eid = document.getElementById('edit-id').value;
                 const existing = eid ? findRecordById(db, eid) : null;
 
+                photoData = null;
                 clearPendingUploadedDocument(true);
                 originalFileName = '';
                 currentFileType = '';
-                document.getElementById('photo-upload').value = '';
-                document.getElementById('photo-capture').value = '';
+                if (document.getElementById('photo-upload')) document.getElementById('photo-upload').value = '';
+                if (document.getElementById('photo-capture')) document.getElementById('photo-capture').value = '';
                 removeExistingDocument = !!(existing && hasRecordDocument(existing));
 
                 clearPhotoPreview();
+                resetUploadFieldLabel('Upload Student');
                 const removeBtn = document.getElementById('remove-photo-btn');
                 if (removeBtn) removeBtn.classList.add('hidden');
 
+                if ((blankRecordMode === 'preview' || blankRecordMode === 'student') && previewRecord) {
+                    previewRecord.photo = '';
+                    previewRecord.photoData = '';
+                    previewRecord._displayPhotoSrc = '';
+                    previewRecord._isEditingMode = false;
+                    storeRecordInDb(previewRecord);
+                }
+
                 queueDraftSave('Document');
                 queueServerDraftAutosave();
-                renderCurrentRecordsPage();
+                if (blankRecordMode === 'preview') renderCurrentRecordsPage();
             }
             function showStatusCard(title, message, options = {}) {
                 const { progress = 22, tone = 'working', dismissible = false, autoHideMs = 0 } = options;
@@ -5531,9 +5739,9 @@
                     if (getCfg('address').enabled && getCfg('address').required && !addressVal.trim()) missing.push(getLbl('address', 'Address'));
 
                     // 3. Custom field validations
-                    activeCustomFields.forEach(f => {
-                        const el = document.getElementById('in-customField' + (activeCustomFields.indexOf(f) + 1));
-                        if (f.required && el && !el.value.trim()) missing.push(f.label);
+                    activeCustomFields.forEach((f, idx) => {
+                        const el = document.getElementById('in-customField' + (idx + 1));
+                        if (f && f.required && el && !el.value.trim()) missing.push(f.label);
                     });
 
                     if (missing.length > 0) {
@@ -5633,6 +5841,7 @@
                     const rec = {
                         sn: nextSn,
                         id: finalId,
+                        recordType: isStaffRecord ? 'staff' : 'student',
                         oldId: oldId, // Send old ID to server so it can replace the row
                         sclass: cl, gender: g, studentName: n,
                         fatherName: getVal('fatherName'),
@@ -5664,7 +5873,7 @@
                         verifiedAt: existing ? (existing.verifiedAt || '') : ''
                     };
 
-                    fb_fields.forEach((f, i) => {
+                    activeCustomFields.forEach((f, i) => {
                         rec['customField' + (i + 1)] = getVal('customField' + (i + 1));
                     });
 
@@ -6156,26 +6365,34 @@
                             await new Promise(r => setTimeout(r, 0));
                         }
                         
-                        exportData.push({
+                        const rowData = {
                             "ID": rec.id || "",
                             "Student Name": rec.studentName || "",
                             "Class": rec.sclass || "",
                             "Father Name": rec.fatherName || "",
-                            "Mother Name": rec.motherName || "",
+                            "Gender": rec.gender || "",
                             "DOB": rec.dob || "",
-                            "Blood Group": rec.bloodGroup || "",
-                            "Address": rec.address || "",
-                            "Mobile 1": rec.mobile1 || "",
-                            "Mobile 2": rec.mobile2 || "",
-                            "Transport": rec.transport || "",
-                            "House": rec.house || "",
+                            "Mobile": rec.mobile || "",
                             "Aadhar": rec.aadhar || "",
-                            "Admission No": rec.admissionNo || "",
+                            "Address": rec.address || "",
                             "Status": rec.status || "",
                             "Verified": rec.verified || "",
                             "Photo File": photoFileName,
                             "QR File": qrFileName
-                        });
+                        };
+
+                        // Custom Fields (Form Builder) ko dynamically add karein:
+                        const activeFields = (rec.recordType === 'staff' && typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields)) 
+                            ? fb_staff_fields 
+                            : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                        if (Array.isArray(activeFields)) {
+                            activeFields.forEach((f, idx) => {
+                                if (f && f.label) {
+                                    rowData[f.label] = rec[`customField${idx + 1}`] || "";
+                                }
+                            });
+                        }
+                        exportData.push(rowData);
                     }
                     
                     showToast("Zipping files...");
@@ -6906,7 +7123,7 @@
                             <!-- Contact Person & Mobile (inline, same text size) -->
                             <div class="text-[10px] text-slate-700 font-extrabold leading-normal truncate flex items-center gap-1.5">
                                 <span class="truncate"><i class="fa-solid fa-user-tie text-emerald-600 mr-1 text-[9px]"></i>${schoolConfig.contactPerson || 'Contact not set'}</span>
-                                <span class="text-slate-400">â€¢</span>
+                                <span class="text-slate-400">&bull;</span>
                                 <span class="text-slate-800 font-black tracking-wider uppercase shrink-0">
                                     ${schoolConfig.mobile ? `
                                         <a href="tel:${schoolConfig.mobile}" class="hover:underline hover:text-emerald-700 transition-colors">
@@ -7020,7 +7237,7 @@
                         <div class="system-card p-5 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
                             <div class="flex items-center gap-3">
                                 <button type="button" onclick="openDevPhoto()" class="w-10 h-10 rounded-xl overflow-hidden bg-indigo-50 flex items-center justify-center border border-slate-200 shrink-0 transition-all hover:scale-105 active:scale-95" aria-label="Open developer photo">
-                                    <img src="${schoolConfig.adminPhoto || 'Adminphoto .jpeg'}" alt="Admin Photo" class="w-full h-full object-cover">
+                                    <img src="${schoolConfig.adminPhoto || 'idapplogo.png'}" alt="Admin Photo" class="w-full h-full object-cover">
                                 </button>
                                 <div>
                                     <h4 class="text-sm font-normal">
@@ -7192,7 +7409,7 @@
                                         </div>
                                         <div class="relative">
                                             <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-key"></i> Password</label>
-                                            <input type="password" id="new-school-pass" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-purple-400 transition pr-10" placeholder="New Password (min 6 chars)" value="${schoolConfig.loginEnc ? decryptLocal(schoolConfig.loginEnc) : (schoolConfig.loginPassword || '')}">
+                                            <input type="password" id="new-school-pass" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-purple-400 transition pr-10" placeholder="New Password (min 6 chars, leave blank to keep)" value="">
                                             <button type="button" onclick="toggleManagePassword()" class="absolute right-3 top-[34px] text-slate-400 hover:text-purple-600 transition">
                                                 <i id="manage-pass-icon" class="fa-solid fa-eye text-sm"></i>
                                             </button>
@@ -8902,6 +9119,7 @@
                 modal.appendChild(container);
                 document.body.appendChild(modal);
             }
+            const openImageZoomModal = openImagePreviewModal;
 
             // --- HOME CARD EXPAND/COLLAPSE ---
             const expandTimers = new Map();
@@ -9152,7 +9370,7 @@
                         <!-- Contact & Mobile (inline, same text size) -->
                         <div class="hidden text-[9.5px] text-slate-700 font-extrabold leading-tight truncate flex items-center gap-1.5">
                             <span class="truncate"><i class="fa-solid fa-user-tie text-emerald-600 mr-1 text-[8.5px]"></i><span id="settings-school-contact-display">--</span></span>
-                            <span class="text-slate-400">â€¢</span>
+                            <span class="text-slate-400">&bull;</span>
                             <span class="text-slate-800 font-black tracking-wider uppercase shrink-0">
                                 <a id="settings-school-mobile-link" href="#" class="hover:underline hover:text-emerald-700 transition-colors">
                                     <i class="fa-solid fa-phone text-emerald-600 mr-1 text-[8.5px]"></i><span id="settings-school-mobile-display">--</span>
@@ -9252,6 +9470,54 @@
         const savedCfg = localStorage.getItem('identifyCustomFields');
         let customFieldsConfig = { customField1: { active: false, label: 'Custom 1' }, customField2: { active: false, label: 'Custom 2' }, customField3: { active: false, label: 'Custom 3' }, customField4: { active: false, label: 'Custom 4' }, customField5: { active: false, label: 'Custom 5' } };
         if (savedCfg) { try { customFieldsConfig = JSON.parse(savedCfg); } catch (e) { } }
+
+        let cameraStream = null;
+        window.openCameraModal = async function() {
+            const modal = document.getElementById('camera-modal');
+            const video = document.getElementById('camera-video');
+            if (!modal || !video) return;
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+                video.srcObject = cameraStream;
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            } catch (err) {
+                console.error("Camera access error:", err);
+                if (typeof showToast === 'function') showToast("Camera access denied or unavailable.");
+            }
+        };
+
+        window.closeCameraModal = function() {
+            const modal = document.getElementById('camera-modal');
+            const video = document.getElementById('camera-video');
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(t => t.stop());
+                cameraStream = null;
+            }
+            if (video) video.srcObject = null;
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        };
+
+        window.takeSnapshot = function() {
+            const video = document.getElementById('camera-video');
+            const canvas = document.getElementById('camera-canvas');
+            if (!video || !canvas) return;
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            window.closeCameraModal();
+            if (typeof showPhotoPreview === 'function') showPhotoPreview(dataUrl);
+            if (typeof window.setPhotoData === 'function') window.setPhotoData(dataUrl);
+            else if (typeof photoData !== 'undefined') photoData = dataUrl;
+        };
 
         function openFormBuilder() {
             closeSchoolConfig();

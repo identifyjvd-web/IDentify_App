@@ -41,12 +41,14 @@ if (workbox) {
     })
   );
 
-  // Cache External CDNs (Tailwind, Firebase, etc)
+  // Cache External CDNs (Tailwind, Firebase, Fonts, etc)
   workbox.routing.registerRoute(
     ({url}) => url.origin === 'https://unpkg.com' || 
                url.origin === 'https://cdn.tailwindcss.com' || 
                url.origin === 'https://cdnjs.cloudflare.com' || 
                url.origin === 'https://cdn.sheetjs.com' ||
+               url.origin === 'https://fonts.googleapis.com' ||
+               url.origin === 'https://fonts.gstatic.com' ||
                url.origin === 'https://www.gstatic.com', // Firebase JS SDKs
     new workbox.strategies.StaleWhileRevalidate({
       cacheName: 'cdn-cache',
