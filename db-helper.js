@@ -195,10 +195,43 @@ async function syncOfflineQueueNow() {
 
 window.syncOfflineQueueNow = syncOfflineQueueNow;
 window.addEventListener('online', syncOfflineQueueNow);
-window.addEventListener('focus', syncOfflineQueueNow);
-document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') syncOfflineQueueNow();
+window.addEventListener('focus', () => {
+    syncOfflineQueueNow();
+    if (typeof loadAllData === 'function') loadAllData();
 });
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        syncOfflineQueueNow();
+        if (typeof loadAllData === 'function') loadAllData();
+    }
+});
+
+// Real-time Cross-Tab Broadcast Channel (instant zero-delay sync between tabs on same browser)
+const appSyncChannel = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('identify_app_sync') : null;
+if (appSyncChannel) {
+    appSyncChannel.onmessage = (event) => {
+        if (event && event.data && event.data.type === 'RECORD_SYNC_EVENT') {
+            console.log('[BroadcastChannel] Instant sync event received:', event.data.action);
+            if (typeof loadAllData === 'function') {
+                loadAllData();
+            }
+        }
+    };
+}
+
+function broadcastAppSync(action, payload) {
+    if (appSyncChannel) {
+        try {
+            appSyncChannel.postMessage({
+                type: 'RECORD_SYNC_EVENT',
+                action: action,
+                payload: (payload && payload.id) ? payload.id : payload,
+                timestamp: Date.now()
+            });
+        } catch (e) {}
+    }
+}
+window.broadcastAppSync = broadcastAppSync;
 
 function serverCall(fn, args, onSuccess, onFailure) {
     if (['addRecord', 'submitStudentData', 'updateRecord', 'deleteRecord', 'restoreRecord', 'permanentDelete', 'permDelete'].includes(fn) && !shouldSyncRecordToServer(fn, args)) {
@@ -224,11 +257,34 @@ function serverCall(fn, args, onSuccess, onFailure) {
         }
     }
 
-    if (window.db && window.firebaseAPI) {
-        handleFirebaseCall(fn, args, onSuccess, onFailure);
-    } else {
-        if (fn === 'getRecords') setTimeout(() => onSuccess(typeof mockRecords !== 'undefined' ? mockRecords : []), 500);
-        else setTimeout(() => onFailure(new Error("Firebase is not initialized or offline")), 500);
+    function tryHandleFirebase() {
+        if (window.db && window.firebaseAPI) {
+            handleFirebaseCall(fn, args, (res) => {
+                if (['addRecord', 'submitStudentData', 'addManyRecords', 'updateRecord', 'updateStudentData', 'deleteRecord', 'restoreRecord', 'permanentDelete', 'permDelete', 'saveFormFields'].includes(fn)) {
+                    broadcastAppSync(fn, args && args[0]);
+                }
+                if (onSuccess) onSuccess(res);
+            }, onFailure);
+            return true;
+        }
+        return false;
+    }
+
+    if (!tryHandleFirebase()) {
+        let attempts = 0;
+        const interval = setInterval(() => {
+            attempts++;
+            if (tryHandleFirebase()) {
+                clearInterval(interval);
+            } else if (attempts >= 60) { // 6 seconds timeout
+                clearInterval(interval);
+                if (fn === 'getRecords') {
+                    if (onSuccess) onSuccess(typeof mockRecords !== 'undefined' ? mockRecords : []);
+                } else {
+                    if (onFailure) onFailure(new Error("Firebase is not initialized or offline"));
+                }
+            }
+        }, 100);
     }
 }
 
@@ -350,16 +406,24 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
     try {
         if (fn === 'getRecords') {
             if (window._recordsUnsubscribe) {
-                window._recordsUnsubscribe();
+                try { window._recordsUnsubscribe(); } catch (e) {}
             }
-            const q = query(collection(window.db, "records"), orderBy("updatedAt", "desc"));
-            window._recordsUnsubscribe = onSnapshot(q, (querySnapshot) => {
+            const colRef = collection(window.db, "records");
+            window._recordsUnsubscribe = onSnapshot(colRef, (querySnapshot) => {
                 const records = [];
-                querySnapshot.forEach((doc) => { records.push({ id: doc.id, ...doc.data() }); });
+                querySnapshot.forEach((doc) => {
+                    records.push({ id: doc.id, ...doc.data() });
+                });
                 if (onSuccess) onSuccess(records);
             }, (error) => {
                 console.error("Firebase Snapshot Error:", error);
-                if (onFailure) onFailure(error);
+                getDocs(colRef).then((snapshot) => {
+                    const fallbackRecords = [];
+                    snapshot.forEach((doc) => { fallbackRecords.push({ id: doc.id, ...doc.data() }); });
+                    if (onSuccess) onSuccess(fallbackRecords);
+                }).catch((e) => {
+                    if (onFailure) onFailure(e);
+                });
             });
         } else if (fn === 'submitStudentData' || fn === 'addRecord') {
             const data = args[0];

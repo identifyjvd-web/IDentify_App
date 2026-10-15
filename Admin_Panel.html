@@ -66,6 +66,12 @@
                 firebaseConfig
             };
             console.log("Firebase initialized successfully.");
+            window.dispatchEvent(new CustomEvent('firebase-initialized'));
+            setTimeout(() => {
+                if (typeof loadAllData === 'function') {
+                    loadAllData();
+                }
+            }, 50);
 
             const SYSTEM_ADMIN_EMAILS = [
                 'identify.jvd@gmail.com',
@@ -85,6 +91,10 @@
                     window.location.replace('Login_Panel.html?msg=session_expired');
                 } else if (!isSystemAdmin(user.email)) {
                     window.location.replace('School_Panel.html');
+                } else {
+                    if (typeof loadAllData === 'function') {
+                        loadAllData();
+                    }
                 }
             });
         } catch (e) {
@@ -1303,6 +1313,12 @@
                     }
                 }
             }
+
+            window.addEventListener('firebase-initialized', () => {
+                if (loadAuthUser() && typeof loadAllData === 'function') {
+                    loadAllData();
+                }
+            });
             function logoutUser(isAuto = false) {
                 stopAutoLogoutTimer();
                 saveAuthUser(null);
@@ -3967,6 +3983,12 @@
                             const val = parseInt(r.sn, 10);
                             if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
                         });
+                        (Array.isArray(bin) ? bin : []).forEach(r => {
+                            const val = parseInt(r.sn, 10);
+                            if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+                        });
+                        const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
+                        if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
                         let currentSn = maxSn;
 
                         const records = [];
@@ -4090,6 +4112,7 @@
                         records.forEach(r => {
                             if (typeof storeRecordInDb === 'function') storeRecordInDb(r);
                         });
+                        try { localStorage.setItem(SN_KEY, currentSn); } catch(e){}
                         if (typeof persistLocalUnverified === 'function') persistLocalUnverified();
                         if (typeof populateFilters === 'function') populateFilters();
                         if (typeof renderHomeAnalysis === 'function') renderHomeAnalysis();
@@ -5287,7 +5310,14 @@
                             const val = parseInt(r.sn, 10);
                             if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
                         });
+                        (Array.isArray(bin) ? bin : []).forEach(r => {
+                            const val = parseInt(r.sn, 10);
+                            if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+                        });
+                        const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
+                        if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
                         nextSn = maxSn + 1;
+                        try { localStorage.setItem(SN_KEY, nextSn); } catch(e){}
                     }
 
                     // Check duplicate record locally (Student Name, Father Name, Class)
@@ -5858,11 +5888,16 @@
                     
                     selectedRecords.forEach(id => {
                         const rec = db.find(x => String(x.id) === String(id));
-                        if (rec) recordsToExport.push(rec);
+                        if (rec && !rec.isDeleted && String(rec.isDeleted).toLowerCase() !== 'true') {
+                            recordsToExport.push(rec);
+                        }
                     });
                     
                     const qrEnabled = localStorage.getItem('identify_qr_enabled') === 'true';
                     const savedQrFields = JSON.parse(localStorage.getItem('identify_qr_fields') || '["id"]');
+                    const schoolName = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.name || schoolConfig.schoolName)) ? (schoolConfig.name || schoolConfig.schoolName) : 'Delhi Public School';
+                    const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('') || "DPS").toUpperCase();
+                    const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify';
                     
                     for (let i = 0; i < recordsToExport.length; i++) {
                         const rec = recordsToExport[i];
@@ -5874,22 +5909,43 @@
                         let qrFileName = "";
                         if (qrEnabled) {
                             try {
-                                let qrVal = "";
-                                if (savedQrFields.length === 1 && savedQrFields[0] === 'id') {
-                                    qrVal = String(rec.id);
-                                } else {
-                                    const obj = {};
-                                    savedQrFields.forEach(f => {
-                                        // For special labels, we might want to map keys to labels if needed. 
-                                        // But raw data works.
-                                        obj[f] = rec[f] || "";
-                                    });
-                                    qrVal = JSON.stringify(obj);
-                                }
+                                const lines = [];
+                                savedQrFields.forEach(f => {
+                                    let label = f;
+                                    let val = '';
+                                    if (f === '_schoolName') {
+                                        label = 'School Name';
+                                        val = schoolName;
+                                    } else if (f === '_appName') {
+                                        label = 'App Name';
+                                        val = appName;
+                                    } else if (f === 'id') {
+                                        label = 'System ID';
+                                        val = rec.id || '';
+                                    } else if (f === 'sn') {
+                                        label = 'SN';
+                                        const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
+                                        const snVal = (rec.sn && Number(rec.sn) < 1000000000 && Number(rec.sn) > 0) ? rec.sn : '1';
+                                        val = `${schoolCode}${year}${String(snVal).padStart(3, '0')}`;
+                                    } else if (typeof FB_STANDARD_FIELDS !== 'undefined' && FB_STANDARD_FIELDS.some(sf => sf.id === f)) {
+                                        label = typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel(f, FB_STANDARD_FIELDS.find(sf => sf.id === f).label) : FB_STANDARD_FIELDS.find(sf => sf.id === f).label;
+                                        val = rec[f] || '';
+                                    } else if (typeof fb_fields !== 'undefined' && fb_fields.some(cf => cf.id === f)) {
+                                        label = fb_fields.find(cf => cf.id === f).label || f;
+                                        val = rec[f] || '';
+                                    } else {
+                                        val = rec[f] || '';
+                                    }
+                                    if (val !== undefined && val !== null && String(val).trim() !== '') {
+                                        lines.push(`${label}: ${String(val).trim()}`);
+                                    }
+                                });
+                                const qrVal = lines.length > 0 ? lines.join('\n') : String(rec.id || 'NID');
                                 const qr = new QRious({
                                     value: qrVal,
-                                    size: 300,
-                                    level: 'H'
+                                    size: 400,
+                                    padding: 24,
+                                    level: 'M'
                                 });
                                 const qrBase64 = qr.toDataURL().split(',')[1];
                                 qrFileName = `QR_${baseFilename}.png`;
@@ -7715,6 +7771,14 @@
                 if (hCls) hCls.classList.toggle('active', activeClassFilter !== 'all');
                 if (clsBtn) clsBtn.classList.toggle('active', activeClassFilter !== 'all');
 
+                const activeChipEl = (activeStatusFilter === 'verified') ? verBtn :
+                                     (activeStatusFilter === 'unverified') ? unverBtn :
+                                     (activeStatusFilter === 'pending') ? penBtn :
+                                     (activeStatusFilter === 'recycleBin') ? binBtn : allBtn;
+                if (activeChipEl && typeof activeChipEl.scrollIntoView === 'function') {
+                    activeChipEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                }
+
                 filterRecords();
             }
 
@@ -8596,19 +8660,23 @@
             }
 
             let _homeTouchStartX = 0;
+            let _homeTouchStartY = 0;
             function handleHomeTouchStart(e) {
                 if (blankRecordMode !== 'none') return;
                 if (e.changedTouches && e.changedTouches.length > 0) {
                     _homeTouchStartX = e.changedTouches[0].screenX;
+                    _homeTouchStartY = e.changedTouches[0].screenY;
                 }
             }
             function handleHomeTouchEnd(e) {
                 if (blankRecordMode !== 'none') return;
                 if (e.changedTouches && e.changedTouches.length > 0) {
                     let touchEndX = e.changedTouches[0].screenX;
-                    let diff = touchEndX - _homeTouchStartX;
-                    if (Math.abs(diff) > 70) {
-                        handleHomeSwipe(diff > 0 ? 'right' : 'left');
+                    let touchEndY = e.changedTouches[0].screenY;
+                    let diffX = touchEndX - _homeTouchStartX;
+                    let diffY = touchEndY - _homeTouchStartY;
+                    if (Math.abs(diffX) > 60 && Math.abs(diffX) > Math.abs(diffY) * 1.2) {
+                        handleHomeSwipe(diffX > 0 ? 'right' : 'left');
                     }
                 }
             }
@@ -8636,8 +8704,29 @@
                     handleSmartBack();
                 }
             }, { passive: true });
+
+            let lastHapticFeedbackAt = 0;
+            function triggerHapticFeedback(pattern = 3) {
+                try {
+                    if (!navigator.vibrate || !window.matchMedia('(pointer: coarse)').matches) return;
+                    const now = Date.now();
+                    if (now - lastHapticFeedbackAt < 90) return;
+                    lastHapticFeedbackAt = now;
+                    navigator.vibrate(pattern);
+                } catch (e) {}
+            }
+
             function handleHomeSwipe(direction) {
-                // Swipe disabled in Admin Panel
+                const statuses = ['all', 'verified', 'unverified', 'pending'];
+                let currentIndex = statuses.indexOf(activeStatusFilter);
+                if (currentIndex === -1) currentIndex = 0;
+                if (direction === 'left') {
+                    currentIndex = (currentIndex + 1) % statuses.length;
+                } else {
+                    currentIndex = (currentIndex - 1 + statuses.length) % statuses.length;
+                }
+                triggerHapticFeedback(3);
+                setChipFilter('status', statuses[currentIndex]);
             }
 
             // --- STUDENT DETAIL POPUP (HOME PAGE ROW TAP) ---
@@ -9207,10 +9296,22 @@
                 toast = document.createElement('div');
                 toast.id = '_global_toast';
                 // Button-like Toast Styling (Green Variation, No Glow)
-                toast.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%) scale(0.85) translateY(-20px);background:#059669;color:#ffffff;height:36px;padding:0 24px;border-radius:999px;font-size:14.5px;font-weight:700;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.15);opacity:0;transition:all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);pointer-events:none;white-space:nowrap;display:flex;align-items:center;justify-content:center;';
-                // Removed the yellow dot indicator
-                toast.innerHTML = `<span id="_global_toast_msg"></span>`;
+                toast.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%) scale(0.85) translateY(-20px);background:#059669;color:#ffffff;height:36px;padding:0 24px;border-radius:999px;font-size:14.5px;font-weight:700;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.15);opacity:0;transition:all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);pointer-events:none;white-space:nowrap;display:flex;align-items:center;justify-content:center;';
+                toast.innerHTML = `<span id="_global_toast_msg" style="display:inline-flex;align-items:center;gap:6px;"></span>`;
                 document.body.appendChild(toast);
+            }
+
+            const headerDb = document.getElementById('records-header-standard-db');
+            if (headerDb) {
+                const rect = headerDb.getBoundingClientRect();
+                const centerToastTop = Math.round(rect.top + (rect.height - 36) / 2);
+                if (centerToastTop > 0) {
+                    toast.style.top = `${centerToastTop}px`;
+                } else {
+                    toast.style.top = '14px';
+                }
+            } else {
+                toast.style.top = '14px';
             }
 
             document.getElementById('_global_toast_msg').innerHTML = message;
@@ -10633,6 +10734,57 @@
                     
                     <!-- Export Content -->
                     <div id="ie-content-export" class="space-y-4 block w-full">
+                        
+                        <!-- Step 1: Select Data to Export (Status Filters) -->
+                        <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm w-full">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <h3 class="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                    <i class="fa-solid fa-filter text-blue-500"></i> Select Data to Export
+                                </h3>
+                                <span id="ie-export-count-badge" class="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700">0 Records Selected</span>
+                            </div>
+                            <p class="text-[10px] text-slate-500 mb-3 leading-tight">Choose which records from your current software data to include in this export.</p>
+                            
+                            <div class="grid grid-cols-2 gap-2">
+                                <!-- All Current Data -->
+                                <label class="flex items-center gap-2.5 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50/50 transition">
+                                    <input type="checkbox" id="ie-filter-all" onchange="ie_toggleAllStatusFilter(this.checked)" class="w-4 h-4 accent-blue-600 rounded" checked>
+                                    <div class="flex-1 min-w-0">
+                                        <span class="text-xs font-bold text-slate-800">All Current Data</span>
+                                        <span id="ie-cnt-all" class="text-[10px] text-slate-500 font-bold block">0 records</span>
+                                    </div>
+                                </label>
+
+                                <!-- Verified Only -->
+                                <label class="flex items-center gap-2.5 p-3 bg-emerald-50/40 rounded-xl border border-emerald-200/60 cursor-pointer hover:bg-emerald-50 transition">
+                                    <input type="checkbox" value="verified" class="ie-status-cb w-4 h-4 accent-emerald-600 rounded" onchange="ie_onStatusFilterChange()" checked>
+                                    <div class="flex-1 min-w-0">
+                                        <span class="text-xs font-bold text-emerald-800 flex items-center gap-1.5"><i class="fa-solid fa-circle-check text-emerald-500 text-[11px]"></i> Verified Only</span>
+                                        <span id="ie-cnt-verified" class="text-[10px] text-emerald-600 font-bold block">0 records</span>
+                                    </div>
+                                </label>
+
+                                <!-- Unverified -->
+                                <label class="flex items-center gap-2.5 p-3 bg-amber-50/40 rounded-xl border border-amber-200/60 cursor-pointer hover:bg-amber-50 transition">
+                                    <input type="checkbox" value="unverified" class="ie-status-cb w-4 h-4 accent-amber-500 rounded" onchange="ie_onStatusFilterChange()" checked>
+                                    <div class="flex-1 min-w-0">
+                                        <span class="text-xs font-bold text-amber-800 flex items-center gap-1.5"><i class="fa-solid fa-clock text-amber-500 text-[11px]"></i> Unverified</span>
+                                        <span id="ie-cnt-unverified" class="text-[10px] text-amber-600 font-bold block">0 records</span>
+                                    </div>
+                                </label>
+
+                                <!-- No Photo / Pending -->
+                                <label class="flex items-center gap-2.5 p-3 bg-rose-50/40 rounded-xl border border-rose-200/60 cursor-pointer hover:bg-rose-50 transition">
+                                    <input type="checkbox" value="pending" class="ie-status-cb w-4 h-4 accent-rose-500 rounded" onchange="ie_onStatusFilterChange()" checked>
+                                    <div class="flex-1 min-w-0">
+                                        <span class="text-xs font-bold text-rose-800 flex items-center gap-1.5"><i class="fa-solid fa-image-slash text-rose-500 text-[11px]"></i> No Photo (Pending)</span>
+                                        <span id="ie-cnt-pending" class="text-[10px] text-rose-600 font-bold block">0 records</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Select Fields to Export -->
                         <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm w-full">
                             <h3 class="text-[11px] font-black text-slate-800 mb-3 uppercase tracking-wider flex items-center gap-2"><i class="fa-solid fa-table-columns text-blue-500"></i> Select Fields to Export</h3>
                             <div id="ie-export-fields-grid" class="grid grid-cols-2 gap-2">
@@ -10640,6 +10792,7 @@
                             </div>
                         </div>
                         
+                        <!-- Step 3: Advanced Options -->
                         <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-4 w-full">
                             <h3 class="text-[11px] font-black text-slate-800 mb-2 uppercase tracking-wider flex items-center gap-2"><i class="fa-solid fa-sliders text-blue-500"></i> Advanced Options</h3>
                             
@@ -10647,7 +10800,7 @@
                                 <input type="checkbox" id="ie-export-photos" class="w-4 h-4 accent-blue-600">
                                 <div class="flex-1">
                                     <p class="text-[13px] font-bold text-slate-800">Include Photos</p>
-                                    <p class="text-[10px] text-slate-500 leading-tight mt-0.5">Downloads images into a separate folder</p>
+                                    <p class="text-[10px] text-slate-500 leading-tight mt-0.5">Downloads images into a separate folder (Photos/)</p>
                                 </div>
                             </label>
                             
@@ -10655,12 +10808,16 @@
                                 <input type="checkbox" id="ie-export-qr" onchange="ie_toggleExportQrFields()" class="w-4 h-4 accent-blue-600">
                                 <div class="flex-1">
                                     <p class="text-[13px] font-bold text-slate-800">Generate QR Codes</p>
-                                    <p class="text-[10px] text-slate-500 leading-tight mt-0.5">Creates QR code images for each record</p>
+                                    <p class="text-[10px] text-slate-500 leading-tight mt-0.5">Creates high-definition scannable QR code images for each record</p>
                                 </div>
                             </label>
                             
-                            <div id="ie-export-qr-options" class="hidden pl-8 pr-3 py-3 mt-2 border-l-2 border-blue-200 w-full">
-                                <p class="text-[10px] font-bold text-slate-600 mb-2 uppercase tracking-wider">Select QR Data Fields</p>
+                            <div id="ie-export-qr-options" class="hidden pl-4 pr-2 py-3 mt-2 border-l-2 border-blue-400 bg-blue-50/20 rounded-r-xl w-full">
+                                <div class="flex items-center justify-between mb-2">
+                                    <p class="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5"><i class="fa-solid fa-qrcode text-blue-600"></i> Select QR Data Fields</p>
+                                    <span class="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Scans directly on phone camera</span>
+                                </div>
+                                <p class="text-[10px] text-slate-500 mb-2.5 leading-tight">Tick the details you want to encode inside the QR code. When scanned, these exact details will appear.</p>
                                 <div id="ie-export-qr-fields-grid" class="grid grid-cols-2 gap-2">
                                     <!-- Injected by JS -->
                                 </div>
@@ -10690,12 +10847,124 @@
     function ie_switchTab(tab) {
         // Obsolete
     }
+
+    function ie_getRecordStatus(rec) {
+        if (!rec) return 'unknown';
+        const isReturned = (String(rec.verified).toLowerCase() === 'returned' || String(rec.status).toLowerCase() === 'returned' || rec.returned === true || String(rec.returned).toLowerCase() === 'true');
+        const isRecVerified = (rec.verified === true || String(rec.verified).toLowerCase() === 'true' || rec.verified === 'Completed') && !isReturned;
+        const hasAppPhoto = (rec.docUrl && rec.docUrl.length > 10) || (rec.photoData && rec.photoData.length > 10) || (rec.docFileId && String(rec.docFileId).length > 5);
+
+        if (isRecVerified) return 'verified';
+        if (hasAppPhoto || isReturned) return 'unverified';
+        return 'pending';
+    }
+
+    function ie_updateStatusCounts() {
+        let verCount = 0;
+        let unverCount = 0;
+        let penCount = 0;
+
+        (Array.isArray(db) ? db : []).forEach(r => {
+            if (!r) return;
+            if (r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true') return;
+            if (typeof isLocallyDeleted === 'function' && isLocallyDeleted(r.id)) return;
+
+            const st = ie_getRecordStatus(r);
+            if (st === 'verified') verCount++;
+            else if (st === 'unverified') unverCount++;
+            else if (st === 'pending') penCount++;
+        });
+
+        const totalCurrent = verCount + unverCount + penCount;
+
+        const elAll = document.getElementById('ie-cnt-all');
+        const elVer = document.getElementById('ie-cnt-verified');
+        const elUnver = document.getElementById('ie-cnt-unverified');
+        const elPen = document.getElementById('ie-cnt-pending');
+
+        if (elAll) elAll.textContent = `${totalCurrent} records`;
+        if (elVer) elVer.textContent = `${verCount} records`;
+        if (elUnver) elUnver.textContent = `${unverCount} records`;
+        if (elPen) elPen.textContent = `${penCount} records`;
+
+        ie_updateExportSelectedCount();
+    }
+
+    function ie_toggleAllStatusFilter(checked) {
+        document.querySelectorAll('.ie-status-cb').forEach(cb => {
+            cb.checked = checked;
+        });
+        ie_updateExportSelectedCount();
+    }
+
+    function ie_onStatusFilterChange() {
+        const cbs = Array.from(document.querySelectorAll('.ie-status-cb'));
+        const allChecked = cbs.length > 0 && cbs.every(cb => cb.checked);
+        const filterAllCb = document.getElementById('ie-filter-all');
+        if (filterAllCb) filterAllCb.checked = allChecked;
+        ie_updateExportSelectedCount();
+    }
+
+    function ie_getTargetExportRecords() {
+        const selectedStatuses = Array.from(document.querySelectorAll('.ie-status-cb:checked')).map(cb => cb.value);
+        return (Array.isArray(db) ? db : []).filter(rec => {
+            if (!rec) return false;
+            // Strictly exclude deleted/bin records
+            if (rec.isDeleted === true || String(rec.isDeleted).toLowerCase() === 'true') return false;
+            if (typeof isLocallyDeleted === 'function' && isLocallyDeleted(rec.id)) return false;
+
+            const st = ie_getRecordStatus(rec);
+            return selectedStatuses.includes(st);
+        });
+    }
+
+    function ie_updateExportSelectedCount() {
+        const targets = ie_getTargetExportRecords();
+        const countBadge = document.getElementById('ie-export-count-badge');
+        const btn = document.getElementById('ie-btn-export');
+        if (countBadge) countBadge.textContent = `${targets.length} Records Selected`;
+        if (btn && !btn.disabled) {
+            btn.innerHTML = `<i class="fa-solid fa-download"></i> Export Now (${targets.length} Records)`;
+            if (targets.length === 0) {
+                btn.classList.add('opacity-50', 'pointer-events-none');
+            } else {
+                btn.classList.remove('opacity-50', 'pointer-events-none');
+            }
+        }
+    }
     
     function ie_renderExportFields() {
         const grid = document.getElementById('ie-export-fields-grid');
         const qrGrid = document.getElementById('ie-export-qr-fields-grid');
+        if (!grid || !qrGrid) return;
+
+        ie_updateStatusCounts();
+
         let html = `<label class="flex items-center gap-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="_timestamp" class="ie-export-cb accent-blue-600 w-4 h-4" checked><span class="text-xs font-bold text-slate-700 truncate">Timestamp</span></label>`;
-        let qrHtml = `<label class="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 cursor-pointer hover:bg-blue-50"><input type="checkbox" value="id" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5" checked><span class="text-[10px] font-bold text-slate-700 truncate">System ID</span></label>`;
+        html += `<label class="flex items-center gap-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="sn" class="ie-export-cb accent-blue-600 w-4 h-4" checked><span class="text-xs font-bold text-slate-700 truncate">SN (Serial No)</span></label>`;
+
+        let qrHtml = `
+            <label class="flex items-center gap-2 p-2.5 bg-blue-50/70 rounded-xl border border-blue-200 cursor-pointer hover:bg-blue-100/60 transition">
+                <input type="checkbox" value="_schoolName" class="ie-qr-cb accent-blue-600 w-4 h-4" checked>
+                <div class="flex-1 min-w-0">
+                    <span class="text-[11px] font-black text-blue-900 block truncate"><i class="fa-solid fa-school text-blue-600 mr-1"></i> School Name</span>
+                </div>
+            </label>
+            <label class="flex items-center gap-2 p-2.5 bg-blue-50/70 rounded-xl border border-blue-200 cursor-pointer hover:bg-blue-100/60 transition">
+                <input type="checkbox" value="_appName" class="ie-qr-cb accent-blue-600 w-4 h-4" checked>
+                <div class="flex-1 min-w-0">
+                    <span class="text-[11px] font-black text-blue-900 block truncate"><i class="fa-solid fa-mobile-screen text-blue-600 mr-1"></i> App Name</span>
+                </div>
+            </label>
+            <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition">
+                <input type="checkbox" value="id" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5" checked>
+                <span class="text-[10px] font-bold text-slate-700 truncate">System ID</span>
+            </label>
+            <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition">
+                <input type="checkbox" value="sn" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5" checked>
+                <span class="text-[10px] font-bold text-slate-700 truncate">SN (Serial No)</span>
+            </label>
+        `;
         
         fb_form_order.forEach(id => {
             let f = null;
@@ -10712,7 +10981,8 @@
             }
             if (f && f.type !== 'section' && f.type !== 'image' && f.id !== 'photo') {
                 html += `<label class="flex items-center gap-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="${f.id}" class="ie-export-cb accent-blue-600 w-4 h-4" checked><span class="text-xs font-bold text-slate-700 truncate">${label}</span></label>`;
-                qrHtml += `<label class="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 cursor-pointer hover:bg-blue-50"><input type="checkbox" value="${f.id}" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5"><span class="text-[10px] font-bold text-slate-700 truncate">${label}</span></label>`;
+                const defaultQrChecked = (f.id === 'studentName' || f.id === 'sclass' || f.id === 'fatherName') ? 'checked' : '';
+                qrHtml += `<label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition"><input type="checkbox" value="${f.id}" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5" ${defaultQrChecked}><span class="text-[10px] font-bold text-slate-700 truncate">${label}</span></label>`;
             }
         });
         grid.innerHTML = html;
@@ -10731,27 +11001,54 @@
     async function ie_runExport() {
         const btn = document.getElementById('ie-btn-export');
         const origHTML = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...';
-        btn.disabled = true;
         
         try {
+            const targetRecords = ie_getTargetExportRecords();
+            if (targetRecords.length === 0) {
+                showToast("Please select at least one data status to export.", true);
+                return;
+            }
+
             const selectedFields = Array.from(document.querySelectorAll('.ie-export-cb:checked')).map(cb => cb.value);
+            if (selectedFields.length === 0) {
+                showToast("Please select at least one field to export.", true);
+                return;
+            }
+
             const includePhotos = document.getElementById('ie-export-photos').checked;
             const includeQr = document.getElementById('ie-export-qr').checked;
             const qrFields = Array.from(document.querySelectorAll('.ie-qr-cb:checked')).map(cb => cb.value);
-            
+
+            if (includeQr && qrFields.length === 0) {
+                showToast("Please select at least one QR data field.", true);
+                return;
+            }
+
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...';
+            btn.disabled = true;
+
             const zip = new JSZip();
             const exportData = [];
             const photoFolder = includePhotos ? zip.folder("Photos") : null;
             const qrFolder = includeQr ? zip.folder("QR_Codes") : null;
-            
-            for (let i = 0; i < db.length; i++) {
-                const rec = db[i];
-                let row = { 'System ID': rec.id };
+
+            const schoolName = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.name || schoolConfig.schoolName)) ? (schoolConfig.name || schoolConfig.schoolName) : 'Delhi Public School';
+            const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('') || "DPS").toUpperCase();
+            const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify';
+
+            for (let i = 0; i < targetRecords.length; i++) {
+                const rec = targetRecords[i];
+                let row = { 'System ID': rec.id || '' };
                 
                 selectedFields.forEach(id => {
                     if (id === '_timestamp') {
                         row['Timestamp'] = rec.createdAt ? new Date(rec.createdAt).toLocaleString('en-IN') : (rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('en-IN') : '');
+                        return;
+                    }
+                    if (id === 'sn') {
+                        const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
+                        const snVal = (rec.sn && Number(rec.sn) < 1000000000 && Number(rec.sn) > 0) ? rec.sn : '1';
+                        row['SN'] = `${schoolCode}${year}${String(snVal).padStart(3, '0')}`;
                         return;
                     }
                     let label = id;
@@ -10790,22 +11087,59 @@
                 
                 if (includeQr) {
                     let qrVal = "";
-                    if (qrFields.length === 1 && qrFields[0] === 'id') {
-                        qrVal = String(rec.id);
-                    } else {
-                        const obj = {};
-                        qrFields.forEach(f => { obj[f] = rec[f] || ""; });
-                        qrVal = JSON.stringify(obj);
-                    }
+                    const lines = [];
+
+                    qrFields.forEach(f => {
+                        let label = f;
+                        let val = '';
+                        if (f === '_schoolName') {
+                            label = 'School Name';
+                            val = schoolName;
+                        } else if (f === '_appName') {
+                            label = 'App Name';
+                            val = appName;
+                        } else if (f === 'id') {
+                            label = 'System ID';
+                            val = rec.id || '';
+                        } else if (f === 'sn') {
+                            label = 'SN';
+                            const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
+                            const snVal = (rec.sn && Number(rec.sn) < 1000000000 && Number(rec.sn) > 0) ? rec.sn : '1';
+                            val = `${schoolCode}${year}${String(snVal).padStart(3, '0')}`;
+                        } else if (typeof FB_STANDARD_FIELDS !== 'undefined' && FB_STANDARD_FIELDS.some(sf => sf.id === f)) {
+                            label = typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel(f, FB_STANDARD_FIELDS.find(sf => sf.id === f).label) : FB_STANDARD_FIELDS.find(sf => sf.id === f).label;
+                            val = rec[f] || '';
+                        } else if (typeof fb_fields !== 'undefined' && fb_fields.some(cf => cf.id === f)) {
+                            label = fb_fields.find(cf => cf.id === f).label || f;
+                            val = rec[f] || '';
+                        } else {
+                            val = rec[f] || '';
+                        }
+                        if (val !== undefined && val !== null && String(val).trim() !== '') {
+                            lines.push(`${label}: ${String(val).trim()}`);
+                        }
+                    });
+
+                    qrVal = lines.length > 0 ? lines.join('\n') : String(rec.id || 'NID');
+
                     try {
-                        const qr = new QRious({ value: qrVal, size: 300, level: 'H' });
+                        // Standard QR code with required quiet zone (padding 24) and crisp size (400)
+                        const qr = new QRious({
+                            value: qrVal,
+                            size: 400,
+                            padding: 24,
+                            level: 'M'
+                        });
                         const qrBase64 = qr.toDataURL().split(',')[1];
                         qrFolder.file(`QR_${baseFileName}.png`, qrBase64, {base64: true});
-                    } catch(e) {}
+                    } catch(e) {
+                        console.error("QR Error", e);
+                    }
                 }
                 
-                // Yield to main thread every 10 records to prevent browser freeze/crash
+                // Yield to main thread every 10 records to prevent browser freeze
                 if (i > 0 && i % 10 === 0) {
+                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Processing ${i} / ${targetRecords.length}...`;
                     await new Promise(r => setTimeout(r, 0));
                 }
             }
@@ -10825,7 +11159,7 @@
             downloadLink.click();
             document.body.removeChild(downloadLink);
             
-            showToast("Export Completed Successfully");
+            showToast(`Export Completed: ${targetRecords.length} Records Exported`);
         } catch(err) {
             console.error(err);
             showToast("Error during export: " + err.message, true);

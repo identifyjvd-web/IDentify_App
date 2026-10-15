@@ -65,6 +65,12 @@
                 firebaseConfig
             };
             console.log("Firebase initialized successfully.");
+            window.dispatchEvent(new CustomEvent('firebase-initialized'));
+            setTimeout(() => {
+                if (typeof loadAllData === 'function') {
+                    loadAllData();
+                }
+            }, 50);
 
             const SYSTEM_ADMIN_EMAILS = [
                 'identify.jvd@gmail.com',
@@ -84,6 +90,10 @@
                     window.location.replace('Login_Panel.html?msg=session_expired');
                 } else if (isSystemAdmin(user.email)) {
                     window.location.replace('Admin_Panel.html');
+                } else {
+                    if (typeof loadAllData === 'function') {
+                        loadAllData();
+                    }
                 }
             });
         } catch (e) {
@@ -1496,6 +1506,12 @@
                     }
                 }
             }
+
+            window.addEventListener('firebase-initialized', () => {
+                if (loadAuthUser() && typeof loadAllData === 'function') {
+                    loadAllData();
+                }
+            });
             function logoutUser(isAuto = false) {
                 stopAutoLogoutTimer();
                 saveAuthUser(null);
@@ -2220,6 +2236,7 @@
                             }
                             db = mergedDb;
                             demoFallbackLoaded = false;
+                            try { ie_ensureSequentialRecordSns(); } catch(e){}
                             persistLocalUnverified();
                             refreshUiAfterLoad();
                             if (unsyncedLocalToPush.length > 0) {
@@ -4335,6 +4352,12 @@
                             const val = parseInt(r.sn, 10);
                             if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
                         });
+                        (Array.isArray(bin) ? bin : []).forEach(r => {
+                            const val = parseInt(r.sn, 10);
+                            if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+                        });
+                        const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
+                        if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
                         let currentSn = maxSn;
 
                         const records = [];
@@ -4458,6 +4481,7 @@
                         records.forEach(r => {
                             if (typeof storeRecordInDb === 'function') storeRecordInDb(r);
                         });
+                        try { localStorage.setItem(SN_KEY, currentSn); } catch(e){}
                         if (typeof persistLocalUnverified === 'function') persistLocalUnverified();
                         if (typeof populateFilters === 'function') populateFilters();
                         if (typeof renderHomeAnalysis === 'function') renderHomeAnalysis();
@@ -5760,7 +5784,14 @@
                             const val = parseInt(r.sn, 10);
                             if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
                         });
+                        (Array.isArray(bin) ? bin : []).forEach(r => {
+                            const val = parseInt(r.sn, 10);
+                            if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+                        });
+                        const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
+                        if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
                         nextSn = maxSn + 1;
+                        try { localStorage.setItem(SN_KEY, nextSn); } catch(e){}
                     }
 
                     // Check duplicate record locally (Student Name, Father Name, Class)
@@ -6298,11 +6329,16 @@
                     
                     selectedRecords.forEach(id => {
                         const rec = db.find(x => String(x.id) === String(id));
-                        if (rec) recordsToExport.push(rec);
+                        if (rec && !rec.isDeleted && String(rec.isDeleted).toLowerCase() !== 'true') {
+                            recordsToExport.push(rec);
+                        }
                     });
                     
                     const qrEnabled = localStorage.getItem('identify_qr_enabled') === 'true';
                     const savedQrFields = JSON.parse(localStorage.getItem('identify_qr_fields') || '["id"]');
+                    const schoolName = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.name || schoolConfig.schoolName)) ? (schoolConfig.name || schoolConfig.schoolName) : 'Delhi Public School';
+                    const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('') || "DPS").toUpperCase();
+                    const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify';
                     
                     for (let i = 0; i < recordsToExport.length; i++) {
                         const rec = recordsToExport[i];
@@ -6316,20 +6352,41 @@
                             try {
                                 let qrLines = [];
                                 savedQrFields.forEach(f => {
-                                    let label = f.toUpperCase();
-                                    if (f === 'id') label = 'System ID';
-                                    else if (typeof FB_STANDARD_FIELDS !== 'undefined' && FB_STANDARD_FIELDS.some(sf => sf.id === f)) {
+                                    let label = f;
+                                    let val = '';
+                                    if (f === '_schoolName') {
+                                        label = 'School Name';
+                                        val = schoolName;
+                                    } else if (f === '_appName') {
+                                        label = 'App Name';
+                                        val = appName;
+                                    } else if (f === 'id') {
+                                        label = 'System ID';
+                                        val = rec.id || '';
+                                    } else if (f === 'sn') {
+                                        label = 'SN';
+                                        const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
+                                        const snVal = (rec.sn && Number(rec.sn) < 1000000000 && Number(rec.sn) > 0) ? rec.sn : '1';
+                                        val = `${schoolCode}${year}${String(snVal).padStart(3, '0')}`;
+                                    } else if (typeof FB_STANDARD_FIELDS !== 'undefined' && FB_STANDARD_FIELDS.some(sf => sf.id === f)) {
                                         label = typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel(f, FB_STANDARD_FIELDS.find(sf => sf.id === f).label) : FB_STANDARD_FIELDS.find(sf => sf.id === f).label;
+                                        val = rec[f] || '';
                                     } else if (typeof fb_fields !== 'undefined' && fb_fields.some(cf => cf.id === f)) {
                                         label = fb_fields.find(cf => cf.id === f).label || f;
+                                        val = rec[f] || '';
+                                    } else {
+                                        val = rec[f] || '';
                                     }
-                                    qrLines.push(`${label}: ${rec[f] || "-"}`);
+                                    if (val !== undefined && val !== null && String(val).trim() !== '') {
+                                        qrLines.push(`${label}: ${String(val).trim()}`);
+                                    }
                                 });
-                                let qrVal = qrLines.join('\n');
+                                let qrVal = qrLines.length > 0 ? qrLines.join('\n') : String(rec.id || 'NID');
                                 const qr = new QRious({
                                     value: qrVal,
-                                    size: 300,
-                                    level: 'H'
+                                    size: 400,
+                                    padding: 24,
+                                    level: 'M'
                                 });
                                 const qrBase64 = qr.toDataURL().split(',')[1];
                                 qrFileName = `QR_${baseFilename}.png`;
@@ -9585,15 +9642,25 @@
                 toast = document.createElement('div');
                 toast.id = '_global_toast';
                 // Button-like Toast Styling (Green Variation, No Glow)
-                toast.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%) scale(0.85) translateY(-20px);background:#059669;color:#ffffff;height:36px;padding:0 24px;border-radius:999px;font-size:14.5px;font-weight:700;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.15);opacity:0;transition:all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);pointer-events:none;white-space:nowrap;display:flex;align-items:center;justify-content:center;';
-                // Removed the yellow dot indicator
-                toast.innerHTML = `<span id="_global_toast_msg"></span>`;
+                toast.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%) scale(0.85) translateY(-20px);background:#059669;color:#ffffff;height:36px;padding:0 24px;border-radius:999px;font-size:14.5px;font-weight:700;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.15);opacity:0;transition:all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);pointer-events:none;white-space:nowrap;display:flex;align-items:center;justify-content:center;';
+                toast.innerHTML = `<span id="_global_toast_msg" style="display:inline-flex;align-items:center;gap:6px;"></span>`;
                 document.body.appendChild(toast);
             }
 
-            document.getElementById('_global_toast_msg').innerHTML = message;
-            // Sound feedback removed.
+            const headerDb = document.getElementById('records-header-standard-db');
+            if (headerDb) {
+                const rect = headerDb.getBoundingClientRect();
+                const centerToastTop = Math.round(rect.top + (rect.height - 36) / 2);
+                if (centerToastTop > 0) {
+                    toast.style.top = `${centerToastTop}px`;
+                } else {
+                    toast.style.top = '14px';
+                }
+            } else {
+                toast.style.top = '14px';
+            }
 
+            document.getElementById('_global_toast_msg').innerHTML = message;
             requestAnimationFrame(() => {
                 toast.style.opacity = '1';
                 toast.style.transform = 'translateX(-50%) scale(1) translateY(0)';
@@ -11060,6 +11127,114 @@
         return false;
     }
 
+    async function ie_getHighestAvailableSn() {
+        let maxSn = 0;
+        // 1. In-memory db records
+        (Array.isArray(db) ? db : []).forEach(r => {
+            if (r && r.sn !== undefined && r.sn !== null) {
+                const val = parseInt(r.sn, 10);
+                if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+            }
+        });
+
+        // 2. Recycle bin records
+        (Array.isArray(bin) ? bin : []).forEach(r => {
+            if (r && r.sn !== undefined && r.sn !== null) {
+                const val = parseInt(r.sn, 10);
+                if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+            }
+        });
+
+        // 3. LocalStorage SN_KEY
+        try {
+            const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
+            if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
+        } catch (e) {}
+
+        // 4. IndexedDB store records
+        try {
+            if (typeof idbGetAll === 'function') {
+                const idbRows = await idbGetAll(IDB_STORE_RECORDS);
+                (idbRows || []).forEach(r => {
+                    if (r && r.sn !== undefined && r.sn !== null) {
+                        const val = parseInt(r.sn, 10);
+                        if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+                    }
+                });
+            }
+        } catch (e) {}
+
+        // 5. Firebase cloud snCounter
+        try {
+            if (window.db && window.firebaseAPI && window.firebaseAPI.getDoc && window.firebaseAPI.doc) {
+                const counterRef = window.firebaseAPI.doc(window.db, "config", "snCounter");
+                const docSnap = await window.firebaseAPI.getDoc(counterRef);
+                if (docSnap && docSnap.exists()) {
+                    const serverSn = parseInt(docSnap.data().value, 10) || 0;
+                    if (!isNaN(serverSn) && serverSn > maxSn && serverSn < 1000000000) {
+                        maxSn = serverSn;
+                    }
+                }
+            }
+        } catch (e) {}
+
+        return maxSn;
+    }
+
+    function ie_ensureSequentialRecordSns() {
+        if (typeof db === 'undefined' || !Array.isArray(db)) return;
+        let maxSn = 0;
+
+        // 1. Find maxSn among existing records
+        db.forEach(r => {
+            if (!r) return;
+            const val = parseInt(r.sn, 10);
+            if (!isNaN(val) && val > 0 && val < 1000000000) {
+                if (val > maxSn) maxSn = val;
+            }
+        });
+
+        (Array.isArray(bin) ? bin : []).forEach(r => {
+            if (!r) return;
+            const val = parseInt(r.sn, 10);
+            if (!isNaN(val) && val > 0 && val < 1000000000) {
+                if (val > maxSn) maxSn = val;
+            }
+        });
+
+        try {
+            const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
+            if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
+        } catch (e) {}
+
+        // 2. Claim existing valid unique SNs from oldest to newest
+        const claimedSns = new Set();
+        let hasUpdated = false;
+
+        for (let i = db.length - 1; i >= 0; i--) {
+            const r = db[i];
+            if (!r) continue;
+            if (r.id && String(r.id).startsWith('draft_')) continue;
+
+            const val = parseInt(r.sn, 10);
+            const isValid = !isNaN(val) && val > 0 && val < 1000000000;
+
+            if (isValid && !claimedSns.has(val)) {
+                claimedSns.add(val);
+            } else {
+                maxSn++;
+                r.sn = maxSn;
+                claimedSns.add(maxSn);
+                hasUpdated = true;
+            }
+        }
+
+        if (hasUpdated) {
+            try { localStorage.setItem(SN_KEY, maxSn); } catch (e) {}
+            try { if (typeof persistLocalUnverified === 'function') persistLocalUnverified(); } catch (e) {}
+        }
+    }
+
     function ie_ensureUniqueRecordIds() {
         if (typeof db === 'undefined' || !Array.isArray(db)) return;
         const seen = new Set();
@@ -11071,6 +11246,7 @@
             }
             seen.add(String(r.id));
         });
+        ie_ensureSequentialRecordSns();
     }
 
     function ie_compressBlobToDataUrl(blobOrDataUrl) {
@@ -11274,6 +11450,7 @@
 
     function openImportExportModal() {
         setBlankRecordMode('import_export');
+        ie_ensureSequentialRecordSns();
     }
     
     function closeImportExportModal() {
@@ -11430,7 +11607,7 @@
 
             let optionsHtml = '<option value="">-- Ignore Column --</option>';
             optionsHtml += '<option value="_photoName">Photo No / File Name</option>';
-            optionsHtml += '<option value="sn">SN / Roll No</option>';
+            optionsHtml += '<option value="sn">SN (Auto-Sequential)</option>';
             if (typeof FB_STANDARD_FIELDS !== 'undefined') {
                 FB_STANDARD_FIELDS.forEach(sf => {
                     optionsHtml += `<option value="${sf.id}">${sf.label}</option>`;
@@ -11451,8 +11628,6 @@
 
                 if (ie_isPhotoColumnHeader(h)) {
                     matchedId = '_photoName';
-                } else if (hLower === 'sn' || hLower === 'sr no' || hLower === 'sr. no.' || hLower === 'roll no' || hLower === 'roll number') {
-                    matchedId = 'sn';
                 }
 
                 if (!matchedId && typeof FB_STANDARD_FIELDS !== 'undefined') {
@@ -11464,6 +11639,12 @@
                     fb_fields.forEach(cf => {
                         if (cf.label.toLowerCase() === hLower || cf.id.toLowerCase() === hLower) matchedId = cf.id;
                     });
+                }
+
+                if (!matchedId) {
+                    if (hLower === 'sn' || hLower === 'sr no' || hLower === 'sr. no.' || hLower === 's.no' || hLower === 's.no.' || hLower === 's no' || hLower === 'serial no') {
+                        matchedId = 'sn';
+                    }
                 }
 
                 let selectHtml = optionsHtml;
@@ -11812,6 +11993,13 @@
                 }
             });
             
+            // 1. Ensure any existing records in memory already have clean sequential SNs
+            ie_ensureSequentialRecordSns();
+            
+            // 2. Calculate starting sequential SN (starts strictly AFTER highest available SN in the software)
+            const maxExistingSn = await ie_getHighestAvailableSn();
+            let currentSn = maxExistingSn;
+            
             let importCount = 0;
             let photoMatchedCount = 0;
             const schoolId = (schoolConfig && schoolConfig.loginId) ? schoolConfig.loginId : (currentUser ? currentUser.userId : 'anonymous');
@@ -11821,8 +12009,10 @@
                 const row = ie_importParsedData[i];
                 const nowTs = Date.now();
                 const uniqueRecId = 'import_' + batchTs + '_' + Math.random().toString(36).slice(2, 8) + '_' + i;
+                currentSn++;
                 const record = {
                     id: uniqueRecId,
+                    sn: currentSn,
                     createdAt: nowTs,
                     updatedAt: nowTs,
                     schoolId: schoolId,
@@ -11886,7 +12076,7 @@
                         }
                     }
                     
-                    if (!isPhotoCol && sysId !== 'id') {
+                    if (!isPhotoCol && sysId !== 'id' && sysId !== 'sn') {
                         record[sysId] = val;
                     }
                     if (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields)) {
@@ -11942,11 +12132,12 @@
                     record.returned = false;
                 } else {
                     record.status = 'pending';
-                    record.verified = false;
+                    record.verified = false; 
                     record.returned = false;
                 }
                 
                 record.id = uniqueRecId;
+                record.sn = currentSn;
                 db.unshift(record);
                 const recId = record.id;
                 serverCallSilent('addRecord', [record], () => {
@@ -11964,6 +12155,21 @@
                     btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Importing ${importCount} / ${ie_importParsedData.length}`;
                     await new Promise(r => setTimeout(r, 0));
                 }
+            }
+
+            // Update highest SN in localStorage
+            try {
+                localStorage.setItem(SN_KEY, currentSn);
+            } catch (e) {}
+
+            // Update highest SN in Firebase server counter
+            try {
+                if (window.db && window.firebaseAPI && window.firebaseAPI.setDoc && window.firebaseAPI.doc) {
+                    const counterRef = window.firebaseAPI.doc(window.db, "config", "snCounter");
+                    await window.firebaseAPI.setDoc(counterRef, { value: currentSn }, { merge: true });
+                }
+            } catch (e) {
+                console.warn("Could not update server snCounter:", e);
             }
             
             const filtered = filterData(db);
