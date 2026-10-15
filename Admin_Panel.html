@@ -27,6 +27,35 @@
         crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet">
     <link rel="stylesheet" href="global.css">
+    <style>
+        html, body {
+            overflow-x: hidden !important;
+            width: 100% !important;
+            background-color: #f1f5f9;
+        }
+        #app-container {
+            overflow-x: hidden !important;
+            width: 100% !important;
+            max-width: 480px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            background: #f8fafd;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.08);
+            border-left: 1px solid #e2e8f0;
+            border-right: 1px solid #e2e8f0;
+        }
+        @media (max-width: 480px) {
+            html, body {
+                background-color: #f8fafd;
+            }
+            #app-container {
+                max-width: 100% !important;
+                border-left: none !important;
+                border-right: none !important;
+                box-shadow: none !important;
+            }
+        }
+    </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <!-- Firebase SDKs -->
@@ -74,8 +103,7 @@
             }, 50);
 
             const SYSTEM_ADMIN_EMAILS = [
-                'identify.jvd@gmail.com',
-                'javedansari7566@gmail.com'
+                'identify.jvd@gmail.com'
             ];
 
             function isSystemAdmin(emailOrUser) {
@@ -106,7 +134,7 @@
     <script src="card-generator.js"></script>
 </head>
 
-<body class="flex flex-col h-screen">
+<body class="flex flex-col h-screen items-center bg-slate-100">
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
         <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-96">
@@ -641,6 +669,7 @@
             let fb_currentEditingId = null;
             let fb_isPreview = false;
             let fb_draftMode = false;
+            let fb_active_form_tab = 'student';
 
             
             // --- Database sync functions are imported from db-helper.js ---
@@ -3276,9 +3305,10 @@
                     headerHtml = `<i class="fa-solid fa-file-invoice text-emerald-600 mr-2.5"></i> ${firstName}'s ID Preview`;
                     labelText = `${firstName}'s ID Preview`;
                 } else if (mode === 'builder') {
-                    headerHtml = `<i class="fa-solid fa-shapes text-emerald-600 mr-2.5"></i> Form Builder`;
-                    labelText = 'Form Builder';
-                    iconClass = 'fa-solid fa-shapes text-emerald-600';
+                    const isStaffTab = typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff';
+                    headerHtml = `<i class="fa-solid ${isStaffTab ? 'fa-id-badge' : 'fa-shapes'} text-emerald-600 mr-2.5"></i> ${isStaffTab ? 'Staff Form Builder' : 'Student Form Builder'}`;
+                    labelText = isStaffTab ? 'Staff Form Builder' : 'Student Form Builder';
+                    iconClass = `fa-solid ${isStaffTab ? 'fa-id-badge' : 'fa-shapes'} text-emerald-600`;
                 } else if (mode === 'manage_school') {
                     headerHtml = `<i class="fa-solid fa-school text-emerald-600 mr-2.5"></i> Manage School`;
                     labelText = 'Manage School';
@@ -3326,6 +3356,38 @@
 
                 renderCurrentRecordsPage();
             }
+
+            function updateBlankRecordHeader(mode) {
+                const currentMode = mode || (typeof blankRecordMode !== 'undefined' ? blankRecordMode : '');
+                if (currentMode === 'builder') {
+                    const isStaffTab = typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff';
+                    const labelText = isStaffTab ? 'Staff Form Builder' : 'Student Form Builder';
+                    const iconClass = isStaffTab ? 'fa-solid fa-id-badge text-emerald-600' : 'fa-solid fa-shapes text-emerald-600';
+                    const headerHtml = `<i class="${iconClass} mr-2.5"></i> ${labelText}`;
+
+                    const search = document.getElementById('mainSearch');
+                    const searchIcon = document.getElementById('search-icon');
+                    const info = document.getElementById('records-page-info-db');
+                    const altInfo = document.getElementById('records-page-info-db');
+
+                    if (search) {
+                        search.value = labelText;
+                        search.placeholder = labelText;
+                    }
+                    if (searchIcon) {
+                        searchIcon.className = iconClass + ' ml-2';
+                    }
+                    if (info) {
+                        info.innerHTML = headerHtml;
+                        info.classList.remove('hidden');
+                    }
+                    if (altInfo) {
+                        altInfo.innerHTML = headerHtml;
+                        altInfo.classList.remove('hidden');
+                    }
+                }
+            }
+            window.updateBlankRecordHeader = updateBlankRecordHeader;
             let lastFetchedSn = null;
             let currentUserLocation = "Not Provided";
 
@@ -6317,7 +6379,7 @@
             }
 
             function getDataInfoStats(records) {
-                const makeStats = (label) => ({ label, all: 0, verified: 0, unverified: 0, pending: 0 });
+                const makeStats = (label) => ({ label, all: 0, verified: 0, unverified: 0, pending: 0, male: 0, female: 0 });
                 const classMap = {};
                 const total = makeStats('Total');
 
@@ -6330,8 +6392,14 @@
                     const isRecCompleted = (r.verified === 'Completed') && !isReturned;
                     const hasAppPhoto = (r.docUrl && r.docUrl.length > 10) || (r.photoData && r.photoData.length > 10) || (r.docFileId && String(r.docFileId).length > 5);
 
+                    const g = String(r.gender || '').trim().toLowerCase();
+                    const isFemale = g.startsWith('f') || g === 'girl';
+                    const isMale = !isFemale && (g.startsWith('m') || g === 'boy');
+
                     statsList.forEach((stats) => {
                         stats.all++;
+                        if (isMale) stats.male++;
+                        else if (isFemale) stats.female++;
                         if (isRecVerified) stats.verified++;
                         else if (hasAppPhoto || isReturned) stats.unverified++;
                         else stats.pending++;
@@ -6348,10 +6416,11 @@
                 return `
                     <tr class="${rowClass}"${onClick}>
                         <td class="sticky left-0 ${isTotal ? 'bg-emerald-50' : 'bg-white'} px-3 py-3 text-left text-[11px] font-black uppercase border-b border-slate-100 whitespace-nowrap">${stats.label}</td>
-                        <td class="px-3 py-3 text-center text-xs font-black border-b border-slate-100">${stats.all}</td>
-                        <td class="px-3 py-3 text-center text-xs font-black border-b border-slate-100 text-emerald-700">${stats.verified}</td>
-                        <td class="px-3 py-3 text-center text-xs font-black border-b border-slate-100 text-amber-600">${stats.unverified}</td>
-                        <td class="px-3 py-3 text-center text-xs font-black border-b border-slate-100 text-rose-600">${stats.pending}</td>
+                        <td class="px-2 py-3 text-center text-xs font-black border-b border-slate-100">${stats.all}</td>
+                        <td class="px-2 py-3 text-center text-xs font-black border-b border-slate-100 whitespace-nowrap"><span class="text-blue-600">${stats.male}</span><span class="text-slate-300 mx-0.5">/</span><span class="text-rose-500">${stats.female}</span></td>
+                        <td class="px-2 py-3 text-center text-xs font-black border-b border-slate-100 text-emerald-700">${stats.verified}</td>
+                        <td class="px-2 py-3 text-center text-xs font-black border-b border-slate-100 text-amber-600">${stats.unverified}</td>
+                        <td class="px-2 py-3 text-center text-xs font-black border-b border-slate-100 text-rose-600">${stats.pending}</td>
                     </tr>`;
             }
 
@@ -6409,19 +6478,20 @@
                 const info = getDataInfoStats(dataToAnalyze);
                 const classRows = info.classes.length
                     ? info.classes.map(stats => renderDataInfoRow(stats)).join('')
-                    : '<tr><td colspan="5" class="px-3 py-8 text-center text-slate-400 text-sm font-bold bg-white">No data found</td></tr>';
+                    : '<tr><td colspan="6" class="px-3 py-8 text-center text-slate-400 text-sm font-bold bg-white">No data found</td></tr>';
 
                 return `
                 <div class="p-5 bg-white rounded-3xl space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300 system-card">
-                    <div class="rounded-[24px] border border-slate-100 overflow-x-hidden custom-scroll">
+                    <div class="rounded-[24px] border border-slate-100 overflow-x-auto custom-scroll">
                         <table class="w-full border-collapse table-fixed">
                             <thead>
                                 <tr class="bg-slate-50 text-slate-500">
                                     <th class="sticky left-0 bg-slate-50 px-3 py-3 text-left text-[10px] font-black uppercase tracking-widest border-b border-slate-100">Class</th>
-                                    <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-100">ALL</th>
-                                    <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-100">VER</th>
-                                    <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-100">UNVF</th>
-                                    <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-100">NOP</th>
+                                    <th class="px-2 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-100">ALL</th>
+                                    <th class="px-2 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-100">M/F</th>
+                                    <th class="px-2 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-100">VER</th>
+                                    <th class="px-2 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-100">UNVF</th>
+                                    <th class="px-2 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-100">NOP</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -6797,7 +6867,6 @@
                                 <h4 class="text-sm font-black text-slate-800">Manage Schools</h4>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">School Accounts & Access</p>
                             </div>
-                            <i class="fa-solid fa-chevron-right text-slate-300 text-xs mr-1 group-hover:text-purple-500 transition-colors"></i>
                         </div>
                         <div onclick="openFormBuilder()" class="system-card p-5 rounded-2xl flex items-center gap-4 clickable-card hover:border-blue-300 group">
                             <div class="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
@@ -6807,7 +6876,6 @@
                                 <h4 class="text-sm font-black text-slate-800">Form Builder</h4>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Configure Registration Fields</p>
                             </div>
-                            <i class="fa-solid fa-chevron-right text-slate-300 text-xs mr-1 group-hover:text-blue-500 transition-colors"></i>
                         </div>
                         ` : ''}
 
@@ -6819,7 +6887,6 @@
                                 <h4 class="text-sm font-black text-slate-800">Data Information</h4>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Class wise records & filters</p>
                             </div>
-                            <i class="fa-solid fa-chevron-right text-slate-300 text-xs mr-1 group-hover:text-amber-500 transition-colors"></i>
                         </div>
 
                         <div onclick="openImportExportModal()" class="system-card p-5 rounded-2xl flex items-center gap-4 clickable-card hover:border-purple-300 group">
@@ -6830,7 +6897,6 @@
                                 <h4 class="text-sm font-black text-slate-800">Export Data</h4>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Download Data spreadsheet & Photos</p>
                             </div>
-                            <i class="fa-solid fa-chevron-right text-slate-300 text-xs mr-1 group-hover:text-emerald-500 transition-colors"></i>
                         </div>
 
                         <div onclick="activateRecycleBinFilter()" class="system-card p-5 rounded-2xl flex items-center gap-4 clickable-card hover:border-red-300 group">
@@ -6841,7 +6907,6 @@
                                 <h4 class="text-sm font-black text-slate-800">Recycle Bin</h4>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">View & restore deleted records</p>
                             </div>
-                            <i class="fa-solid fa-chevron-right text-slate-300 text-xs mr-1 group-hover:text-red-500 transition-colors"></i>
                         </div>
 
                         ${(currentUser && currentUser.userId === 'admin') ? `
@@ -6853,7 +6918,6 @@
                                 <h4 class="text-sm font-black text-slate-800">Delete All Data</h4>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Permanently erase all records</p>
                             </div>
-                            <i class="fa-solid fa-chevron-right text-slate-300 text-xs mr-1 group-hover:text-red-500 transition-colors"></i>
                         </div>
                         ` : ''}
 
@@ -6866,7 +6930,6 @@
                                 <h4 class="text-sm font-black text-slate-800">Edit System About</h4>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Edit system/about text (admin)</p>
                             </div>
-                            <i class="fa-solid fa-chevron-right text-slate-300 text-xs mr-1 group-hover:text-blue-500 transition-colors"></i>
                         </div>
                         ` : ''}
 
@@ -6879,7 +6942,6 @@
                                 <h4 class="text-sm font-black text-slate-800">Logout System</h4>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">End your current session</p>
                             </div>
-                            <i class="fa-solid fa-chevron-right text-slate-300 text-xs mr-1 group-hover:text-rose-500 transition-colors"></i>
                         </div>
                     </div>
                 </div>`;
@@ -6916,6 +6978,9 @@
                         const countEl = document.getElementById('showing-count');
                         if (countEl) countEl.innerText = 'Sync';
                         lucide.createIcons();
+                        setTimeout(() => {
+                            if (typeof ie_renderExportFields === 'function') ie_renderExportFields();
+                        }, 50);
                         return;
                     }
 
@@ -7129,103 +7194,113 @@
                                         </label>
                                     </div>
                                 </div>
-                                <!-- Right Column: Add Field Button -->
-                                <div>
-                                    <button onclick="fb_openQuickAdd(false)" class="h-9 px-4 rounded-xl bg-emerald-600 text-white font-black text-[11px] uppercase tracking-widest hover:bg-emerald-700 transition flex items-center gap-2 active:scale-95">
-                                        <i class="fa-solid fa-plus text-xs"></i> Add Field
+                                <!-- Right Column: Switcher between Student and Staff Form -->
+                                <div id="fb_view_switcher" class="${(typeof fb_staff_active !== 'undefined' && fb_staff_active) ? 'flex' : 'hidden'} items-center bg-white p-1 rounded-xl border border-emerald-200 shadow-sm gap-1">
+                                    <button type="button" onclick="fb_switchView('student')" id="fb_tab_student" class="px-3.5 py-1.5 rounded-lg text-xs font-black transition-all ${(typeof fb_active_form_tab === 'undefined' || fb_active_form_tab === 'student') ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-emerald-700'} flex items-center gap-1.5 active:scale-95">
+                                        <i class="fa-solid fa-user-graduate text-[11px]"></i> Student
+                                    </button>
+                                    <button type="button" onclick="fb_switchView('staff')" id="fb_tab_staff" class="px-3.5 py-1.5 rounded-lg text-xs font-black transition-all ${(typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff') ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-emerald-700'} flex items-center gap-1.5 active:scale-95">
+                                        <i class="fa-solid fa-id-badge text-[11px]"></i> Staff
                                     </button>
                                 </div>
                             </div>
-                            <!-- Expandable Inline Quick Add Panel -->
-                            <div id="fb_quickAddInlinePanel" class="hidden mt-4 pt-4 border-t border-emerald-200/50 space-y-4 transition-all duration-300">
-                                <div class="flex items-center justify-between gap-3 pb-3 mb-3">
-                                    <div class="text-[11px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-1.5">
-                                        <i class="fa-solid fa-circle-plus text-emerald-600"></i> Add New Field
-                                    </div>
-                                    <div class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                                        <span class="relative inline-block">
-                                            <select id="fb_quickAddType" class="bg-transparent border-b border-emerald-400 outline-none cursor-pointer text-emerald-600 pl-1 pr-5 py-0.5 appearance-none font-bold text-xs uppercase" onchange="fb_toggleQuickAddOptions(this.value, false); fb_updateFieldNameSuggestions(false);">
-                                                <option value="text">TEXT</option>
-                                                <option value="number">NUMBER</option>
-                                                <option value="date">DATE</option>
-                                                <option value="select">DROPDOWN</option>
-                                                <option value="image">PHOTO</option>
-                                            </select>
-                                            <i class="fa-solid fa-chevron-down text-[8px] text-emerald-500 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="space-y-4">
-                                    <div>
-                                        <label class="premium-label !text-[11px] !tracking-widest uppercase mb-2"><i class="fa-solid fa-tag text-[10px]"></i> Field Name</label>
-                                        <input id="fb_quickAddLabel" type="text" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="Enter field name (e.g. Roll No)" list="fb_field_suggestions">
-                                        <datalist id="fb_field_suggestions"></datalist>
-                                    </div>
-                                    
-                                    <!-- Photo Dimension Settings -->
-                                    <div id="fb_quickAddDimensionsWrap" class="hidden flex gap-4">
-                                        <div class="flex-1">
-                                            <label class="premium-label !text-[11px] !tracking-widest uppercase mb-2"><i class="fa-solid fa-arrows-left-right text-[10px]"></i> Photo Width (px)</label>
-                                            <input id="fb_quickAddWidth" type="number" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="600" value="600">
+                        </div>
+
+                        <!-- Student Form View (Active by default) -->
+                        <div id="fb_student_view_wrap" class="${(typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff') ? 'hidden' : 'block'} space-y-3">
+                            <div id="fb_formContainer" class="space-y-3 flex-1"></div>
+
+                            <div id="fb_emptyState" class="hidden flex-col items-center justify-center py-14 text-slate-300 border border-dashed border-slate-200 rounded-2xl bg-slate-50">
+                                <i class="fa-solid fa-clipboard-list text-4xl mb-3 opacity-20"></i>
+                                <p class="text-xs font-bold uppercase tracking-widest text-slate-400">No fields added yet</p>
+                                <p class="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Add your first custom field</p>
+                            </div>
+
+                            <!-- Add Student Field Section (Between fields and Recently Removed) -->
+                            <div id="fb_student_add_field_card" class="w-full transition-all duration-300">
+                                <button type="button" id="fb_student_add_btn" onclick="fb_openQuickAdd(false)" class="w-full h-[48px] bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] transition-all text-white rounded-[18px] font-black text-[14px] flex items-center justify-center gap-2.5 shadow-sm focus:outline-none">
+                                    <i class="fa-solid fa-plus text-base"></i>
+                                    <span>Add custom feild</span>
+                                </button>
+                                <!-- Expandable Inline Quick Add Panel -->
+                                <div id="fb_quickAddInlinePanel" class="hidden mt-3 p-4 rounded-2xl border border-emerald-100 bg-white shadow-sm space-y-4 transition-all duration-300">
+                                    <div class="flex items-center justify-between gap-3 pb-3 mb-3 border-b border-emerald-200/50">
+                                        <div class="text-[11px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-1.5">
+                                            <i class="fa-solid fa-circle-plus text-emerald-600"></i> New Custom Field
                                         </div>
-                                        <div class="flex-1">
-                                            <label class="premium-label !text-[11px] !tracking-widest uppercase mb-2"><i class="fa-solid fa-arrows-up-down text-[10px]"></i> Photo Height (px)</label>
-                                            <input id="fb_quickAddHeight" type="number" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="800" value="800">
+                                        <div class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                                            <span class="relative inline-block">
+                                                <select id="fb_quickAddType" class="bg-transparent border-b border-emerald-400 outline-none cursor-pointer text-emerald-600 pl-1 pr-5 py-0.5 appearance-none font-bold text-xs uppercase" onchange="fb_toggleQuickAddOptions(this.value, false); fb_updateFieldNameSuggestions(false);">
+                                                    <option value="text">TEXT</option>
+                                                    <option value="number">NUMBER</option>
+                                                    <option value="date">DATE</option>
+                                                    <option value="select">DROPDOWN</option>
+                                                    <option value="image">PHOTO</option>
+                                                </select>
+                                                <i class="fa-solid fa-chevron-down text-[8px] text-emerald-500 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                                            </span>
                                         </div>
                                     </div>
-                                    
-                                    <div id="fb_quickAddOptionsWrap" class="hidden">
-                                        <div class="flex items-center justify-between mb-2">
-                                            <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-list text-[10px]"></i> Dropdown Options</label>
-                                            <button onclick="fb_quickAddAddOption('', false)" class="text-[10px] text-emerald-600 font-black uppercase tracking-widest">+ Add Option</button>
+                                    <div class="space-y-4">
+                                        <div>
+                                            <label class="premium-label !text-[11px] !tracking-widest uppercase mb-2"><i class="fa-solid fa-tag text-[10px]"></i> Field Name</label>
+                                            <input id="fb_quickAddLabel" type="text" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="Enter field name (e.g. Roll No)" list="fb_field_suggestions">
+                                            <datalist id="fb_field_suggestions"></datalist>
                                         </div>
-                                        <div id="fb_quickAddOptionsList" class="space-y-2"></div>
-                                    </div>
-                                    <div class="flex items-center gap-3 pt-2">
-                                        <button onclick="fb_closeQuickAdd(false)" class="flex-1 py-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-[11px] uppercase tracking-widest active:scale-95 transition"><i class="fa-solid fa-xmark mr-1.5 text-[13px]"></i> CANCEL</button>
-                                        <button onclick="fb_confirmQuickAdd(false)" class="flex-1 py-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] uppercase tracking-widest active:scale-95 transition shadow-sm"><i class="fa-solid fa-plus mr-1.5 text-[12px]"></i> CREATE</button>
+                                        
+                                        <!-- Photo Dimension Settings -->
+                                        <div id="fb_quickAddDimensionsWrap" class="hidden flex gap-4">
+                                            <div class="flex-1">
+                                                <label class="premium-label !text-[11px] !tracking-widest uppercase mb-2"><i class="fa-solid fa-arrows-left-right text-[10px]"></i> Photo Width (px)</label>
+                                                <input id="fb_quickAddWidth" type="number" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="600" value="600">
+                                            </div>
+                                            <div class="flex-1">
+                                                <label class="premium-label !text-[11px] !tracking-widest uppercase mb-2"><i class="fa-solid fa-arrows-up-down text-[10px]"></i> Photo Height (px)</label>
+                                                <input id="fb_quickAddHeight" type="number" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="800" value="800">
+                                            </div>
+                                        </div>
+                                        
+                                        <div id="fb_quickAddOptionsWrap" class="hidden">
+                                            <div class="flex items-center justify-between mb-2">
+                                                <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-list text-[10px]"></i> Dropdown Options</label>
+                                                <button onclick="fb_quickAddAddOption('', false)" class="text-[10px] text-emerald-600 font-black uppercase tracking-widest">+ Add Option</button>
+                                            </div>
+                                            <div id="fb_quickAddOptionsList" class="space-y-2"></div>
+                                        </div>
+                                        <div class="flex items-center gap-3 pt-2">
+                                            <button onclick="fb_closeQuickAdd(false)" class="flex-1 py-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-[11px] uppercase tracking-widest active:scale-95 transition"><i class="fa-solid fa-xmark mr-1.5 text-[13px]"></i> CANCEL</button>
+                                            <button onclick="fb_confirmQuickAdd(false)" class="flex-1 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] uppercase tracking-widest active:scale-95 transition shadow-sm"><i class="fa-solid fa-plus mr-1.5 text-[12px]"></i> CREATE</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+
+                            <div id="fb_removed_section" class="hidden mt-4 p-4 border border-dashed border-slate-200 rounded-2xl bg-slate-50">
+                                <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Recently Removed</div>
+                                <div id="fb_removed_list" class="space-y-2"></div>
+                            </div>
                         </div>
 
-                        <div id="fb_formContainer" class="space-y-3 flex-1"></div>
+                        <!-- Staff Form View (Switched when Staff tab is selected) -->
+                        <div id="fb_staff_view_wrap" class="${(typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff') ? 'block' : 'hidden'} space-y-3">
+                            <div id="fb_staffFormContainer" class="space-y-3 flex-1"></div>
 
-                        <div id="fb_emptyState" class="hidden flex-col items-center justify-center py-14 text-slate-300 border border-dashed border-slate-200 rounded-2xl bg-slate-50">
-                            <i class="fa-solid fa-clipboard-list text-4xl mb-3 opacity-20"></i>
-                            <p class="text-xs font-bold uppercase tracking-widest text-slate-400">No fields added yet</p>
-                            <p class="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Add your first custom field</p>
-                        </div>
+                            <div id="fb_staffEmptyState" class="hidden flex-col items-center justify-center py-10 text-slate-300 border border-dashed border-slate-200 rounded-2xl bg-slate-50">
+                                <i class="fa-solid fa-id-badge text-3xl mb-2 opacity-20"></i>
+                                <p class="text-xs font-bold uppercase tracking-widest text-slate-400">No Staff fields enabled</p>
+                            </div>
 
-                        <div id="fb_removed_section" class="hidden mt-6 p-4 border border-dashed border-slate-200 rounded-2xl bg-slate-50">
-                            <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Recently Removed</div>
-                            <div id="fb_removed_list" class="space-y-2"></div>
-                        </div>
-
-                        <!-- Staff Form Builder Section (Visible when Staff toggle is enabled) -->
-                        <div id="fb_staff_builder_section" class="hidden mt-8 pt-6 border-t-2 border-dashed border-emerald-200/80">
-                            <div class="mb-4 system-card p-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 shadow-sm relative overflow-hidden">
-                                <div class="flex items-center justify-between gap-3 relative z-10 flex-wrap">
-                                    <div class="flex items-center gap-2.5">
-                                        <div class="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
-                                            <i class="fa-solid fa-id-badge text-sm"></i>
-                                        </div>
-                                        <div>
-                                            <h4 class="text-xs font-black text-slate-800 uppercase tracking-wider">Staff Form Fields</h4>
-                                            <p class="text-[10px] font-bold text-emerald-700 uppercase tracking-widest">Shown when Class = Staff</p>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <button onclick="fb_openQuickAdd(true)" class="h-9 px-4 rounded-xl bg-emerald-600 text-white font-black text-[11px] uppercase tracking-widest hover:bg-emerald-700 transition flex items-center gap-2 active:scale-95">
-                                            <i class="fa-solid fa-plus text-xs"></i> Add Staff Field
-                                        </button>
-                                    </div>
-                                </div>
+                            <!-- Add Staff Field Section (Between fields and Recently Removed) -->
+                            <div id="fb_staff_add_field_card" class="w-full transition-all duration-300">
+                                <button type="button" id="fb_staff_add_btn" onclick="fb_openQuickAdd(true)" class="w-full h-[48px] bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] transition-all text-white rounded-[18px] font-black text-[14px] flex items-center justify-center gap-2.5 shadow-sm focus:outline-none">
+                                    <i class="fa-solid fa-plus text-base"></i>
+                                    <span>Add custom feild</span>
+                                </button>
                                 <!-- Expandable Staff Inline Quick Add Panel -->
-                                <div id="fb_staffQuickAddInlinePanel" class="hidden mt-4 pt-4 border-t border-emerald-200/50 space-y-4 transition-all duration-300">
-                                    <div class="flex items-center justify-between gap-3 pb-3 mb-3">
+                                <div id="fb_staffQuickAddInlinePanel" class="hidden mt-3 p-4 rounded-2xl border border-emerald-100 bg-white shadow-sm space-y-4 transition-all duration-300">
+                                    <div class="flex items-center justify-between gap-3 pb-3 mb-3 border-b border-emerald-200/50">
                                         <div class="text-[11px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-1.5">
-                                            <i class="fa-solid fa-circle-plus text-emerald-600"></i> Add New Staff Field
+                                            <i class="fa-solid fa-circle-plus text-emerald-600"></i> New Custom Field
                                         </div>
                                         <div class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                                             <span class="relative inline-block">
@@ -7264,18 +7339,11 @@
                                             <div id="fb_staffQuickAddOptionsList" class="space-y-2"></div>
                                         </div>
                                         <div class="flex items-center gap-3 pt-2">
-                                            <button onclick="fb_closeQuickAdd(true)" class="flex-1 py-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-[11px] uppercase tracking-widest active:scale-95 transition"><i class="fa-solid fa-xmark mr-1.5 text-[13px]"></i> CANCEL</button>
-                                            <button onclick="fb_confirmQuickAdd(true)" class="flex-1 py-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] uppercase tracking-widest active:scale-95 transition shadow-sm"><i class="fa-solid fa-plus mr-1.5 text-[12px]"></i> CREATE</button>
+                                            <button onclick="fb_closeQuickAdd(true)" class="flex-1 py-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-[11px] uppercase tracking-widest active:scale-95 transition"><i class="fa-solid fa-xmark mr-1.5 text-[13px]"></i> CANCEL</button>
+                                            <button onclick="fb_confirmQuickAdd(true)" class="flex-1 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] uppercase tracking-widest active:scale-95 transition shadow-sm"><i class="fa-solid fa-plus mr-1.5 text-[12px]"></i> CREATE</button>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-
-                            <div id="fb_staffFormContainer" class="space-y-3 flex-1"></div>
-
-                            <div id="fb_staffEmptyState" class="hidden flex-col items-center justify-center py-10 text-slate-300 border border-dashed border-slate-200 rounded-2xl bg-slate-50">
-                                <i class="fa-solid fa-id-badge text-3xl mb-2 opacity-20"></i>
-                                <p class="text-xs font-bold uppercase tracking-widest text-slate-400">No Staff fields enabled</p>
                             </div>
 
                             <div id="fb_staff_removed_section" class="hidden mt-4 p-4 border border-dashed border-slate-200 rounded-2xl bg-slate-50">
@@ -7775,8 +7843,30 @@
                                      (activeStatusFilter === 'unverified') ? unverBtn :
                                      (activeStatusFilter === 'pending') ? penBtn :
                                      (activeStatusFilter === 'recycleBin') ? binBtn : allBtn;
-                if (activeChipEl && typeof activeChipEl.scrollIntoView === 'function') {
-                    activeChipEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+
+                const filterRow = document.getElementById('class-filter-row');
+                if (filterRow && activeChipEl) {
+                    const chipLeft = activeChipEl.offsetLeft;
+                    const chipWidth = activeChipEl.offsetWidth;
+                    const rowScrollLeft = filterRow.scrollLeft;
+                    const rowWidth = filterRow.clientWidth;
+
+                    if (chipLeft < rowScrollLeft) {
+                        filterRow.scrollTo({ left: Math.max(0, chipLeft - 8), behavior: 'smooth' });
+                    } else if (chipLeft + chipWidth > rowScrollLeft + rowWidth) {
+                        filterRow.scrollTo({ left: chipLeft + chipWidth - rowWidth + 8, behavior: 'smooth' });
+                    }
+                }
+
+                // Prevent entire page from shifting horizontally
+                if (window.scrollX !== 0) {
+                    window.scrollTo({ left: 0, top: window.scrollY });
+                }
+                if (document.body && document.body.scrollLeft !== 0) {
+                    document.body.scrollLeft = 0;
+                }
+                if (document.documentElement && document.documentElement.scrollLeft !== 0) {
+                    document.documentElement.scrollLeft = 0;
                 }
 
                 filterRecords();
@@ -9223,6 +9313,9 @@
             closeSchoolConfig();
             if (typeof previousBlankRecordMode !== 'undefined') previousBlankRecordMode = 'settings';
             setBlankRecordMode('builder');
+            if (typeof updateBlankRecordHeader === 'function') {
+                updateBlankRecordHeader('builder');
+            }
         }
 
         async function openManageSchools() {
@@ -9548,6 +9641,10 @@
         function fb_loadActiveFormToBuilder() {
             fb_bootFromStorage();
 
+            if (!fb_staff_active) {
+                fb_active_form_tab = 'student';
+            }
+            fb_updateFormTabUI();
             fb_renderForm();
             
             // Set Staff toggle state on load
@@ -9568,6 +9665,10 @@
         function fb_toggleStaffActive(checked) {
             fb_staff_active = !!checked;
             fb_syncToAppData();
+            if (!fb_staff_active) {
+                fb_active_form_tab = 'student';
+            }
+            fb_updateFormTabUI();
             fb_renderForm();
             showToast(checked ? 'Staff Form Enabled (Class -> Staff added)' : 'Staff Form Disabled');
         }
@@ -9640,18 +9741,85 @@
             }, 'Clear');
         }
 
+        function fb_switchView(tab) {
+            if (tab === 'staff' && !fb_staff_active) {
+                showToast('Please enable Staff toggle first');
+                return;
+            }
+            fb_active_form_tab = (tab === 'staff') ? 'staff' : 'student';
+            fb_updateFormTabUI();
+            if (typeof updateBlankRecordHeader === 'function') {
+                updateBlankRecordHeader('builder');
+            }
+            fb_renderForm();
+        }
+
+        function fb_toggleView() {
+            if (!fb_staff_active) return;
+            fb_switchView(fb_active_form_tab === 'student' ? 'staff' : 'student');
+        }
+
+        function fb_updateFormTabUI() {
+            if (!fb_staff_active && fb_active_form_tab === 'staff') {
+                fb_active_form_tab = 'student';
+            }
+
+            const switcher = document.getElementById('fb_view_switcher');
+            if (switcher) {
+                if (fb_staff_active) {
+                    switcher.classList.remove('hidden');
+                    switcher.classList.add('flex');
+                } else {
+                    switcher.classList.add('hidden');
+                    switcher.classList.remove('flex');
+                }
+            }
+
+            const tabStudent = document.getElementById('fb_tab_student');
+            const tabStaff = document.getElementById('fb_tab_staff');
+            if (tabStudent && tabStaff) {
+                if (fb_active_form_tab === 'staff') {
+                    tabStaff.className = 'px-3.5 py-1.5 rounded-lg text-xs font-black transition-all bg-emerald-600 text-white shadow-sm flex items-center gap-1.5 active:scale-95';
+                    tabStudent.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-600 hover:text-emerald-700 flex items-center gap-1.5 active:scale-95';
+                } else {
+                    tabStudent.className = 'px-3.5 py-1.5 rounded-lg text-xs font-black transition-all bg-emerald-600 text-white shadow-sm flex items-center gap-1.5 active:scale-95';
+                    tabStaff.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-600 hover:text-emerald-700 flex items-center gap-1.5 active:scale-95';
+                }
+            }
+
+            const studentWrap = document.getElementById('fb_student_view_wrap');
+            const staffWrap = document.getElementById('fb_staff_view_wrap');
+            if (studentWrap) {
+                studentWrap.classList.toggle('hidden', fb_active_form_tab === 'staff');
+                studentWrap.classList.toggle('block', fb_active_form_tab !== 'staff');
+            }
+            if (staffWrap) {
+                staffWrap.classList.toggle('hidden', fb_active_form_tab !== 'staff');
+                staffWrap.classList.toggle('block', fb_active_form_tab === 'staff');
+            }
+
+            if (typeof updateBlankRecordHeader === 'function' && typeof blankRecordMode !== 'undefined' && blankRecordMode === 'builder') {
+                updateBlankRecordHeader('builder');
+            }
+        }
+
         function fb_updateBuilderStats() {
-            const stdEnabled = FB_STANDARD_FIELDS.filter(f => (fb_standard_config[f.id] || { enabled: true, required: false }).enabled).length;
-            const requiredTotal = FB_STANDARD_FIELDS.filter(f => (fb_standard_config[f.id] || { enabled: true, required: false }).enabled && (fb_standard_config[f.id] || { enabled: true, required: false }).required).length + fb_fields.filter(f => !!f.required).length;
+            const isStaff = typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff';
+            const stdFields = isStaff ? FB_STAFF_STANDARD_FIELDS.filter(f => f.id !== 'sclass') : FB_STANDARD_FIELDS;
+            const stdConfig = isStaff ? fb_staff_standard_config : fb_standard_config;
+            const customFields = isStaff ? fb_staff_fields : fb_fields;
+
+            const stdEnabled = stdFields.filter(f => (stdConfig[f.id] || { enabled: true, required: false }).enabled).length;
+            const requiredTotal = stdFields.filter(f => (stdConfig[f.id] || { enabled: true, required: false }).enabled && (stdConfig[f.id] || { enabled: true, required: false }).required).length + customFields.filter(f => !!f.required).length;
 
             const statStd = document.getElementById('fb_stat_standard');
             const statCustom = document.getElementById('fb_stat_custom');
             const statRequired = document.getElementById('fb_stat_required');
             const limit = document.getElementById('fb_limit_label');
             if (statStd) statStd.textContent = String(stdEnabled);
-            if (statCustom) statCustom.textContent = String(fb_fields.length);
+            if (statCustom) statCustom.textContent = String(customFields.length);
             if (statRequired) statRequired.textContent = String(requiredTotal);
-            if (limit) limit.textContent = `${fb_fields.length} / ${FB_CUSTOM_LIMIT} used`;
+            if (limit) limit.textContent = `${customFields.length} / ${FB_CUSTOM_LIMIT} used`;
         }
 
         function fb_updateFilterButtons() {
@@ -9792,20 +9960,20 @@
                     ${isEditing ? fb_getEditorHtml() : `
                     <div class="flex items-center justify-end gap-2 border-t border-slate-50 pt-3">
                         <div class="mr-auto w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-black text-[11px] border border-emerald-200/50" title="Field Position">${renderedCount + 1}</div>
-                        <button onclick="fb_openStandardEditor('${field.id}', false)" class="w-9 h-9 rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:shadow-sm transition active:scale-95" title="Edit">
-                            <i class="fa-solid fa-pen text-xs"></i>
+                        <button onclick="fb_openStandardEditor('${field.id}', false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:shadow-sm transition active:scale-95" title="Edit">
+                            <i class="fa-solid fa-pen text-xs leading-none"></i>
                         </button>
-                        <button onclick="fb_removeStandardField('${field.id}', false)" class="w-9 h-9 rounded-full border ${isFixedTopField ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:shadow-sm'} transition active:scale-95" title="${isFixedTopField ? 'This field is fixed' : 'Delete'}">
-                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        <button onclick="fb_removeStandardField('${field.id}', false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border ${isFixedTopField ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:shadow-sm'} transition active:scale-95" title="${isFixedTopField ? 'This field is fixed' : 'Delete'}">
+                            <i class="fa-solid fa-trash-can text-xs leading-none"></i>
                         </button>
-                        <button onclick="fb_toggleStandardRequired('${field.id}', false)" class="w-9 h-9 rounded-full border-2 transition active:scale-95 hover:shadow-sm ${isRequired ? 'border-rose-500 bg-rose-500 text-white' : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'}" title="Required">
-                            <i class="fa-solid fa-asterisk text-[10px]"></i>
+                        <button onclick="fb_toggleStandardRequired('${field.id}', false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border-2 transition active:scale-95 hover:shadow-sm ${isRequired ? 'border-rose-500 bg-rose-500 text-white' : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'}" title="Required">
+                            <i class="fa-solid fa-asterisk text-[10px] leading-none"></i>
                         </button>
-                        <button onclick="fb_moveFieldInOrder(${orderIndex}, -1, false)" class="w-9 h-9 rounded-full border ${isFixedTopField ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm'} transition active:scale-95" title="${isFixedTopField ? 'This field is fixed' : 'Move Up'}">
-                            <i class="fa-solid fa-arrow-up text-xs"></i>
+                        <button onclick="fb_moveFieldInOrder(${orderIndex}, -1, false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border ${isFixedTopField ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm'} transition active:scale-95" title="${isFixedTopField ? 'This field is fixed' : 'Move Up'}">
+                            <i class="fa-solid fa-arrow-up text-xs leading-none"></i>
                         </button>
-                        <button onclick="fb_moveFieldInOrder(${orderIndex}, 1, false)" class="w-9 h-9 rounded-full border ${isFixedTopField ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm'} transition active:scale-95" title="${isFixedTopField ? 'This field is fixed' : 'Move Down'}">
-                            <i class="fa-solid fa-arrow-down text-xs"></i>
+                        <button onclick="fb_moveFieldInOrder(${orderIndex}, 1, false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border ${isFixedTopField ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm'} transition active:scale-95" title="${isFixedTopField ? 'This field is fixed' : 'Move Down'}">
+                            <i class="fa-solid fa-arrow-down text-xs leading-none"></i>
                         </button>
                     </div>
                     `}
@@ -9839,20 +10007,20 @@
                         ${isEditing ? fb_getEditorHtml() : `
                         <div class="mt-4 flex items-center justify-end gap-2 border-t border-slate-50 pt-3">
                             <div class="mr-auto w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-black text-[11px] border border-emerald-200/50" title="Field Position">${renderedCount + 1}</div>
-                            <button onclick="fb_openEditor('${field.id}', false)" class="w-9 h-9 rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:shadow-sm transition active:scale-95" title="Edit">
-                                <i class="fa-solid fa-pen text-xs"></i>
+                            <button onclick="fb_openEditor('${field.id}', false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:shadow-sm transition active:scale-95" title="Edit">
+                                <i class="fa-solid fa-pen text-xs leading-none"></i>
                             </button>
-                            <button onclick="fb_deleteField('${field.id}', false)" class="w-9 h-9 rounded-full border border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:shadow-sm transition active:scale-95" title="Delete">
-                                <i class="fa-solid fa-trash-can text-xs"></i>
+                            <button onclick="fb_deleteField('${field.id}', false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:shadow-sm transition active:scale-95" title="Delete">
+                                <i class="fa-solid fa-trash-can text-xs leading-none"></i>
                             </button>
-                            <button onclick="fb_toggleRequired('${field.id}', false)" class="w-9 h-9 rounded-full border-2 transition active:scale-95 hover:shadow-sm ${field.required ? 'border-rose-500 bg-rose-500 text-white' : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'}" title="Required">
-                                <i class="fa-solid fa-asterisk text-[10px]"></i>
+                            <button onclick="fb_toggleRequired('${field.id}', false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border-2 transition active:scale-95 hover:shadow-sm ${field.required ? 'border-rose-500 bg-rose-500 text-white' : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'}" title="Required">
+                                <i class="fa-solid fa-asterisk text-[10px] leading-none"></i>
                             </button>
-                            <button onclick="fb_moveFieldInOrder(${orderIndex}, -1, false)" class="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Up">
-                                <i class="fa-solid fa-arrow-up text-xs"></i>
+                            <button onclick="fb_moveFieldInOrder(${orderIndex}, -1, false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Up">
+                                <i class="fa-solid fa-arrow-up text-xs leading-none"></i>
                             </button>
-                            <button onclick="fb_moveFieldInOrder(${orderIndex}, 1, false)" class="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Down">
-                                <i class="fa-solid fa-arrow-down text-xs"></i>
+                            <button onclick="fb_moveFieldInOrder(${orderIndex}, 1, false)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Down">
+                                <i class="fa-solid fa-arrow-down text-xs leading-none"></i>
                             </button>
                         </div>
                         `}
@@ -9872,24 +10040,22 @@
         }
 
         function fb_renderStaffBuilderForm() {
-            const section = document.getElementById('fb_staff_builder_section');
-            if (!section) return;
-            if (!fb_staff_active) {
-                section.classList.add('hidden');
-                return;
-            }
-            section.classList.remove('hidden');
-
             const container = document.getElementById('fb_staffFormContainer');
             const emptyState = document.getElementById('fb_staffEmptyState');
             if (!container) return;
             container.innerHTML = '';
             if (emptyState) emptyState.classList.add('hidden');
 
+            const term = fb_search_term.toLowerCase();
+            const matches = (txt) => !term || String(txt || '').toLowerCase().includes(term);
+            const allowStandard = fb_filter_mode === 'all' || fb_filter_mode === 'standard' || fb_filter_mode === 'required';
+            const allowCustom = fb_filter_mode === 'all' || fb_filter_mode === 'custom' || fb_filter_mode === 'required';
+
             let renderedCount = 0;
             if (Array.isArray(fb_staff_form_order)) fb_staff_form_order.forEach((id, orderIndex) => {
+                if (id === 'sclass') return; // Do not render Class field card in Staff Form Builder
                 const isStandard = FB_STAFF_STANDARD_FIELDS.some(f => f.id === id);
-                if (isStandard) {
+                if (isStandard && allowStandard) {
                     const field = FB_STAFF_STANDARD_FIELDS.find(f => f.id === id);
                     const config = fb_staff_standard_config[field.id] || { enabled: true, required: false };
                     const isEnabled = config.enabled;
@@ -9898,8 +10064,10 @@
                     const stdMeta = fb_staff_standard_meta[field.id] || {};
                     const effectiveType = stdMeta.type || field.type;
                     const effectiveField = { ...field, label: displayLabel, type: effectiveType };
-                    const isFixedTopField = field.id === 'sclass';
+                    const isFixedTopField = false;
                     if (!isEnabled) return;
+                    if (fb_filter_mode === 'required' && !isRequired) return;
+                    if (!matches(displayLabel) && !matches('standard')) return;
 
                     const isEditing = fb_currentEditingId === `staff_std:${field.id}`;
                     const div = document.createElement('div');
@@ -9919,29 +10087,31 @@
                     ${isEditing ? fb_getEditorHtml() : `
                     <div class="flex items-center justify-end gap-2 border-t border-slate-50 pt-3">
                         <div class="mr-auto w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-black text-[11px] border border-emerald-200/50" title="Field Position">${renderedCount + 1}</div>
-                        <button onclick="fb_openStandardEditor('${field.id}', true)" class="w-9 h-9 rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:shadow-sm transition active:scale-95" title="Edit">
-                            <i class="fa-solid fa-pen text-xs"></i>
+                        <button onclick="fb_openStandardEditor('${field.id}', true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:shadow-sm transition active:scale-95" title="Edit">
+                            <i class="fa-solid fa-pen text-xs leading-none"></i>
                         </button>
-                        <button onclick="fb_removeStandardField('${field.id}', true)" class="w-9 h-9 rounded-full border ${isFixedTopField ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:shadow-sm'} transition active:scale-95" title="${isFixedTopField ? 'Class is required to switch to Staff' : 'Delete'}">
-                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        <button onclick="fb_removeStandardField('${field.id}', true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border ${isFixedTopField ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed' : 'border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:shadow-sm'} transition active:scale-95" title="${isFixedTopField ? 'Class is required to switch to Staff' : 'Delete'}">
+                            <i class="fa-solid fa-trash-can text-xs leading-none"></i>
                         </button>
-                        <button onclick="fb_toggleStandardRequired('${field.id}', true)" class="w-9 h-9 rounded-full border-2 transition active:scale-95 hover:shadow-sm ${isRequired ? 'border-rose-500 bg-rose-500 text-white' : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'}" title="Required">
-                            <i class="fa-solid fa-asterisk text-[10px]"></i>
+                        <button onclick="fb_toggleStandardRequired('${field.id}', true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border-2 transition active:scale-95 hover:shadow-sm ${isRequired ? 'border-rose-500 bg-rose-500 text-white' : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'}" title="Required">
+                            <i class="fa-solid fa-asterisk text-[10px] leading-none"></i>
                         </button>
-                        <button onclick="fb_moveFieldInOrder(${orderIndex}, -1, true)" class="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Up">
-                            <i class="fa-solid fa-arrow-up text-xs"></i>
+                        <button onclick="fb_moveFieldInOrder(${orderIndex}, -1, true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Up">
+                            <i class="fa-solid fa-arrow-up text-xs leading-none"></i>
                         </button>
-                        <button onclick="fb_moveFieldInOrder(${orderIndex}, 1, true)" class="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Down">
-                            <i class="fa-solid fa-arrow-down text-xs"></i>
+                        <button onclick="fb_moveFieldInOrder(${orderIndex}, 1, true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Down">
+                            <i class="fa-solid fa-arrow-down text-xs leading-none"></i>
                         </button>
                     </div>
                     `}
                     </div>`;
                     container.appendChild(div);
                     renderedCount++;
-                } else {
+                } else if (!isStandard && allowCustom) {
                     const field = fb_staff_fields.find(f => f.id === id);
                     if (!field) return;
+                    if (fb_filter_mode === 'required' && !field.required) return;
+                    if (!matches(field.label) && !matches(field.type) && !matches('custom')) return;
                     const isEditing = fb_currentEditingId === `staff_cust:${field.id}`;
                     const div = document.createElement('div');
                     div.className = 'w-full group mb-3';
@@ -9963,20 +10133,20 @@
                         ${isEditing ? fb_getEditorHtml() : `
                         <div class="mt-4 flex items-center justify-end gap-2 border-t border-slate-50 pt-3">
                             <div class="mr-auto w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-black text-[11px] border border-emerald-200/50" title="Field Position">${renderedCount + 1}</div>
-                            <button onclick="fb_openEditor('${field.id}', true)" class="w-9 h-9 rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:shadow-sm transition active:scale-95" title="Edit">
-                                <i class="fa-solid fa-pen text-xs"></i>
+                            <button onclick="fb_openEditor('${field.id}', true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:shadow-sm transition active:scale-95" title="Edit">
+                                <i class="fa-solid fa-pen text-xs leading-none"></i>
                             </button>
-                            <button onclick="fb_deleteField('${field.id}', true)" class="w-9 h-9 rounded-full border border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:shadow-sm transition active:scale-95" title="Delete">
-                                <i class="fa-solid fa-trash-can text-xs"></i>
+                            <button onclick="fb_deleteField('${field.id}', true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:shadow-sm transition active:scale-95" title="Delete">
+                                <i class="fa-solid fa-trash-can text-xs leading-none"></i>
                             </button>
-                            <button onclick="fb_toggleRequired('${field.id}', true)" class="w-9 h-9 rounded-full border-2 transition active:scale-95 hover:shadow-sm ${field.required ? 'border-rose-500 bg-rose-500 text-white' : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'}" title="Required">
-                                <i class="fa-solid fa-asterisk text-[10px]"></i>
+                            <button onclick="fb_toggleRequired('${field.id}', true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border-2 transition active:scale-95 hover:shadow-sm ${field.required ? 'border-rose-500 bg-rose-500 text-white' : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'}" title="Required">
+                                <i class="fa-solid fa-asterisk text-[10px] leading-none"></i>
                             </button>
-                            <button onclick="fb_moveFieldInOrder(${orderIndex}, -1, true)" class="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Up">
-                                <i class="fa-solid fa-arrow-up text-xs"></i>
+                            <button onclick="fb_moveFieldInOrder(${orderIndex}, -1, true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Up">
+                                <i class="fa-solid fa-arrow-up text-xs leading-none"></i>
                             </button>
-                            <button onclick="fb_moveFieldInOrder(${orderIndex}, 1, true)" class="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Down">
-                                <i class="fa-solid fa-arrow-down text-xs"></i>
+                            <button onclick="fb_moveFieldInOrder(${orderIndex}, 1, true)" class="w-9 h-9 rounded-full flex items-center justify-center leading-none border border-slate-200 bg-white text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition active:scale-95" title="Move Down">
+                                <i class="fa-solid fa-arrow-down text-xs leading-none"></i>
                             </button>
                         </div>
                         `}
@@ -10059,6 +10229,10 @@
             
             while (targetIndex >= 0 && targetIndex < orderArr.length) {
                 const id = orderArr[targetIndex];
+                if (isStaff && id === 'sclass') {
+                    targetIndex += dir;
+                    continue;
+                }
                 const isStandard = stdList.some(f => f.id === id);
                 let isVisible = true;
                 if (isStandard) {
@@ -10119,11 +10293,16 @@
             const prefix = isStaff ? 'fb_staffQuickAdd' : 'fb_quickAdd';
             const panel = document.getElementById(`${prefix}InlinePanel`);
             if (panel) panel.classList.remove('hidden');
+            const addBtn = document.getElementById(isStaff ? 'fb_staff_add_btn' : 'fb_student_add_btn');
+            if (addBtn) addBtn.classList.add('hidden');
             const typeEl = document.getElementById(`${prefix}Type`);
             const labelEl = document.getElementById(`${prefix}Label`);
             const optList = document.getElementById(`${prefix}OptionsList`);
             if (typeEl) typeEl.value = 'text';
-            if (labelEl) labelEl.value = '';
+            if (labelEl) {
+                labelEl.value = '';
+                setTimeout(() => labelEl.focus(), 50);
+            }
             if (optList) optList.innerHTML = '';
             fb_toggleQuickAddOptions('text', isStaff);
             fb_updateFieldNameSuggestions(isStaff);
@@ -10133,6 +10312,8 @@
             const prefix = isStaff ? 'fb_staffQuickAdd' : 'fb_quickAdd';
             const panel = document.getElementById(`${prefix}InlinePanel`);
             if (panel) panel.classList.add('hidden');
+            const addBtn = document.getElementById(isStaff ? 'fb_staff_add_btn' : 'fb_student_add_btn');
+            if (addBtn) addBtn.classList.remove('hidden');
         }
 
         function fb_updateFieldNameSuggestions(isStaff = false) {
@@ -10737,57 +10918,66 @@
                         
                         <!-- Step 1: Select Data to Export (Status Filters) -->
                         <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm w-full">
-                            <div class="flex items-center justify-between mb-1.5">
+                            <div class="mb-1.5">
                                 <h3 class="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                                     <i class="fa-solid fa-filter text-blue-500"></i> Select Data to Export
                                 </h3>
-                                <span id="ie-export-count-badge" class="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700">0 Records Selected</span>
                             </div>
                             <p class="text-[10px] text-slate-500 mb-3 leading-tight">Choose which records from your current software data to include in this export.</p>
                             
-                            <div class="grid grid-cols-2 gap-2">
+                            <div class="flex flex-col gap-2 w-full">
                                 <!-- All Current Data -->
-                                <label class="flex items-center gap-2.5 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50/50 transition">
-                                    <input type="checkbox" id="ie-filter-all" onchange="ie_toggleAllStatusFilter(this.checked)" class="w-4 h-4 accent-blue-600 rounded" checked>
-                                    <div class="flex-1 min-w-0">
-                                        <span class="text-xs font-bold text-slate-800">All Current Data</span>
-                                        <span id="ie-cnt-all" class="text-[10px] text-slate-500 font-bold block">0 records</span>
+                                <label class="flex items-center justify-between gap-3 p-3 bg-slate-50/80 hover:bg-blue-50/40 rounded-xl border border-slate-200/90 cursor-pointer transition">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <input type="checkbox" id="ie-filter-all" onchange="ie_toggleAllStatusFilter(this.checked)" class="w-4 h-4 accent-blue-600 rounded shrink-0 cursor-pointer" checked>
+                                        <span class="material-symbols-outlined text-[19px] text-blue-600 flex items-center justify-center leading-none shrink-0">database</span>
+                                        <span class="text-xs font-bold text-slate-800 truncate">All Current Data</span>
                                     </div>
+                                    <span id="ie-cnt-all" class="text-[10px] text-slate-500 font-bold bg-white px-2 py-0.5 rounded-full border border-slate-200/80 shrink-0">0 records</span>
                                 </label>
 
                                 <!-- Verified Only -->
-                                <label class="flex items-center gap-2.5 p-3 bg-emerald-50/40 rounded-xl border border-emerald-200/60 cursor-pointer hover:bg-emerald-50 transition">
-                                    <input type="checkbox" value="verified" class="ie-status-cb w-4 h-4 accent-emerald-600 rounded" onchange="ie_onStatusFilterChange()" checked>
-                                    <div class="flex-1 min-w-0">
-                                        <span class="text-xs font-bold text-emerald-800 flex items-center gap-1.5"><i class="fa-solid fa-circle-check text-emerald-500 text-[11px]"></i> Verified Only</span>
-                                        <span id="ie-cnt-verified" class="text-[10px] text-emerald-600 font-bold block">0 records</span>
+                                <label class="flex items-center justify-between gap-3 p-3 bg-emerald-50/40 hover:bg-emerald-50/70 rounded-xl border border-emerald-200/70 cursor-pointer transition">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <input type="checkbox" value="verified" class="ie-status-cb w-4 h-4 accent-emerald-600 rounded shrink-0 cursor-pointer" onchange="ie_onStatusFilterChange()" checked>
+                                        <span class="material-symbols-outlined text-[19px] text-emerald-600 flex items-center justify-center leading-none shrink-0" style="font-variation-settings: 'FILL' 1;">verified</span>
+                                        <span class="text-xs font-bold text-emerald-900 truncate">Verified Data</span>
                                     </div>
+                                    <span id="ie-cnt-verified" class="text-[10px] text-emerald-700 font-bold bg-white px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">0 records</span>
                                 </label>
 
                                 <!-- Unverified -->
-                                <label class="flex items-center gap-2.5 p-3 bg-amber-50/40 rounded-xl border border-amber-200/60 cursor-pointer hover:bg-amber-50 transition">
-                                    <input type="checkbox" value="unverified" class="ie-status-cb w-4 h-4 accent-amber-500 rounded" onchange="ie_onStatusFilterChange()" checked>
-                                    <div class="flex-1 min-w-0">
-                                        <span class="text-xs font-bold text-amber-800 flex items-center gap-1.5"><i class="fa-solid fa-clock text-amber-500 text-[11px]"></i> Unverified</span>
-                                        <span id="ie-cnt-unverified" class="text-[10px] text-amber-600 font-bold block">0 records</span>
+                                <label class="flex items-center justify-between gap-3 p-3 bg-amber-50/40 hover:bg-amber-50/70 rounded-xl border border-amber-200/70 cursor-pointer transition">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <input type="checkbox" value="unverified" class="ie-status-cb w-4 h-4 accent-amber-500 rounded shrink-0 cursor-pointer" onchange="ie_onStatusFilterChange()" checked>
+                                        <span class="material-symbols-outlined text-[19px] text-amber-500 flex items-center justify-center leading-none shrink-0" style="font-variation-settings: 'FILL' 1;">unpublished</span>
+                                        <span class="text-xs font-bold text-amber-900 truncate">Unverified Data</span>
                                     </div>
+                                    <span id="ie-cnt-unverified" class="text-[10px] text-amber-700 font-bold bg-white px-2 py-0.5 rounded-full border border-amber-200 shrink-0">0 records</span>
                                 </label>
 
                                 <!-- No Photo / Pending -->
-                                <label class="flex items-center gap-2.5 p-3 bg-rose-50/40 rounded-xl border border-rose-200/60 cursor-pointer hover:bg-rose-50 transition">
-                                    <input type="checkbox" value="pending" class="ie-status-cb w-4 h-4 accent-rose-500 rounded" onchange="ie_onStatusFilterChange()" checked>
-                                    <div class="flex-1 min-w-0">
-                                        <span class="text-xs font-bold text-rose-800 flex items-center gap-1.5"><i class="fa-solid fa-image-slash text-rose-500 text-[11px]"></i> No Photo (Pending)</span>
-                                        <span id="ie-cnt-pending" class="text-[10px] text-rose-600 font-bold block">0 records</span>
+                                <label class="flex items-center justify-between gap-3 p-3 bg-rose-50/40 hover:bg-rose-50/70 rounded-xl border border-rose-200/70 cursor-pointer transition">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <input type="checkbox" value="pending" class="ie-status-cb w-4 h-4 accent-rose-500 rounded shrink-0 cursor-pointer" onchange="ie_onStatusFilterChange()" checked>
+                                        <span class="material-symbols-outlined text-[19px] text-rose-500 flex items-center justify-center leading-none shrink-0" style="font-variation-settings: 'FILL' 1;">no_photography</span>
+                                        <span class="text-xs font-bold text-rose-900 truncate">No Photo (Pending)</span>
                                     </div>
+                                    <span id="ie-cnt-pending" class="text-[10px] text-rose-700 font-bold bg-white px-2 py-0.5 rounded-full border border-rose-200 shrink-0">0 records</span>
                                 </label>
                             </div>
                         </div>
 
                         <!-- Step 2: Select Fields to Export -->
                         <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm w-full">
-                            <h3 class="text-[11px] font-black text-slate-800 mb-3 uppercase tracking-wider flex items-center gap-2"><i class="fa-solid fa-table-columns text-blue-500"></i> Select Fields to Export</h3>
-                            <div id="ie-export-fields-grid" class="grid grid-cols-2 gap-2">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-2"><i class="fa-solid fa-table-columns text-blue-500"></i> Select Fields to Export</h3>
+                                <div class="flex items-center gap-1.5">
+                                    <button type="button" onclick="ie_toggleAllExportFields(true)" class="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full cursor-pointer transition">Select All</button>
+                                    <button type="button" onclick="ie_toggleAllExportFields(false)" class="text-[10px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full cursor-pointer transition">Clear</button>
+                                </div>
+                            </div>
+                            <div id="ie-export-fields-grid" class="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto custom-scroll pr-1">
                                 <!-- Injected by JS -->
                             </div>
                         </div>
@@ -10812,10 +11002,9 @@
                                 </div>
                             </label>
                             
-                            <div id="ie-export-qr-options" class="hidden pl-4 pr-2 py-3 mt-2 border-l-2 border-blue-400 bg-blue-50/20 rounded-r-xl w-full">
-                                <div class="flex items-center justify-between mb-2">
+                            <div id="ie-export-qr-options" class="hidden p-3.5 mt-2 bg-slate-50/70 border border-slate-200/80 rounded-2xl w-full">
+                                <div class="mb-1.5">
                                     <p class="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5"><i class="fa-solid fa-qrcode text-blue-600"></i> Select QR Data Fields</p>
-                                    <span class="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Scans directly on phone camera</span>
                                 </div>
                                 <p class="text-[10px] text-slate-500 mb-2.5 leading-tight">Tick the details you want to encode inside the QR code. When scanned, these exact details will appear.</p>
                                 <div id="ie-export-qr-fields-grid" class="grid grid-cols-2 gap-2">
@@ -10933,6 +11122,82 @@
         }
     }
     
+    function ie_toggleAllExportFields(checked) {
+        document.querySelectorAll('.ie-export-cb').forEach(cb => {
+            cb.checked = checked;
+        });
+    }
+
+    function ie_getRecordFieldValue(rec, fieldId) {
+        if (!rec) return '';
+        if (rec[fieldId] !== undefined && rec[fieldId] !== null && String(rec[fieldId]).trim() !== '') {
+            return String(rec[fieldId]).trim();
+        }
+        const lowerId = fieldId.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const k of Object.keys(rec)) {
+            if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === lowerId) {
+                const v = rec[k];
+                if (v !== undefined && v !== null && String(v).trim() !== '') {
+                    return String(v).trim();
+                }
+            }
+        }
+        return '';
+    }
+
+    function ie_getAllAvailableFields() {
+        const fields = [
+            { id: 'sn', label: 'SN' },
+            { id: 'studentName', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('studentName', 'Student Name') : 'Student Name') },
+            { id: 'fatherName', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('fatherName', "Father's Name") : "Father's Name") },
+            { id: 'motherName', label: "Mother's Name" },
+            { id: 'sclass', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('sclass', 'Class') : 'Class') },
+            { id: 'section', label: 'Section' },
+            { id: 'rollNo', label: 'Roll No' },
+            { id: 'admissionNo', label: 'Admission No' },
+            { id: 'gender', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('gender', 'Gender') : 'Gender') },
+            { id: 'dob', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('dob', 'Date of Birth') : 'Date of Birth') },
+            { id: 'mobile', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('mobile', 'Mobile Number') : 'Mobile Number') },
+            { id: 'aadhar', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('aadhar', 'Aadhar Number') : 'Aadhar Number') },
+            { id: 'bloodGroup', label: 'Blood Group' },
+            { id: 'address', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('address', 'Address') : 'Address') }
+        ];
+
+        // Custom fields from Form Builder
+        if (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields)) {
+            fb_fields.forEach(cf => {
+                if (cf && cf.id && cf.type !== 'section' && cf.type !== 'image' && cf.id !== 'photo' && !fields.some(f => f.id === cf.id)) {
+                    fields.push({ id: cf.id, label: cf.label || cf.id });
+                }
+            });
+        }
+
+        // Additional dynamic fields present across database records
+        const systemKeys = new Set([
+            'id', 'sn', 'studentName', 'fatherName', 'motherName', 'sclass', 'section', 'rollNo', 'admissionNo',
+            'gender', 'dob', 'mobile', 'aadhar', 'bloodGroup', 'address',
+            'docUrl', 'photoData', 'docFileId', 'docMimeType', 'docSize', 'fileName', 'photo',
+            'verified', 'returned', 'isDeleted', 'isRestored', 'binDeletedAt', 'status',
+            'createdAt', 'updatedAt', '_timestamp', '_schoolName', '_appName'
+        ]);
+
+        (Array.isArray(db) ? db : []).forEach(r => {
+            if (!r || typeof r !== 'object') return;
+            Object.keys(r).forEach(k => {
+                if (!systemKeys.has(k) && !fields.some(f => f.id === k)) {
+                    const niceLabel = k.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()).trim();
+                    fields.push({ id: k, label: niceLabel });
+                }
+            });
+        });
+
+        // Add System ID and Timestamp
+        fields.push({ id: 'id', label: 'System ID' });
+        fields.push({ id: '_timestamp', label: 'Timestamp' });
+
+        return fields;
+    }
+
     function ie_renderExportFields() {
         const grid = document.getElementById('ie-export-fields-grid');
         const qrGrid = document.getElementById('ie-export-qr-fields-grid');
@@ -10940,52 +11205,43 @@
 
         ie_updateStatusCounts();
 
-        let html = `<label class="flex items-center gap-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="_timestamp" class="ie-export-cb accent-blue-600 w-4 h-4" checked><span class="text-xs font-bold text-slate-700 truncate">Timestamp</span></label>`;
-        html += `<label class="flex items-center gap-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="sn" class="ie-export-cb accent-blue-600 w-4 h-4" checked><span class="text-xs font-bold text-slate-700 truncate">SN (Serial No)</span></label>`;
+        const allFields = ie_getAllAvailableFields();
+
+        let html = '';
+        allFields.forEach(f => {
+            html += `<label class="flex items-center gap-2 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition"><input type="checkbox" value="${f.id}" class="ie-export-cb accent-blue-600 w-4 h-4 shrink-0 cursor-pointer" checked><span class="text-xs font-bold text-slate-700 truncate">${f.label}</span></label>`;
+        });
+        grid.innerHTML = html;
 
         let qrHtml = `
             <label class="flex items-center gap-2 p-2.5 bg-blue-50/70 rounded-xl border border-blue-200 cursor-pointer hover:bg-blue-100/60 transition">
-                <input type="checkbox" value="_schoolName" class="ie-qr-cb accent-blue-600 w-4 h-4" checked>
+                <input type="checkbox" value="_schoolName" class="ie-qr-cb accent-blue-600 w-4 h-4 shrink-0" checked>
                 <div class="flex-1 min-w-0">
                     <span class="text-[11px] font-black text-blue-900 block truncate"><i class="fa-solid fa-school text-blue-600 mr-1"></i> School Name</span>
                 </div>
             </label>
             <label class="flex items-center gap-2 p-2.5 bg-blue-50/70 rounded-xl border border-blue-200 cursor-pointer hover:bg-blue-100/60 transition">
-                <input type="checkbox" value="_appName" class="ie-qr-cb accent-blue-600 w-4 h-4" checked>
+                <input type="checkbox" value="_appName" class="ie-qr-cb accent-blue-600 w-4 h-4 shrink-0" checked>
                 <div class="flex-1 min-w-0">
                     <span class="text-[11px] font-black text-blue-900 block truncate"><i class="fa-solid fa-mobile-screen text-blue-600 mr-1"></i> App Name</span>
                 </div>
             </label>
             <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition">
-                <input type="checkbox" value="id" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5" checked>
+                <input type="checkbox" value="id" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5 shrink-0" checked>
                 <span class="text-[10px] font-bold text-slate-700 truncate">System ID</span>
             </label>
             <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition">
-                <input type="checkbox" value="sn" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5" checked>
+                <input type="checkbox" value="sn" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5 shrink-0" checked>
                 <span class="text-[10px] font-bold text-slate-700 truncate">SN (Serial No)</span>
             </label>
         `;
-        
-        fb_form_order.forEach(id => {
-            let f = null;
-            let label = '';
-            if (FB_STANDARD_FIELDS.some(sf => sf.id === id)) {
-                const stdField = FB_STANDARD_FIELDS.find(sf => sf.id === id);
-                if (!fb_standard_config[id] || fb_standard_config[id].enabled) {
-                    f = stdField;
-                    label = fb_getStandardLabel(id, stdField.label);
-                }
-            } else {
-                f = fb_fields.find(cf => cf.id === id);
-                if (f) label = f.label;
-            }
-            if (f && f.type !== 'section' && f.type !== 'image' && f.id !== 'photo') {
-                html += `<label class="flex items-center gap-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="${f.id}" class="ie-export-cb accent-blue-600 w-4 h-4" checked><span class="text-xs font-bold text-slate-700 truncate">${label}</span></label>`;
+
+        allFields.forEach(f => {
+            if (f.id !== 'sn' && f.id !== 'id' && f.id !== '_timestamp') {
                 const defaultQrChecked = (f.id === 'studentName' || f.id === 'sclass' || f.id === 'fatherName') ? 'checked' : '';
-                qrHtml += `<label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition"><input type="checkbox" value="${f.id}" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5" ${defaultQrChecked}><span class="text-[10px] font-bold text-slate-700 truncate">${label}</span></label>`;
+                qrHtml += `<label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition"><input type="checkbox" value="${f.id}" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5 shrink-0" ${defaultQrChecked}><span class="text-[10px] font-bold text-slate-700 truncate">${f.label}</span></label>`;
             }
         });
-        grid.innerHTML = html;
         qrGrid.innerHTML = qrHtml;
     }
     
@@ -11028,7 +11284,10 @@
             btn.disabled = true;
 
             const zip = new JSZip();
-            const exportData = [];
+            const exportDataAll = [];
+            const exportDataVerified = [];
+            const exportDataUnverified = [];
+            const exportDataPending = [];
             const photoFolder = includePhotos ? zip.folder("Photos") : null;
             const qrFolder = includeQr ? zip.folder("QR_Codes") : null;
 
@@ -11036,35 +11295,69 @@
             const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('') || "DPS").toUpperCase();
             const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify';
 
+            const allAvailableFields = ie_getAllAvailableFields();
+
             for (let i = 0; i < targetRecords.length; i++) {
                 const rec = targetRecords[i];
-                let row = { 'System ID': rec.id || '' };
-                
-                selectedFields.forEach(id => {
-                    if (id === '_timestamp') {
-                        row['Timestamp'] = rec.createdAt ? new Date(rec.createdAt).toLocaleString('en-IN') : (rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('en-IN') : '');
-                        return;
-                    }
-                    if (id === 'sn') {
-                        const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
-                        const snVal = (rec.sn && Number(rec.sn) < 1000000000 && Number(rec.sn) > 0) ? rec.sn : '1';
-                        row['SN'] = `${schoolCode}${year}${String(snVal).padStart(3, '0')}`;
-                        return;
-                    }
-                    let label = id;
-                    if (FB_STANDARD_FIELDS.some(sf => sf.id === id)) {
-                        label = fb_getStandardLabel(id, FB_STANDARD_FIELDS.find(sf => sf.id === id).label);
-                    } else {
-                        const f = fb_fields.find(cf => cf.id === id);
-                        if (f) label = f.label;
-                    }
-                    row[label] = rec[id] || '';
-                });
-                exportData.push(row);
-                
+                let row = {};
+
                 const safeName = ((rec.studentName || rec.name || rec.title || 'Unknown') + '').replace(/[^a-zA-Z0-9]/g, '_');
                 const safeId = String(rec.id || 'NID');
                 const baseFileName = `${safeName}_${safeId.substring(Math.max(0, safeId.length - 4))}`;
+
+                const hasAppPhoto = !!(
+                    (rec.docUrl && rec.docUrl.length > 10) || 
+                    (rec.photoData && rec.photoData.length > 10) || 
+                    (rec.docFileId && String(rec.docFileId).length > 5) || 
+                    (rec.fileName && String(rec.fileName).length > 3)
+                );
+                const photoFileName = hasAppPhoto ? `Photo_${baseFileName}.jpg` : '';
+                const qrFileName = `QR_${baseFileName}.png`;
+
+                // 1. SN Column
+                if (selectedFields.includes('sn')) {
+                    const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
+                    const snVal = (rec.sn && Number(rec.sn) < 1000000000 && Number(rec.sn) > 0) ? rec.sn : '1';
+                    row['SN'] = `${schoolCode}${year}${String(snVal).padStart(3, '0')}`;
+                }
+
+                // 2. Data Field Columns in clean sequence
+                allAvailableFields.forEach(f => {
+                    if (f.id === 'sn' || f.id === 'id' || f.id === '_timestamp') return;
+                    if (selectedFields.includes(f.id)) {
+                        row[f.label] = ie_getRecordFieldValue(rec, f.id);
+                    }
+                });
+
+                // 3. Photo Name Column (when Include Photos is ticked)
+                if (includePhotos) {
+                    row['Photo Name'] = photoFileName;
+                }
+
+                // 4. QR Code Name Column (when Generate QR Codes is ticked)
+                if (includeQr) {
+                    row['QR Code Name'] = qrFileName;
+                }
+
+                // 5. System ID Column
+                if (selectedFields.includes('id')) {
+                    row['System ID'] = rec.id || '';
+                }
+
+                // 6. Timestamp Column
+                if (selectedFields.includes('_timestamp')) {
+                    row['Timestamp'] = rec.createdAt ? new Date(rec.createdAt).toLocaleString('en-IN') : (rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('en-IN') : '');
+                }
+
+                exportDataAll.push(row);
+                const recStatus = ie_getRecordStatus(rec);
+                if (recStatus === 'verified') {
+                    exportDataVerified.push(row);
+                } else if (recStatus === 'unverified') {
+                    exportDataUnverified.push(row);
+                } else if (recStatus === 'pending') {
+                    exportDataPending.push(row);
+                }
                 
                 if (includePhotos) {
                     let photoUrl = rec.docUrl || rec.photoData;
@@ -11113,7 +11406,7 @@
                             label = fb_fields.find(cf => cf.id === f).label || f;
                             val = rec[f] || '';
                         } else {
-                            val = rec[f] || '';
+                            val = ie_getRecordFieldValue(rec, f);
                         }
                         if (val !== undefined && val !== null && String(val).trim() !== '') {
                             lines.push(`${label}: ${String(val).trim()}`);
@@ -11144,9 +11437,37 @@
                 }
             }
             
-            const ws = XLSX.utils.json_to_sheet(exportData);
             const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Exported_Data");
+
+            // 1. Master sheet with all selected data
+            if (exportDataAll.length > 0) {
+                const wsAll = XLSX.utils.json_to_sheet(exportDataAll);
+                XLSX.utils.book_append_sheet(wb, wsAll, "All Data");
+            }
+
+            // 2. Verified Data Sheet
+            if (exportDataVerified.length > 0) {
+                const wsVer = XLSX.utils.json_to_sheet(exportDataVerified);
+                XLSX.utils.book_append_sheet(wb, wsVer, "Verified");
+            }
+
+            // 3. Unverified Data Sheet
+            if (exportDataUnverified.length > 0) {
+                const wsUnver = XLSX.utils.json_to_sheet(exportDataUnverified);
+                XLSX.utils.book_append_sheet(wb, wsUnver, "Unverified");
+            }
+
+            // 4. No Photo Data Sheet
+            if (exportDataPending.length > 0) {
+                const wsPen = XLSX.utils.json_to_sheet(exportDataPending);
+                XLSX.utils.book_append_sheet(wb, wsPen, "No Photo");
+            }
+
+            if (wb.SheetNames.length === 0) {
+                const wsEmpty = XLSX.utils.json_to_sheet([{}]);
+                XLSX.utils.book_append_sheet(wb, wsEmpty, "All Data");
+            }
+
             const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
             zip.file("Data_Export.xlsx", excelBuffer);
             
