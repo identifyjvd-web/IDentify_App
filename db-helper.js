@@ -482,9 +482,8 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                             const r = { id: d.id, ...d.data() };
                             const matchesId = r.schoolId && String(r.schoolId) === schoolId;
                             const matchesCode = r.schoolCode && String(r.schoolCode).toUpperCase() === targetCode;
-                            const matchesPrefix = String(r.id || '').startsWith('rec_' + targetCode + '_') || String(r.id || '').startsWith('draft_' + targetCode + '-');
-                            const isDefault = targetCode === 'DPS';
-                            if (matchesId || matchesCode || matchesPrefix || (isDefault && !r.schoolCode && !r.schoolId)) {
+                            const matchesPrefix = targetCode && (String(r.id || '').startsWith('rec_' + targetCode + '_') || String(r.id || '').startsWith('draft_' + targetCode + '-'));
+                            if (matchesId || (targetCode && (matchesCode || matchesPrefix))) {
                                 records.push(r);
                                 legacyRecords.push(r);
                             }

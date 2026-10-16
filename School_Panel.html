@@ -2362,6 +2362,9 @@
             }
 
             function refreshDatabaseAfterCertificateUpdate() {
+                if (typeof blankRecordMode !== 'undefined' && blankRecordMode === 'manage_school') {
+                    return;
+                }
                 applyPendingRecordUpdates();
                 populateFilters();
                 renderHomeAnalysis();
@@ -7617,6 +7620,11 @@
                     }
 
                     if (blankRecordMode === 'settings') {
+                        const scopedDb = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : true));
+                        const activeRecordsCount = scopedDb.filter(x => !(x.isDeleted === true || String(x.isDeleted).toLowerCase() === 'true')).length;
+                        const binRecordsCount = scopedDb.filter(x => x.isDeleted === true || String(x.isDeleted).toLowerCase() === 'true').length;
+                        const totalSchools = (typeof window.schoolsList !== 'undefined' && Array.isArray(window.schoolsList)) ? window.schoolsList.length : (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) ? schoolsList.length : 1);
+
                         t.innerHTML = `
                 <div class="p-6 bg-white rounded-3xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300 system-card">
                     <div class="flex flex-col items-center text-center pb-2">
@@ -7670,7 +7678,12 @@
                                 <i class="fa-solid fa-school text-xl"></i>
                             </div>
                             <div class="flex-1">
-                                <h4 class="text-sm font-black text-slate-800">Manage Schools</h4>
+                                <div class="flex items-center justify-between">
+                                    <h4 class="text-sm font-black text-slate-800">Manage Schools</h4>
+                                    <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">
+                                        ${totalSchools} ${totalSchools === 1 ? 'School' : 'Schools'}
+                                    </span>
+                                </div>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">School Accounts & Access</p>
                             </div>
                         </div>
@@ -7690,7 +7703,12 @@
                                 <i class="fa-solid fa-chart-simple text-xl"></i>
                             </div>
                             <div class="flex-1">
-                                <h4 class="text-sm font-black text-slate-800">Data Information</h4>
+                                <div class="flex items-center justify-between">
+                                    <h4 class="text-sm font-black text-slate-800">Data Information</h4>
+                                    <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                                        ${activeRecordsCount} ${activeRecordsCount === 1 ? 'Record' : 'Records'}
+                                    </span>
+                                </div>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Class wise records & filters</p>
                             </div>
                         </div>
@@ -7723,7 +7741,12 @@
                                 <i class="fa-solid fa-trash-can text-xl"></i>
                             </div>
                             <div class="flex-1">
-                                <h4 class="text-sm font-black text-slate-800">Recycle Bin</h4>
+                                <div class="flex items-center justify-between">
+                                    <h4 class="text-sm font-black text-slate-800">Recycle Bin</h4>
+                                    <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
+                                        ${binRecordsCount} ${binRecordsCount === 1 ? 'Item' : 'Items'}
+                                    </span>
+                                </div>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">View deleted records</p>
                             </div>
                         </div>
