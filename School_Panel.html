@@ -112,7 +112,17 @@
                 return SYSTEM_ADMIN_EMAILS.includes(email) || email === 'admin';
             }
 
+            const urlParams = new URLSearchParams(window.location.search);
+            const publicSchoolParam = urlParams.get('form') || urlParams.get('school_form') || (urlParams.get('mode') === 'public_form' ? (urlParams.get('school') || urlParams.get('code') || urlParams.get('id')) : null) || urlParams.get('school');
+            const isPublicFormMode = !!publicSchoolParam;
+            window.isPublicFormMode = isPublicFormMode;
+            window.publicSchoolParam = publicSchoolParam;
+
             onAuthStateChanged(window.auth, (user) => {
+                if (isPublicFormMode) {
+                    // Public Registration Form mode: allow unauthenticated direct access
+                    return;
+                }
                 if (!user) {
                     localStorage.removeItem('student_auth_v1');
                     window.location.replace('Login_Panel.html?msg=session_expired');
@@ -148,7 +158,7 @@
 <body class="flex flex-col h-screen items-center bg-slate-100">
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
-        <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-96">
+        <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
             <img src="./idapplogo.png" class="w-[180px] h-[180px] object-contain mix-blend-multiply">
         </div>
         <!-- 3 Loading Dots -->
@@ -1345,36 +1355,105 @@
 
             async function logSchoolActivity(userEmail) {
                 try {
-                    let locationStr = 'Unknown Location';
+                    let locationStr = '';
                     try {
                         const controller = new AbortController();
-                        const id = setTimeout(() => controller.abort(), 2000);
+                        const id = setTimeout(() => controller.abort(), 1500);
                         const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
                         clearTimeout(id);
                         if (res.ok) {
                             const data = await res.json();
-                            locationStr = `${data.city || ''}, ${data.region || ''}, ${data.country_name || ''}`.replace(/^, | ,|, $/g, '').trim();
+                            locationStr = [data.city, data.region, data.country_name].filter(Boolean).join(', ');
                         }
                     } catch(e) {}
                     
-                    const isMobile = navigator.userAgent.includes('Android') || navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad');
+                    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
                     
+                    let sc = {};
+                    try {
+                        if (typeof loadSchoolConfig === 'function') sc = loadSchoolConfig() || {};
+                    } catch(e) {}
+                    if (!sc || !sc.name || sc.name === 'Delhi Public School') {
+                        try {
+                            const raw = localStorage.getItem('school_config_v1');
+                            if (raw) {
+                                const parsed = JSON.parse(raw);
+                                if (parsed && parsed.name) sc = parsed;
+                            }
+                        } catch(e){}
+                    }
+
+                    const isUidString = (s) => (s && typeof s === 'string' && s.length >= 20 && s.length <= 36 && !s.includes('@') && !s.includes(' '));
+
+                    const effectiveSchoolName = (sc && (sc.name || sc.schoolName)) || (currentUser && currentUser.name && !isUidString(currentUser.name) ? currentUser.name : '') || 'School';
+                    const effectiveSchoolCode = (sc && (sc.code || sc.schoolCode)) || (currentUser && currentUser.code ? currentUser.code : '');
+                    const effectiveSchoolId = (sc && sc.id) ? String(sc.id) : (currentUser && currentUser.schoolId ? String(currentUser.schoolId) : '');
+                    const effectiveSchoolLogo = (sc && (sc.logo || sc.logoUrl)) || '';
+                    const effectiveEmail = (currentUser && currentUser.email && currentUser.email.includes('@')) 
+                        ? currentUser.email 
+                        : ((userEmail && typeof userEmail === 'string' && userEmail.includes('@')) 
+                            ? userEmail 
+                            : (sc && sc.email ? sc.email : ''));
+
                     const payload = {
-                        email: userEmail || 'Unknown',
+                        schoolId: effectiveSchoolId,
+                        schoolName: effectiveSchoolName,
+                        schoolCode: effectiveSchoolCode,
+                        schoolLogo: effectiveSchoolLogo,
+                        email: effectiveEmail || (currentUser && currentUser.userId ? currentUser.userId : (userEmail || 'School User')),
+                        userId: (currentUser && currentUser.userId) ? currentUser.userId : '',
+                        role: 'school',
+                        action: 'School Login',
                         timestamp: Date.now(),
                         deviceInfo: isMobile ? 'Mobile' : 'Desktop',
                         userAgent: navigator.userAgent,
-                        location: locationStr || 'Unknown Location'
+                        location: locationStr || 'Location Unavailable'
                     };
                     
                     if (window.firebaseAPI && window.db) {
                         const { collection, addDoc } = window.firebaseAPI;
-                        await addDoc(collection(window.db, 'activityLogs'), payload);
+                        const docRef = await addDoc(collection(window.db, 'activityLogs'), payload);
+                        if (docRef && docRef.id) {
+                            window._currentActivityLogDocId = docRef.id;
+                            window._currentActivityStartTime = payload.timestamp;
+                            try {
+                                sessionStorage.setItem('identify_activity_log_id', docRef.id);
+                                sessionStorage.setItem('identify_activity_start_time', String(payload.timestamp));
+                            } catch(e) {}
+                        }
                     }
                 } catch(err) {
                     console.warn("Failed to log school activity", err);
                 }
             }
+
+            async function updateActivitySessionDuration(isLogout = false) {
+                try {
+                    const logId = window._currentActivityLogDocId || sessionStorage.getItem('identify_activity_log_id');
+                    const startTs = window._currentActivityStartTime || Number(sessionStorage.getItem('identify_activity_start_time'));
+                    if (!logId || !startTs || !window.firebaseAPI || !window.db) return;
+                    const now = Date.now();
+                    const mins = Math.max(1, Math.round((now - startTs) / 60000));
+                    const { doc, updateDoc } = window.firebaseAPI;
+                    const patch = {
+                        lastActive: now,
+                        durationMinutes: mins
+                    };
+                    if (isLogout) patch.logoutTime = now;
+                    await updateDoc(doc(window.db, 'activityLogs', logId), patch);
+                } catch(e) {}
+            }
+            window.updateActivitySessionDuration = updateActivitySessionDuration;
+
+            // Periodic heartbeat every 2 minutes to update session duration
+            setInterval(() => {
+                if (typeof updateActivitySessionDuration === 'function') updateActivitySessionDuration(false);
+            }, 2 * 60 * 1000);
+
+            // On unload update duration and mark logout
+            window.addEventListener('beforeunload', () => {
+                if (typeof updateActivitySessionDuration === 'function') updateActivitySessionDuration(true);
+            });
 
             async function loginWithEmail() {
                 const errorEl = document.getElementById('login-error');
@@ -1472,14 +1551,308 @@
                 const splash = document.getElementById('initial-splash-screen');
                 if (splash && !splash.classList.contains('hiding')) {
                     splash.classList.add('hiding');
+                    splash.style.transition = 'opacity 0.4s ease';
+                    splash.style.opacity = '0';
                     setTimeout(() => {
-                        splash.style.opacity = '0';
-                        setTimeout(() => splash.remove(), 500);
-                    }, 2500);
+                        try { splash.remove(); } catch(e){}
+                    }, 400);
                 }
             }
             let appBooted = false;
+
+            async function bootPublicFormMode(schoolParam) {
+                hideSplashScreen();
+                const param = (schoolParam || '').trim();
+                console.log("Booting Public Form Mode for school:", param);
+
+                let matchedSchool = null;
+                if (window.db && window.firebaseAPI && window.firebaseAPI.getDoc && window.firebaseAPI.doc) {
+                    try {
+                        const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                        const snap = await window.firebaseAPI.getDoc(schoolsDocRef);
+                        if (snap.exists() && Array.isArray(snap.data().list)) {
+                            const list = snap.data().list;
+                            window.schoolsList = list;
+                            matchedSchool = list.find(s => s && (
+                                (s.code && s.code.toLowerCase().trim() === param.toLowerCase()) ||
+                                (s.id && String(s.id).toLowerCase().trim() === param.toLowerCase()) ||
+                                (s.loginId && s.loginId.toLowerCase().trim() === param.toLowerCase()) ||
+                                (s.email && s.email.toLowerCase().trim() === param.toLowerCase()) ||
+                                (s.name && s.name.toLowerCase().trim() === param.toLowerCase())
+                            ));
+                        }
+                    } catch (e) {
+                        console.warn("Could not fetch schools list from Firestore:", e);
+                    }
+                }
+
+                if (!matchedSchool) {
+                    try {
+                        const localCfg = (typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : null;
+                        if (localCfg && (
+                            (localCfg.code && localCfg.code.toLowerCase().trim() === param.toLowerCase()) ||
+                            (localCfg.id && String(localCfg.id).toLowerCase().trim() === param.toLowerCase()) ||
+                            (localCfg.name && localCfg.name.toLowerCase().trim() === param.toLowerCase())
+                        )) {
+                            matchedSchool = localCfg;
+                        }
+                    } catch(e){}
+                }
+
+                if (!matchedSchool) {
+                    matchedSchool = {
+                        name: param ? (param.toUpperCase() + ' School') : 'School Registration',
+                        code: param ? param.toUpperCase() : 'SCH',
+                        id: 'school_' + (param ? param.toLowerCase() : 'default'),
+                        publicFormActive: true,
+                        formActive: true,
+                        active: true,
+                        logo: './idapplogo.png'
+                    };
+                }
+
+                const baseCfg = (typeof DEFAULT_CONFIG !== 'undefined') ? DEFAULT_CONFIG : { name: 'Delhi Public School', code: 'DPS', logo: './idapplogo.png' };
+                schoolConfig = { ...baseCfg, ...matchedSchool };
+                window.schoolConfig = schoolConfig;
+                document.title = (schoolConfig.name || "School") + " - Student Registration";
+
+                // Listen for real-time status updates from Firestore
+                if (window.db && window.firebaseAPI && window.firebaseAPI.onSnapshot && window.firebaseAPI.doc) {
+                    try {
+                        const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                        window.firebaseAPI.onSnapshot(schoolsDocRef, (snap) => {
+                            if (snap.exists() && Array.isArray(snap.data().list)) {
+                                const list = snap.data().list;
+                                const updated = list.find(s => s && (
+                                    (s.code && s.code.toLowerCase().trim() === param.toLowerCase()) ||
+                                    (s.id && String(s.id).toLowerCase().trim() === String(schoolConfig.id).toLowerCase())
+                                ));
+                                if (updated) {
+                                    schoolConfig = { ...schoolConfig, ...updated };
+                                    window.schoolConfig = schoolConfig;
+                                    applyPublicFormState();
+                                }
+                            }
+                        });
+                    } catch(e){}
+                }
+
+                // Load Form Builder config so custom fields match
+                if (window.db && window.firebaseAPI && window.firebaseAPI.getDoc && window.firebaseAPI.doc) {
+                    try {
+                        const fbDocRef = window.firebaseAPI.doc(window.db, "system", "formBuilderConfig");
+                        const fbSnap = await window.firebaseAPI.getDoc(fbDocRef);
+                        if (fbSnap.exists()) {
+                            const fbData = fbSnap.data();
+                            if (fbData.fields) {
+                                localStorage.setItem('identify_fb_fields', JSON.stringify(fbData.fields));
+                                if (typeof fb_fields !== 'undefined') fb_fields = fbData.fields;
+                            }
+                            if (fbData.standardConfig) {
+                                localStorage.setItem('identify_fb_std_config', JSON.stringify(fbData.standardConfig));
+                                if (typeof fb_standard_config !== 'undefined') fb_standard_config = fbData.standardConfig;
+                            }
+                        }
+                    } catch(e){}
+                }
+
+                applyPublicFormState();
+            }
+
+            function applyPublicFormState() {
+                const isFormActive = (schoolConfig.publicFormActive !== false) &&
+                                     (schoolConfig.formActive !== false) &&
+                                     (schoolConfig.active !== false);
+
+                if (!isFormActive) {
+                    renderPublicFormDeactivatedScreen();
+                } else {
+                    renderPublicFormActiveScreen();
+                }
+            }
+
+            function renderPublicFormDeactivatedScreen() {
+                const headerStandard = document.getElementById('records-header-standard-db');
+                if (headerStandard) headerStandard.classList.add('hidden');
+                const filterRow = document.getElementById('class-filter-row');
+                if (filterRow) filterRow.classList.add('hidden');
+                const footer = document.querySelector('.home-footer');
+                if (footer) footer.classList.add('hidden');
+                const toggleBtn = document.getElementById('toggle-form-btn');
+                if (toggleBtn) toggleBtn.classList.add('hidden');
+
+                const t = document.getElementById('records-list-container') || document.getElementById('records-table');
+                if (!t) return;
+                t.className = 'overflow-visible bg-transparent shadow-none border-0 rounded-none w-full flex items-center justify-center min-h-[70vh] px-4';
+                t.innerHTML = `
+                <div class="p-8 bg-white rounded-3xl system-card max-w-md w-full mx-auto text-center space-y-6 animate-in fade-in zoom-in duration-300 border border-slate-200 shadow-xl my-auto">
+                    <div class="relative inline-block mx-auto">
+                        <div class="w-24 h-24 rounded-3xl bg-slate-50 flex items-center justify-center mx-auto overflow-hidden border-2 border-slate-200 shadow-md">
+                            ${schoolConfig.logo ? `<img src="${schoolConfig.logo}" class="w-full h-full object-cover">` : `<i class="fa-solid fa-school text-4xl text-slate-400"></i>`}
+                        </div>
+                        <div class="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md border-2 border-white">
+                            <i class="fa-solid fa-lock text-xs"></i>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h3 class="text-xl font-black text-slate-800 leading-tight">${sanitizeHTML(schoolConfig.name || 'School Registration')}</h3>
+                        <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-100 text-rose-700 text-xs font-black mt-2.5 border border-rose-200">
+                            <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> Form Submissions Closed
+                        </div>
+                    </div>
+
+                    <p class="text-xs text-slate-500 font-medium leading-relaxed">
+                        The online student registration form for <strong>${sanitizeHTML(schoolConfig.name || 'this school')}</strong> is currently paused or inactive.<br>
+                        Please contact the school office or class teacher for direct registration.
+                    </p>
+
+                    ${(schoolConfig.mobile || schoolConfig.email || schoolConfig.contactPerson) ? `
+                    <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-left space-y-2.5 text-xs">
+                        <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">School Contact Information</div>
+                        ${schoolConfig.contactPerson ? `
+                        <div class="flex items-center gap-2.5 text-slate-700 font-bold">
+                            <i class="fa-solid fa-user text-emerald-600 text-xs w-4"></i>
+                            <span>${sanitizeHTML(schoolConfig.contactPerson)}</span>
+                        </div>` : ''}
+                        ${schoolConfig.mobile ? `
+                        <div class="flex items-center gap-2.5">
+                            <i class="fa-solid fa-phone text-emerald-600 text-xs w-4"></i>
+                            <a href="tel:${schoolConfig.mobile}" class="font-bold text-indigo-600 hover:underline">${sanitizeHTML(schoolConfig.mobile)}</a>
+                        </div>` : ''}
+                        ${schoolConfig.email ? `
+                        <div class="flex items-center gap-2.5">
+                            <i class="fa-solid fa-envelope text-emerald-600 text-xs w-4"></i>
+                            <a href="mailto:${schoolConfig.email}" class="font-bold text-indigo-600 hover:underline break-all">${sanitizeHTML(schoolConfig.email)}</a>
+                        </div>` : ''}
+                    </div>` : ''}
+
+                    <div class="pt-2 text-[10px] text-slate-400 font-semibold tracking-wider uppercase">
+                        Powered by IDentify&deg;
+                    </div>
+                </div>`;
+            }
+
+            function renderPublicFormActiveScreen() {
+                const headerStandard = document.getElementById('records-header-standard-db');
+                if (headerStandard) {
+                    headerStandard.classList.remove('hidden');
+                    headerStandard.innerHTML = `
+                        <div class="flex items-center gap-3 w-full px-2">
+                            <div class="w-9 h-9 rounded-full bg-emerald-50 border-2 border-emerald-500 overflow-hidden flex items-center justify-center shrink-0 shadow-xs">
+                                ${schoolConfig.logo ? `<img src="${schoolConfig.logo}" class="w-full h-full object-cover">` : `<i class="fa-solid fa-school text-emerald-600 text-xs"></i>`}
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <h2 class="text-sm font-black text-slate-800 truncate leading-tight">${sanitizeHTML(schoolConfig.name || 'School Registration')}</h2>
+                                <p class="text-[10px] font-bold text-emerald-700 uppercase tracking-wider truncate">Online Student Registration Form</p>
+                            </div>
+                            <span class="text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-1 shadow-xs">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Open
+                            </span>
+                        </div>
+                    `;
+                }
+
+                const filterRow = document.getElementById('class-filter-row');
+                if (filterRow) filterRow.classList.add('hidden');
+                const toggleBtn = document.getElementById('toggle-form-btn');
+                if (toggleBtn) toggleBtn.classList.add('hidden');
+                const bulkActions = document.getElementById('bulk-actions-container');
+                if (bulkActions) bulkActions.classList.add('hidden');
+
+                const footer = document.querySelector('.home-footer');
+                if (footer) {
+                    footer.classList.remove('hidden');
+                    footer.innerHTML = `
+                        <div class="w-full py-2 flex items-center justify-between text-[11px] font-bold text-slate-400 px-2">
+                            <span class="flex items-center gap-1 text-emerald-700"><i class="fa-solid fa-id-card"></i> IDentify&deg; Public Portal</span>
+                            <span class="text-[10px] text-slate-400">Accurate details ensure correct ID cards</span>
+                        </div>
+                    `;
+                }
+
+                setBlankRecordMode('student');
+
+                const saveText = document.getElementById('save-text');
+                if (saveText) saveText.innerText = 'Submit Details';
+                const saveIcon = document.getElementById('save-icon');
+                if (saveIcon) saveIcon.className = 'fa-solid fa-paper-plane text-lg';
+            }
+
+            function showPublicSubmissionSuccess(rec) {
+                const t = document.getElementById('records-list-container') || document.getElementById('records-table');
+                if (!t) return;
+                t.className = 'overflow-visible bg-transparent shadow-none border-0 rounded-none w-full flex items-center justify-center min-h-[70vh] px-4';
+                t.innerHTML = `
+                <div class="p-6 sm:p-8 bg-white rounded-3xl system-card max-w-md w-full mx-auto text-center space-y-5 animate-in fade-in zoom-in duration-300 border border-slate-200 shadow-xl my-4">
+                    <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl mx-auto shadow-sm">
+                        <i class="fa-solid fa-circle-check"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-black text-slate-800">Registration Submitted!</h3>
+                        <p class="text-xs text-slate-500 font-semibold mt-1 leading-snug">
+                            Details for <strong>${sanitizeHTML(rec.studentName || 'Student')}</strong> have been successfully submitted to <strong>${sanitizeHTML(schoolConfig.name || 'School')}</strong>.
+                        </p>
+                    </div>
+
+                    <div class="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-left space-y-2 text-xs">
+                        <div class="flex justify-between items-center py-1 border-b border-slate-200/60">
+                            <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Student Name</span>
+                            <span class="font-extrabold text-slate-800">${sanitizeHTML(rec.studentName || '--')}</span>
+                        </div>
+                        <div class="flex justify-between items-center py-1 border-b border-slate-200/60">
+                            <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Father / Guardian</span>
+                            <span class="font-extrabold text-slate-800">${sanitizeHTML(rec.fatherName || '--')}</span>
+                        </div>
+                        <div class="flex justify-between items-center py-1 border-b border-slate-200/60">
+                            <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Class</span>
+                            <span class="font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">${sanitizeHTML(rec.sclass || '--')}</span>
+                        </div>
+                        ${rec.mobile ? `
+                        <div class="flex justify-between items-center py-1 border-b border-slate-200/60">
+                            <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Mobile</span>
+                            <span class="font-bold text-slate-700">${sanitizeHTML(rec.mobile)}</span>
+                        </div>` : ''}
+                        <div class="flex justify-between items-center py-1">
+                            <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Status</span>
+                            <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                                Pending School Verification
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-blue-50 border border-blue-100 text-[11px] text-blue-700 font-medium text-left flex items-start gap-2">
+                        <i class="fa-solid fa-circle-info text-blue-500 mt-0.5 shrink-0"></i>
+                        <span>The school administration will verify these details and your ID card will be prepared.</span>
+                    </div>
+
+                    <div class="space-y-2 pt-1">
+                        <button onclick="submitAnotherPublicRecord()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-sm transition">
+                            <i class="fa-solid fa-user-plus"></i> Submit Another Student
+                        </button>
+                    </div>
+
+                    <div class="text-[10px] text-slate-400 font-semibold tracking-wider uppercase pt-1">
+                        Powered by IDentify&deg;
+                    </div>
+                </div>`;
+            }
+
+            function submitAnotherPublicRecord() {
+                previewRecord = null;
+                photoData = null;
+                pendingUploadedDocument = null;
+                removeExistingDocument = false;
+                clearDraft();
+                resetForm();
+                renderPublicFormActiveScreen();
+            }
+
             function requireLoginAndBoot() {
+                if (window.isPublicFormMode) {
+                    bootPublicFormMode(window.publicSchoolParam);
+                    return;
+                }
                 const savedUser = loadAuthUser();
                 
                 // Session timeout check on page load
@@ -1508,7 +1881,7 @@
                             
                             // Log activity on session start
                             if (!sessionStorage.getItem('activity_logged_' + currentUser.userId)) {
-                                logSchoolActivity(currentUser.userId);
+                                logSchoolActivity(currentUser.email || currentUser.userId);
                                 sessionStorage.setItem('activity_logged_' + currentUser.userId, 'true');
                             }
 
@@ -1554,6 +1927,9 @@
                 }
             });
             function logoutUser(isAuto = false) {
+                try {
+                    if (typeof updateActivitySessionDuration === 'function') updateActivitySessionDuration(true);
+                } catch(e) {}
                 stopAutoLogoutTimer();
                 saveAuthUser(null);
                 try {
@@ -3728,7 +4104,10 @@
                 menu.addEventListener('mousemove', () => { isMouseOverMenu = true; clearMenuAutoHideTimer(); });
             }
             function setBlankRecordMode(mode = 'none') {
-                if (mode === 'student' && !fb_form_active) {
+                if (window.isPublicFormMode && mode === 'none') {
+                    mode = 'student';
+                }
+                if (mode === 'student' && !fb_form_active && !window.isPublicFormMode) {
                     showToast('Registration Form is deactivated by Admin!');
                     return;
                 }
@@ -4006,6 +4385,10 @@
             }
 
             function closeStudentForm() {
+                if (window.isPublicFormMode) {
+                    resetForm();
+                    return;
+                }
                 // Respect settings page navigation stack
                 if ((blankRecordMode === 'builder' || blankRecordMode === 'manage_school' || blankRecordMode === 'dataInfo' || blankRecordMode === 'import_export') && typeof previousBlankRecordMode !== 'undefined' && previousBlankRecordMode === 'settings') {
                     setBlankRecordMode('settings');
@@ -6319,6 +6702,37 @@
                     });
 
                     previewRecord = rec;
+
+                    if (window.isPublicFormMode) {
+                        rec.createdBy = 'Public Online Form';
+                        rec.verified = false;
+                        rec.status = hasPendingOrSavedDoc ? 'unverified' : 'pending';
+                        rec.isPublicSubmission = true;
+                        rec.submittedAt = nowTs;
+
+                        // Save directly to Firebase
+                        if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.setDoc) {
+                            try {
+                                const schoolDocRef = window.firebaseAPI.doc(window.db, "schools", String(rec.schoolId), "records", String(rec.id));
+                                window.firebaseAPI.setDoc(schoolDocRef, rec).catch(err => console.warn("Firestore school record save error:", err));
+                                
+                                const globalDocRef = window.firebaseAPI.doc(window.db, "records", String(rec.id));
+                                window.firebaseAPI.setDoc(globalDocRef, rec).catch(err => console.warn("Firestore global record save error:", err));
+                            } catch(e) {
+                                console.warn("Public form direct firestore error:", e);
+                            }
+                        }
+                        
+                        serverCallSilent('addRecord', [rec], () => {}, () => {});
+                        
+                        isSavingRecord = false;
+                        toggleSaveLoading(false);
+                        clearDraft();
+                        resetForm();
+                        showPublicSubmissionSuccess(rec);
+                        return;
+                    }
+
                     const action = (eid) ? 'updateRecord' : 'addRecord';
 
                     const _getPreviewPhotoSrc = () => {
@@ -7040,8 +7454,8 @@
                 } else {
                     btn.disabled = false;
                     btn.classList.remove('opacity-80');
-                    text.innerText = isEditMode ? 'Update' : 'Preview';
-                    icon.className = isEditMode ? 'fa-solid fa-rotate text-lg' : 'fa-solid fa-floppy-disk text-lg';
+                    text.innerText = window.isPublicFormMode ? 'Submit Details' : (isEditMode ? 'Update' : 'Preview');
+                    icon.className = window.isPublicFormMode ? 'fa-solid fa-paper-plane text-lg' : (isEditMode ? 'fa-solid fa-rotate text-lg' : 'fa-solid fa-floppy-disk text-lg');
                 }
             }
             function formatExcelDateTime(ts) {
@@ -7714,6 +8128,21 @@
                         </div>
 
 
+
+                        <div onclick="openShareFormModal()" class="system-card p-5 rounded-2xl flex items-center gap-4 clickable-card hover:border-sky-300 group">
+                            <div class="w-12 h-12 rounded-2xl bg-sky-100 flex items-center justify-center text-sky-600 group-hover:bg-sky-600 group-hover:text-white transition-all shadow-sm">
+                                <i class="fa-solid fa-share-nodes text-xl"></i>
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center justify-between">
+                                    <h4 class="text-sm font-black text-slate-800">Share Form Link</h4>
+                                    <span id="share-form-status-badge" class="text-[10px] font-black px-2 py-0.5 rounded-full ${schoolConfig && schoolConfig.publicFormActive === false ? 'bg-slate-100 text-slate-600 border border-slate-300' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}">
+                                        ${schoolConfig && schoolConfig.publicFormActive === false ? 'Deactivated' : 'Active'}
+                                    </span>
+                                </div>
+                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Public Student Registration Link</p>
+                            </div>
+                        </div>
 
                         <div onclick="openImportExportModal()" class="system-card p-5 rounded-2xl flex items-center gap-4 clickable-card hover:border-emerald-300 group">
                             <div class="w-12 h-12 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-sm">
@@ -8427,12 +8856,12 @@
                         ${orderedFieldsHtml}</div>
 
                         <div class="pt-6 flex gap-3">
-                            <button type="button" onclick="${isEditMode ? 'closeStudentForm()' : 'resetForm()'}" class="w-[100px] h-[38px] !py-0 bg-slate-50 hover:bg-slate-100 active:scale-[0.98] transition-all text-slate-500 rounded-[18px] font-black text-[13px] flex items-center justify-center gap-2 border border-slate-100">
-                                <i class="${isEditMode ? 'fa-solid fa-arrow-left' : 'fa-solid fa-rotate-left'}"></i> ${isEditMode ? 'Back' : 'Reset'}
+                            <button type="button" onclick="${window.isPublicFormMode ? 'resetForm()' : (isEditMode ? 'closeStudentForm()' : 'resetForm()')}" class="w-[100px] h-[38px] !py-0 bg-slate-50 hover:bg-slate-100 active:scale-[0.98] transition-all text-slate-500 rounded-[18px] font-black text-[13px] flex items-center justify-center gap-2 border border-slate-100">
+                                <i class="${isEditMode && !window.isPublicFormMode ? 'fa-solid fa-arrow-left' : 'fa-solid fa-rotate-left'}"></i> ${isEditMode && !window.isPublicFormMode ? 'Back' : 'Reset'}
                             </button>
                             <button id="btn-save" onclick="saveRecord()" class="flex-1 h-[38px] !py-0 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] transition-all text-white rounded-[18px] font-black text-[14px] flex items-center justify-center gap-3 shadow-sm focus:outline-none">
-                                <i id="save-icon" class="${isEditMode ? 'fa-solid fa-rotate text-lg' : 'fa-solid fa-floppy-disk text-lg'}"></i>
-                                <span id="save-text">${isEditMode ? 'Update' : 'Preview'}</span>
+                                <i id="save-icon" class="${window.isPublicFormMode ? 'fa-solid fa-paper-plane text-lg' : (isEditMode ? 'fa-solid fa-rotate text-lg' : 'fa-solid fa-floppy-disk text-lg')}"></i>
+                                <span id="save-text">${window.isPublicFormMode ? 'Submit Details' : (isEditMode ? 'Update' : 'Preview')}</span>
                             </button>
                         </div>
                     </div>
@@ -9426,8 +9855,8 @@
                 const saveIcon = document.getElementById('save-icon');
                 const saveText = document.getElementById('save-text');
                 if (saveBtn) saveBtn.disabled = false;
-                if (saveIcon) saveIcon.className = 'fa-solid fa-floppy-disk text-lg';
-                if (saveText) saveText.innerText = 'Preview';
+                if (saveIcon) saveIcon.className = window.isPublicFormMode ? 'fa-solid fa-paper-plane text-lg' : 'fa-solid fa-floppy-disk text-lg';
+                if (saveText) saveText.innerText = window.isPublicFormMode ? 'Submit Details' : 'Preview';
                 getFormFieldMap().forEach((key) => {
                     const field = document.getElementById('in-' + key);
                     if (field) field.value = '';
@@ -9794,6 +10223,91 @@
             </div>
         </div>
 
+        <!-- Share Form Link Modal -->
+        <div id="share-form-modal"
+            class="absolute inset-0 z-[9990] hidden flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="popup-card rounded-3xl p-6 max-w-md w-full shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto custom-scroll border border-slate-100">
+                <!-- Modal Header -->
+                <div class="flex justify-between items-center pb-3 border-b border-slate-100">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shadow-xs">
+                            <i class="fa-solid fa-share-nodes text-base"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-extrabold text-slate-800 leading-tight">Share Form Link</h3>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Public Student Registration</p>
+                        </div>
+                    </div>
+                    <button onclick="closeShareFormModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:text-slate-700 hover:bg-slate-200 flex items-center justify-center transition-all">
+                        <i class="fa-solid fa-xmark text-sm"></i>
+                    </button>
+                </div>
+
+                <!-- Active / Deactivate Toggle Box -->
+                <div class="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3 shadow-xs">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-black text-slate-800 uppercase tracking-wider">Form Status</span>
+                            <span id="share-modal-status-pill" class="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Active
+                            </span>
+                        </div>
+                        <p id="share-modal-status-desc" class="text-[11px] text-slate-500 font-medium mt-1 leading-snug">
+                            Students & parents can submit registration forms without logging in.
+                        </p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input type="checkbox" id="share-modal-active-toggle" onchange="togglePublicFormActive(this.checked)" class="sr-only peer" checked>
+                        <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                </div>
+
+                <!-- Link & Actions Box -->
+                <div class="mt-4 space-y-2">
+                    <label class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <i class="fa-solid fa-link text-sky-500"></i> Direct Form URL
+                    </label>
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="share-modal-url-input" readonly
+                            class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-mono font-bold text-slate-700 select-all outline-none focus:border-sky-500 transition shadow-xs"
+                            value="">
+                        <button onclick="copyShareFormLink()" id="btn-copy-share-link" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 transition shadow-xs">
+                            <i class="fa-solid fa-copy"></i> <span>Copy</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Share Buttons: WhatsApp & Open Preview -->
+                <div class="grid grid-cols-2 gap-2.5 mt-3">
+                    <button onclick="shareFormOnWhatsApp()" class="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs">
+                        <i class="fa-brands fa-whatsapp text-sm"></i> WhatsApp
+                    </button>
+                    <button onclick="openShareFormPreview()" class="py-2.5 px-3 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs">
+                        <i class="fa-solid fa-arrow-up-right-from-square text-xs"></i> Open Form
+                    </button>
+                </div>
+
+                <!-- QR Code Box -->
+                <div class="mt-4 p-4 rounded-2xl bg-white border border-slate-200 flex flex-col items-center text-center shadow-xs">
+                    <div class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5 flex items-center gap-1">
+                        <i class="fa-solid fa-qrcode text-emerald-600"></i> Mobile QR Code
+                    </div>
+                    <div class="w-36 h-36 p-2 rounded-xl bg-white border border-slate-100 shadow-inner flex items-center justify-center overflow-hidden">
+                        <img id="share-modal-qr-img" src="" alt="Form QR Code" class="w-full h-full object-contain">
+                    </div>
+                    <p class="text-[11px] text-slate-500 font-semibold mt-2">
+                        Scan with any smartphone camera to open registration form directly.
+                    </p>
+                </div>
+
+                <!-- Info footer note -->
+                <div class="mt-3 p-3 rounded-xl bg-amber-50/70 border border-amber-200/60 text-[10px] font-medium text-amber-800 flex items-start gap-2">
+                    <i class="fa-solid fa-circle-info text-amber-600 mt-0.5 text-xs shrink-0"></i>
+                    <span>Submissions made through this link appear directly in your Records list with <strong>Unverified</strong> status for your review.</span>
+                </div>
+            </div>
+        </div>
+
         <div id="custom-modal"
             class="absolute inset-0 z-[9999] hidden flex items-center justify-center p-4 modal-bg bg-black/50 backdrop-blur-sm">
             <div class="popup-card rounded-3xl p-8 max-sm w-full shadow-2xl transform transition-all scale-100 relative">
@@ -10116,6 +10630,165 @@
             closeSchoolConfig();
             if (typeof previousBlankRecordMode !== 'undefined') previousBlankRecordMode = 'settings';
             setBlankRecordMode('dataInfo');
+        }
+
+        function getPublicFormUrl() {
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : loadSchoolConfig();
+            const code = (sc && (sc.code || sc.id)) ? (sc.code || sc.id) : 'DPS';
+            const loc = window.location;
+            let origin = loc.origin;
+            let path = loc.pathname;
+            if (!origin || origin === 'null') {
+                origin = '';
+            }
+            let basePath = path.replace(/(Admin_Panel|Login_Panel|index)\.html/i, 'School_Panel.html');
+            if (!basePath.endsWith('School_Panel.html')) {
+                basePath = basePath.replace(/\/+$/, '') + '/School_Panel.html';
+            }
+            return `${origin}${basePath}?form=${encodeURIComponent(code)}`;
+        }
+
+        function openShareFormModal() {
+            closeSchoolConfig();
+            closeAllMenus();
+            const modal = document.getElementById('share-form-modal');
+            if (!modal) return;
+            
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : loadSchoolConfig();
+            const isActive = (sc.publicFormActive !== false);
+            
+            const toggle = document.getElementById('share-modal-active-toggle');
+            if (toggle) toggle.checked = isActive;
+            
+            updateShareFormModalUI(isActive);
+
+            const publicUrl = getPublicFormUrl();
+            const urlInput = document.getElementById('share-modal-url-input');
+            if (urlInput) urlInput.value = publicUrl;
+
+            const qrImg = document.getElementById('share-modal-qr-img');
+            if (qrImg) {
+                qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(publicUrl)}`;
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeShareFormModal() {
+            const modal = document.getElementById('share-form-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function updateShareFormModalUI(isActive) {
+            const pill = document.getElementById('share-modal-status-pill');
+            const desc = document.getElementById('share-modal-status-desc');
+            if (pill) {
+                if (isActive) {
+                    pill.className = 'text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1';
+                    pill.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Active';
+                } else {
+                    pill.className = 'text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300';
+                    pill.innerText = 'Deactivated';
+                }
+            }
+            if (desc) {
+                desc.innerText = isActive 
+                    ? 'Students & parents can submit registration forms without logging in.' 
+                    : 'Submissions paused. Visitors will see a Registration Closed message.';
+            }
+            updateShareFormBadge();
+        }
+
+        function updateShareFormBadge() {
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : loadSchoolConfig();
+            const isActive = (sc.publicFormActive !== false);
+            const badge = document.getElementById('share-form-status-badge');
+            if (badge) {
+                badge.className = `text-[10px] font-black px-2 py-0.5 rounded-full ${isActive ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-300'}`;
+                badge.innerText = isActive ? 'Active' : 'Deactivated';
+            }
+        }
+
+        async function togglePublicFormActive(isActive) {
+            if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
+            schoolConfig.publicFormActive = !!isActive;
+            
+            try {
+                localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+            } catch(e){}
+
+            try {
+                if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.setDoc) {
+                    const scRef = window.firebaseAPI.doc(window.db, "system", "schoolConfig");
+                    window.firebaseAPI.setDoc(scRef, { publicFormActive: !!isActive }, { merge: true }).catch(()=>{});
+                }
+            } catch(e){}
+
+            try {
+                if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.getDoc && window.firebaseAPI.setDoc) {
+                    const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                    const snap = await window.firebaseAPI.getDoc(schoolsDocRef);
+                    if (snap.exists() && Array.isArray(snap.data().list)) {
+                        const list = snap.data().list;
+                        const idx = list.findIndex(s => s && (
+                            (schoolConfig.id && String(s.id) === String(schoolConfig.id)) ||
+                            (schoolConfig.code && String(s.code).toLowerCase() === String(schoolConfig.code).toLowerCase())
+                        ));
+                        if (idx !== -1) {
+                            list[idx].publicFormActive = !!isActive;
+                            await window.firebaseAPI.setDoc(schoolsDocRef, { list: list, updatedAt: Date.now() }, { merge: true });
+                        }
+                    }
+                }
+            } catch(e){
+                console.warn("Firebase system/schools update error:", e);
+            }
+
+            updateShareFormModalUI(isActive);
+            showToast(isActive ? 'Public form link activated ✓' : 'Public form link deactivated');
+        }
+
+        function copyShareFormLink() {
+            const url = getPublicFormUrl();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).then(() => {
+                    const btn = document.getElementById('btn-copy-share-link');
+                    if (btn) {
+                        btn.innerHTML = '<i class="fa-solid fa-check text-emerald-400"></i> <span>Copied!</span>';
+                        setTimeout(() => {
+                            btn.innerHTML = '<i class="fa-solid fa-copy"></i> <span>Copy</span>';
+                        }, 2000);
+                    }
+                    showToast('Form link copied to clipboard! ✓');
+                }).catch(() => {
+                    fallbackShareCopy(url);
+                });
+            } else {
+                fallbackShareCopy(url);
+            }
+        }
+
+        function fallbackShareCopy(text) {
+            const input = document.getElementById('share-modal-url-input');
+            if (input) {
+                input.select();
+                document.execCommand('copy');
+                showToast('Form link copied! ✓');
+            }
+        }
+
+        function shareFormOnWhatsApp() {
+            const url = getPublicFormUrl();
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : loadSchoolConfig();
+            const sName = sc.name || 'School';
+            const text = `*${sName}*\nStudent ID Card Registration Form\nPlease click the link below to submit student details directly:\n${url}`;
+            const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+            window.open(waUrl, '_blank');
+        }
+
+        function openShareFormPreview() {
+            const url = getPublicFormUrl();
+            window.open(url, '_blank');
         }
 
         function openSettingsModal() {
