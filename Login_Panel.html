@@ -692,7 +692,7 @@
                 } else if (msg === 'school_deactivated') {
                     const errorEl = document.getElementById('login-error');
                     if (errorEl) {
-                        errorEl.innerText = 'This school is currently Deactive. School Login is not allowed.';
+                        errorEl.innerHTML = '<div class="flex items-center gap-1.5 font-bold"><i class="fa-solid fa-lock text-rose-500"></i> This school is currently Deactive. School Login is not allowed.</div>';
                         errorEl.classList.remove('hidden');
                     }
                 }

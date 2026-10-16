@@ -63,9 +63,24 @@ async function bulkDownloadSelectedJpg() {
         
         document.getElementById('bulk-jpg-progress').innerText = "Zipping Files...";
         const content = await zip.generateAsync({type:"blob"});
+        const now = new Date();
+        const dd = String(now.getDate()).padStart(2, '0');
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const yyyy = now.getFullYear();
+        let schoolCode = 'DPS';
+        if (typeof schoolConfig !== 'undefined' && schoolConfig) {
+            if (schoolConfig.code && String(schoolConfig.code).trim()) {
+                schoolCode = String(schoolConfig.code).trim().replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase();
+            } else if (schoolConfig.name && String(schoolConfig.name).trim()) {
+                schoolCode = String(schoolConfig.name).trim().split(/\s+/).map(w => w[0]).join('').replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase();
+            }
+        }
+        if (!schoolCode) schoolCode = 'DPS';
+        const zipFileName = `${schoolCode}_${dd}_${mm}_${yyyy}_${selectedIds.length}count.zip`;
+
         const downloadLink = document.createElement("a");
         downloadLink.href = URL.createObjectURL(content);
-        downloadLink.download = `ID_Cards_${new Date().toISOString().split('T')[0]}.zip`;
+        downloadLink.download = zipFileName;
         document.body.appendChild(downloadLink);
         downloadLink.click();
         document.body.removeChild(downloadLink);
