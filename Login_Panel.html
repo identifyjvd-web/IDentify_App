@@ -11,7 +11,7 @@
     <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png">
     <link rel="apple-touch-icon" href="./idapplogo.png">
     <link rel="manifest" href="manifest.json">
-    <title id="page-title">Login - IDentify</title>
+    <title id="page-title">Login - IDentify&deg;</title>
     <!-- External Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -74,15 +74,15 @@
             </div>
 
             <div class="px-6 pt-9 pb-7">
-                <!-- Icon Badge -->
+                <!-- Icon Badge (App Logo & Welcome Branding) -->
                 <div class="flex flex-col items-center mb-5">
-                    <div class="w-[70px] h-[70px] rounded-full border-[3px] border-emerald-500 flex items-center justify-center bg-white shadow-sm mb-3">
-                        <div id="login-logo-container" class="w-[52px] h-[52px] rounded-full bg-emerald-50 flex items-center justify-center overflow-hidden">
-                            <i data-lucide="id-card" class="w-7 h-7 text-emerald-600"></i>
+                    <div class="w-[74px] h-[74px] rounded-3xl border-2 border-emerald-500/20 bg-white flex items-center justify-center shadow-md mb-3 p-1.5 overflow-hidden">
+                        <div id="login-logo-container" class="w-full h-full rounded-2xl flex items-center justify-center overflow-hidden">
+                            <img src="./idapplogo.png" alt="IDentify App Logo" class="w-full h-full object-contain">
                         </div>
                     </div>
-                    <h2 id="login-school-name" class="text-[17px] font-extrabold text-slate-800 text-center leading-snug">Delhi Public School</h2>
-                    <p class="mt-1 text-[12px] font-semibold text-emerald-700">ID Card Management Software</p>
+                    <h2 id="login-school-name" class="text-[19px] font-black text-slate-800 text-center leading-snug tracking-tight">Welcome to IDentify&deg;</h2>
+                    <p class="mt-1 text-[12px] font-bold text-emerald-700">ID Card Management Software</p>
                 </div>
 
                 <!-- Fields -->
@@ -147,7 +147,7 @@
                 <div class="mt-5 relative w-full pb-2 flex flex-col items-center justify-center">
                     <div class="flex items-center gap-1.5">
                         <i class="fa-solid fa-id-card text-emerald-600 text-[13px]"></i>
-                        <span class="text-[12px] font-black tracking-widest text-emerald-600">IDentify</span>
+                        <span class="text-[12px] font-black tracking-widest text-emerald-600">IDentify&deg;</span>
                     </div>
                     <div class="text-[10px] font-bold tracking-widest text-slate-500 uppercase mt-0.5 flex items-center justify-center gap-1.5">
                         <span>By: Javed Ansari</span>
@@ -352,26 +352,56 @@
         }
 
         function updateBrandingUI() {
+            // Shared Login Page: keep the IDentify app logo and "Welcome to IDentify°" consistent across all schools
             const el = document.getElementById('login-school-name');
-            if (el) el.innerText = schoolConfig.name;
-            if (schoolConfig.logo) {
-                const loginLogo = document.getElementById('login-logo-container');
-                if (loginLogo) loginLogo.innerHTML = `<img src="${schoolConfig.logo}" class="w-full h-full object-cover">`;
+            if (el) el.innerHTML = 'Welcome to IDentify&deg;';
+            const loginLogo = document.getElementById('login-logo-container');
+            if (loginLogo) loginLogo.innerHTML = '<img src="./idapplogo.png" alt="IDentify App Logo" class="w-full h-full object-contain">';
+        }
+
+        function decryptSchoolPassword(encoded) {
+            if (!encoded) return '';
+            try {
+                const raw = atob(encoded);
+                const key = 'IdentifySecretKey_2024';
+                let res = '';
+                for (let i = 0; i < raw.length; i++) {
+                    res += String.fromCharCode(raw.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+                }
+                return res;
+            } catch(e) {
+                return '';
             }
         }
 
+        function encryptSchoolPassword(pwd) {
+            if (!pwd) return '';
+            const key = 'IdentifySecretKey_2024';
+            let res = '';
+            for (let i = 0; i < pwd.length; i++) {
+                res += String.fromCharCode(pwd.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+            }
+            return btoa(res);
+        }
+
         async function submitLogin() {
-            const userId = (document.getElementById('login-user-id').value || '').trim();
+            const rawUserId = (document.getElementById('login-user-id').value || '').trim();
             const password = (document.getElementById('login-password').value || '').trim();
             const errorEl = document.getElementById('login-error');
             const btn = document.getElementById('login-submit-btn');
             if (errorEl) errorEl.classList.add('hidden');
             
-
-            
-            if (!userId) {
+            if (!rawUserId) {
                 if (errorEl) {
                     errorEl.innerText = "Please enter your Email/User ID.";
+                    errorEl.classList.remove('hidden');
+                }
+                return;
+            }
+
+            if (!password) {
+                if (errorEl) {
+                    errorEl.innerText = "Please enter your password.";
                     errorEl.classList.remove('hidden');
                 }
                 return;
@@ -382,38 +412,158 @@
                 btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin w-5 h-5 flex items-center justify-center"></i> Authenticating...';
             }
             
+            // Clean up any lingering previous session data before attempting new login
             try {
-                if (!password) {
-                    throw new Error("Password is required for email login.");
-                }
+                localStorage.removeItem(CONFIG_KEY);
+                localStorage.removeItem('identify_active_school_id');
+                saveAuthUser(null);
+            } catch(e){}
 
-                if (window.db && window.firebaseAPI) {
-                    try {
-                        await fetchSystemConfigFromFirebase();
-                    } catch (e) {}
-                }
-
+            try {
+                const isSysAdmin = isSystemAdmin(rawUserId);
                 let authUser = null;
-                const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, userId, password);
-                const user = userCredential.user;
-                
-                if (isSystemAdmin(user.email)) {
-                    authUser = { userId: 'admin', name: 'Admin', role: 'teacher', viewMode: 'all', email: user.email };
-                } else {
-                    authUser = { userId: user.uid, name: (user.email ? user.email.split('@')[0] : 'School User'), role: 'school', email: user.email };
+                let user = null;
+
+                if (isSysAdmin) {
+                    // SYSTEM ADMIN LOGIN FLOW
+                    const adminEmail = (rawUserId.toLowerCase() === 'admin') ? 'identify.jvd@gmail.com' : rawUserId;
+                    const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, adminEmail, password);
+                    user = userCredential.user;
+                    authUser = { userId: 'admin', name: 'Admin', role: 'teacher', viewMode: 'all', email: user.email || adminEmail };
+                    saveAuthUser(authUser);
+                    window.location.replace('Admin_Panel.html');
+                    return;
                 }
 
-                saveAuthUser(authUser);
-                
-                // Redirect user based on role
-                if (authUser.userId === 'admin') {
-                    window.location.replace('Admin_Panel.html');
-                } else {
-                    window.location.replace('School_Panel.html');
+                // SCHOOL LOGIN FLOW
+                // 1. Fetch registered schools from system/schools and school credentials from system/school_auth
+                let schoolsList = [];
+                let schoolAuthData = {};
+
+                if (!window.db || !window.firebaseAPI || typeof window.firebaseAPI.doc !== 'function') {
+                    throw new Error("Unable to connect to database. Please check your internet connection.");
                 }
+
+                try {
+                    const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                    const schoolsSnap = await window.firebaseAPI.getDoc(schoolsDocRef);
+                    if (schoolsSnap.exists() && Array.isArray(schoolsSnap.data().list)) {
+                        schoolsList = schoolsSnap.data().list;
+                    }
+                } catch (fetchErr) {
+                    console.warn("Could not fetch schools list:", fetchErr);
+                }
+
+                try {
+                    const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                    const authSnap = await window.firebaseAPI.getDoc(authDocRef);
+                    if (authSnap.exists()) {
+                        schoolAuthData = authSnap.data() || {};
+                    }
+                } catch (fetchAuthErr) {
+                    console.warn("Could not fetch school_auth:", fetchAuthErr);
+                }
+
+                // 2. Strict matching: Check if rawUserId matches a registered school's email (or code)
+                const searchKey = rawUserId.toLowerCase();
+                const matchedSchool = schoolsList.find(s => s && (
+                    (s.email && s.email.toLowerCase().trim() === searchKey) ||
+                    (s.code && s.code.toLowerCase().trim() === searchKey)
+                ));
+
+                if (!matchedSchool) {
+                    throw new Error("Invalid email or password. No school found with this email.");
+                }
+
+                // 3. School Deactivation Check
+                if (matchedSchool.formActive === false || matchedSchool.active === false) {
+                    throw new Error("This school is currently Deactive. School Login is not allowed.");
+                }
+
+                // 4. Strict Password Verification against the school's configured password in Manage Schools
+                const schoolEmail = (matchedSchool.email || rawUserId).toLowerCase().trim();
+                const safeKey = schoolEmail.replace(/[^a-z0-9]/g, '_');
+                const authRecord = schoolAuthData[safeKey];
+
+                let passwordVerified = false;
+
+                if (authRecord && authRecord.hash) {
+                    const decrypted = decryptSchoolPassword(authRecord.hash);
+                    if (decrypted && decrypted === password) {
+                        passwordVerified = true;
+                    } else {
+                        throw new Error("Invalid password. Please enter the password configured for this school in Manage Schools.");
+                    }
+                }
+
+                // 5. Authenticate with Firebase Auth (to acquire a valid auth session for Firestore security rules)
+                try {
+                    const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, schoolEmail, password);
+                    user = userCredential.user;
+                } catch (fbAuthErr) {
+                    if (passwordVerified) {
+                        // Password was verified via school_auth. Ensure user session exists in Firebase Auth
+                        try {
+                            const createCred = await window.firebaseAPI.createUserWithEmailAndPassword(window.auth, schoolEmail, password);
+                            user = createCred.user;
+                        } catch (createErr) {
+                            try {
+                                const anonCred = await window.firebaseAPI.signInAnonymously(window.auth);
+                                user = anonCred.user;
+                            } catch (anonErr) {
+                                user = { uid: String(matchedSchool.id || ('school_' + Date.now())), email: schoolEmail };
+                            }
+                        }
+                    } else {
+                        // If no school_auth hash was found (legacy), check if Firebase Auth accepted it
+                        // Since Firebase Auth failed here, authentication fails.
+                        throw fbAuthErr;
+                    }
+                }
+
+                // If auth was verified only via Firebase Auth (legacy school without hash), backfill hash to school_auth
+                if (!passwordVerified && user) {
+                    try {
+                        const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                        await window.firebaseAPI.setDoc(authDocRef, {
+                            [safeKey]: {
+                                email: schoolEmail,
+                                code: matchedSchool.code || '',
+                                schoolName: matchedSchool.name || '',
+                                schoolId: matchedSchool.id || '',
+                                formActive: matchedSchool.formActive !== false,
+                                active: matchedSchool.active !== false,
+                                hash: encryptSchoolPassword(password),
+                                updatedAt: Date.now()
+                            }
+                        }, { merge: true });
+                    } catch(e){}
+                }
+
+                // 6. Setup verified school session and redirect to School_Panel.html
+                authUser = {
+                    userId: (user && user.uid) ? user.uid : String(matchedSchool.id),
+                    name: matchedSchool.name || matchedSchool.code || (schoolEmail.split('@')[0]),
+                    role: 'school',
+                    email: schoolEmail,
+                    schoolId: matchedSchool.id
+                };
+
+                localStorage.setItem(CONFIG_KEY, JSON.stringify(matchedSchool));
+                localStorage.setItem('identify_active_school_id', String(matchedSchool.id));
+                saveAuthUser(authUser);
+
+                window.location.replace('School_Panel.html');
             } catch (error) {
+                // Ensure stale session is completely cleared on any failure
+                try {
+                    localStorage.removeItem(CONFIG_KEY);
+                    localStorage.removeItem('identify_active_school_id');
+                    saveAuthUser(null);
+                } catch(e){}
+
                 if (errorEl) {
-                    let errMsg = "Authentication failed. Please check your credentials.";
+                    let errMsg = (error.message && !error.code) ? error.message : "Authentication failed. Please check your credentials.";
                     if (error.code === 'auth/invalid-email') errMsg = "The email address you entered is not valid.";
                     else if (error.code === 'auth/user-not-found') errMsg = "We couldn't find an account matching this email.";
                     else if (error.code === 'auth/wrong-password') errMsg = "The password you entered is incorrect. Please try again.";
@@ -425,7 +575,7 @@
                     errorEl.innerText = errMsg;
                     errorEl.classList.remove('hidden');
                 }
-                if (isSystemAdmin(userId)) {
+                if (isSystemAdmin(rawUserId)) {
                     adminFailedAttempts++;
                     if (adminFailedAttempts >= 2) {
                         const forgotContainer = document.getElementById('forgot-password-container');
@@ -457,7 +607,7 @@
                     return;
                 }
 
-                // Check for session expired parameter
+                // Check for session expired or school deactivated parameter
                 const urlParams = new URLSearchParams(window.location.search);
                 const msg = urlParams.get('msg');
                 if (msg === 'session_expired') {
@@ -466,12 +616,18 @@
                         errorEl.innerText = 'Session expired due to inactivity.';
                         errorEl.classList.remove('hidden');
                     }
+                } else if (msg === 'school_deactivated') {
+                    const errorEl = document.getElementById('login-error');
+                    if (errorEl) {
+                        errorEl.innerText = 'This school is currently Deactive. School Login is not allowed.';
+                        errorEl.classList.remove('hidden');
+                    }
                 }
 
-                // Hide splash screen after delay, or instantly if logged out / session expired
+                // Hide splash screen after delay, or instantly if logged out / session expired / deactivated
                 const splash = document.getElementById('initial-splash-screen');
                 if (splash) {
-                    if (msg === 'logout' || msg === 'session_expired') {
+                    if (msg === 'logout' || msg === 'session_expired' || msg === 'school_deactivated') {
                         splash.style.opacity = '0';
                         splash.remove();
                     } else {
@@ -542,9 +698,9 @@
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./idapplogo.png" alt="IDentify" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
+                <img src="./idapplogo.png" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
             </div>
-            <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify App</h3>
+            <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">
                 Install this app on your device for quick access, full-screen experience, and offline support.
             </p>

@@ -11,7 +11,7 @@
     <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png">
     <link rel="apple-touch-icon" href="./idapplogo.png">
     <link rel="manifest" href="manifest.json">
-    <title id="page-title">IDentify</title>
+    <title id="page-title">IDentify&deg;</title>
     <!-- External Libraries -->
     <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -60,7 +60,7 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, enableMultiTabIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, enableMultiTabIndexedDbPersistence, deleteField } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged, updatePassword } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
         import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-storage.js";
 
@@ -89,7 +89,7 @@
             window.firebaseAPI = {
                 initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged, updatePassword,
                 db: window.db, auth: window.auth, storage: window.storage, firebaseConfig,
-                collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction,
+                collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, deleteField,
                 getStorage, ref, uploadString, getDownloadURL, deleteObject,
                 firebaseConfig
             };
@@ -119,6 +119,18 @@
                 } else if (isSystemAdmin(user.email)) {
                     window.location.replace('Admin_Panel.html');
                 } else {
+                    try {
+                        const rawCfg = localStorage.getItem('school_config_v1');
+                        if (rawCfg) {
+                            const parsedCfg = JSON.parse(rawCfg);
+                            if (parsedCfg && (parsedCfg.formActive === false || parsedCfg.active === false)) {
+                                if (window.auth && typeof window.auth.signOut === 'function') window.auth.signOut();
+                                localStorage.removeItem('student_auth_v1');
+                                window.location.replace('Login_Panel.html?msg=school_deactivated');
+                                return;
+                            }
+                        }
+                    } catch(e){}
                     if (typeof loadAllData === 'function') {
                         loadAllData();
                     }
@@ -254,7 +266,7 @@
                 <div class="mt-5 relative w-full pb-2 flex flex-col items-center justify-center">
                     <div class="flex items-center gap-1.5">
                         <i class="fa-solid fa-id-card text-emerald-600 text-[13px]"></i>
-                        <span class="text-[12px] font-black tracking-widest text-emerald-600">IDentify</span>
+                        <span class="text-[12px] font-black tracking-widest text-emerald-600">IDentify&deg;</span>
                     </div>
                     <div class="text-[10px] font-bold tracking-widest text-emerald-500 uppercase mt-0.5">By: Javed Ansari</div>
                     
@@ -311,7 +323,7 @@
                         </button>
                         <div id="search-input-container" class="flex-1 min-w-0 relative flex items-center">
                             <i id="search-icon" class="fa-solid fa-magnifying-glass text-slate-400 ml-2"></i>
-                            <input type="text" id="mainSearch" placeholder="Search students..."
+                            <input type="text" id="mainSearch" placeholder="Search students of DPS..."
                                 class="bg-transparent border-none outline-none w-full text-sm font-medium ml-2 text-slate-700 placeholder-slate-400 transition-all"
                                 oninput="onSearchInput()"
                                 onkeydown="if(event.key==='Enter'){if(filterDebounceTimer)clearTimeout(filterDebounceTimer);filterRecords();}">
@@ -501,9 +513,9 @@
                     <div id="footer-pagination" class="w-full flex items-center justify-between gap-2">
                         <div class="flex items-center shrink-0 gap-1.5">
                             <i class="fa-solid fa-id-card text-emerald-600 text-[12px]"></i>
-                            <span class="text-[11px] font-black tracking-widest text-emerald-600">IDentify</span>
+                            <span class="text-[11px] font-black tracking-widest text-emerald-600">IDentify&deg;</span>
                             <span class="text-[11px] font-black text-emerald-600">&gt;</span>
-                            <span id="footer-role-label" class="text-[11px] font-black tracking-widest text-emerald-600">School</span>
+                            <span id="footer-role-label" class="text-[11px] font-black tracking-widest text-emerald-600 uppercase">DPS</span>
                         </div>
 
                         <div id="footer-pagination-controls" class="flex items-center gap-3">
@@ -731,7 +743,7 @@
                 const isAdmin = currentUser && currentUser.userId === 'admin';
                 const footerRoleEl = document.getElementById('footer-role-label');
                 if (footerRoleEl) {
-                    footerRoleEl.innerText = isAdmin ? 'Admin' : 'School';
+                    footerRoleEl.innerText = (schoolConfig && schoolConfig.code ? schoolConfig.code : 'DPS').toUpperCase();
                 }
 
                 if (isAdmin) {
@@ -1506,7 +1518,7 @@
                             if (!appBooted) {
                                 appBooted = true;
                                 const sc = loadSchoolConfig();
-                                document.title = "IDentify-" + (sc.code || "DPS");
+                                document.title = "IDentify°-" + (sc.code || "DPS");
                                 setSyncStatus('Connecting to server...', 5);
                                 loadAllData();
                             }
@@ -1524,7 +1536,7 @@
                         hideSplashScreen();
                         
                         const sc = loadSchoolConfig();
-                        document.title = "IDentify-" + (sc.code || "DPS");
+                        document.title = "IDentify°-" + (sc.code || "DPS");
 
                         setSyncStatus('Connecting to server...', 5);
                         loadAllData();
@@ -1544,6 +1556,13 @@
             function logoutUser(isAuto = false) {
                 stopAutoLogoutTimer();
                 saveAuthUser(null);
+                try {
+                    localStorage.removeItem(CONFIG_KEY);
+                    localStorage.removeItem('identify_active_school_id');
+                    if (window.auth && typeof window.auth.signOut === 'function') {
+                        window.auth.signOut().catch(()=>{});
+                    }
+                } catch(e){}
                 if (typeof closeAccountModal === 'function') closeAccountModal();
                 if (typeof setBlankRecordMode === 'function') setBlankRecordMode('none');
                 if (typeof closeSchoolConfig === 'function') closeSchoolConfig();
@@ -2415,30 +2434,60 @@
                         if (docSnap.exists()) {
                             const data = docSnap.data();
                             
-                            // Cross-Device Wipe Check
+                            // Cross-Device Wipe Check (Scoped strictly to this school only)
                             const localWipeTime = parseInt(localStorage.getItem('lastWipeTimestamp') || '0');
-                            if (data.lastWipeTimestamp && data.lastWipeTimestamp > localWipeTime) {
+                            const matchesSchool = !data.lastWipeSchool || (schoolConfig && (data.lastWipeSchool === schoolConfig.id || data.lastWipeSchool === schoolConfig.code));
+                            if (data.lastWipeTimestamp && data.lastWipeTimestamp > localWipeTime && matchesSchool) {
                                 localStorage.setItem('lastWipeTimestamp', data.lastWipeTimestamp);
                                 showModal('confirm', 'Admin Data Reset', 
-                                    'The admin has wiped all system data.<br><br>Do you also want to permanently delete your un-synced local data (unverified records and drafts without photos) and clear the recycle bin on this device?', 
+                                    'The admin has wiped records for this school.<br><br>Do you also want to permanently delete your un-synced local data (unverified records and drafts without photos) and clear the recycle bin on this device?', 
                                     () => {
-                                        db = [];
+                                        db = db.filter(r => !(typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : false));
                                         try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
-                                        try { if (window.idbClear) idbClear('records').catch(()=>{}); } catch(e){}
+                                        try { if (window.idbSaveRecords) idbSaveRecords(db).catch(()=>{}); } catch(e){}
                                         if (typeof renderHomeAnalysis === 'function') renderHomeAnalysis();
                                         if (typeof filterRecords === 'function') filterRecords();
                                         if (typeof setBlankRecordMode === 'function') setBlankRecordMode('none');
                                         closeModal();
                                     }, 
-                                    'Yes, Delete All'
+                                    'Yes, Delete'
                                 );
                             }
 
-                            schoolConfig = { ...DEFAULT_CONFIG, ...data };
-                            localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
-                            if (typeof updateBrandingUI === 'function') updateBrandingUI();
+                            const matchesSchoolConfig = !data.id || !schoolConfig || !schoolConfig.id || (String(data.id) === String(schoolConfig.id));
+                            if (matchesSchoolConfig) {
+                                schoolConfig = { ...DEFAULT_CONFIG, ...schoolConfig, ...data };
+                                localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+                                if (typeof updateBrandingUI === 'function') updateBrandingUI();
+                            }
                         }
                     });
+                    
+                    // Multi-School Config Sync for School Panel
+                    try {
+                        const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                        if (window._schoolsUnsubscribe) window._schoolsUnsubscribe();
+                        window._schoolsUnsubscribe = window.firebaseAPI.onSnapshot(schoolsDocRef, (snap) => {
+                            if (snap.exists() && Array.isArray(snap.data().list)) {
+                                const list = snap.data().list;
+                                window.schoolsList = list;
+                                const authUser = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : (typeof loadAuthUser === 'function' ? loadAuthUser() : null);
+                                if (authUser && authUser.email) {
+                                    const matched = list.find(s => s && s.email && s.email.toLowerCase().trim() === authUser.email.toLowerCase().trim());
+                                    if (matched) {
+                                        schoolConfig = { ...DEFAULT_CONFIG, ...matched };
+                                        localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+                                        localStorage.setItem('identify_active_school_id', String(matched.id));
+                                        if (typeof updateBrandingUI === 'function') updateBrandingUI();
+                                        if (typeof checkSchoolActiveState === 'function') checkSchoolActiveState();
+                                    } else if (authUser.userId !== 'school_dev' && authUser.role !== 'teacher' && authUser.userId !== 'admin') {
+                                        console.warn("Logged in user email does not match any registered school. Logging out.");
+                                        if (typeof logoutUser === 'function') logoutUser();
+                                    }
+                                }
+                            }
+                        });
+                    } catch(e) {}
                     
                     // Fetch Form Builder config
                     try {
@@ -2539,12 +2588,88 @@
                 } catch(e){}
             }
 
+            function checkSchoolActiveState() {
+                if (typeof schoolConfig !== 'undefined' && schoolConfig) {
+                    if (schoolConfig.formActive === false || schoolConfig.active === false) {
+                        try {
+                            if (window.auth && typeof window.auth.signOut === 'function') {
+                                window.auth.signOut();
+                            }
+                        } catch(e){}
+                        localStorage.removeItem('student_auth_v1');
+                        localStorage.removeItem(CONFIG_KEY);
+                        localStorage.removeItem('identify_active_school_id');
+                        window.location.replace('Login_Panel.html?msg=school_deactivated');
+                    }
+                }
+            }
+            window.checkSchoolActiveState = checkSchoolActiveState;
+
+            function recordBelongsToSchool(rec, activeConfig) {
+                if (!rec) return false;
+                const cfg = activeConfig || (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
+                if (!cfg) return true;
+
+                const targetCode = String(cfg.code || 'DPS').trim().toUpperCase();
+                const targetId = cfg.id ? String(cfg.id) : '';
+
+                // 1. Explicit schoolId match
+                if (rec.schoolId && targetId && String(rec.schoolId) === targetId) return true;
+
+                // 2. Explicit schoolCode match
+                if (rec.schoolCode) {
+                    return String(rec.schoolCode).trim().toUpperCase() === targetCode;
+                }
+
+                // 3. ID prefix match (rec_DPS_... or draft_DPS-...)
+                const idStr = String(rec.id || '');
+                if (idStr.startsWith('rec_' + targetCode + '_') || idStr.startsWith('draft_' + targetCode + '-')) {
+                    return true;
+                }
+
+                // If ID contains another known school's prefix, it belongs to that other school
+                const list = (typeof window.schoolsList !== 'undefined' && Array.isArray(window.schoolsList)) ? window.schoolsList : (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) ? schoolsList : []);
+                if (list.length > 0) {
+                    for (const s of list) {
+                        if (s && s.code) {
+                            const otherCode = String(s.code).trim().toUpperCase();
+                            if (otherCode && otherCode !== targetCode) {
+                                if (idStr.startsWith('rec_' + otherCode + '_') || idStr.startsWith('draft_' + otherCode + '-')) {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Fallback for legacy records without schoolCode or prefix
+                const isPrimaryDefault = targetCode === 'DPS';
+                return isPrimaryDefault;
+            }
+            window.recordBelongsToSchool = recordBelongsToSchool;
+
+            function getSearchPlaceholder() {
+                const code = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.code ? schoolConfig.code : 'DPS').trim().toUpperCase();
+                return code ? `Search students of ${code}...` : 'Search students...';
+            }
+            window.getSearchPlaceholder = getSearchPlaceholder;
+
             function updateBrandingUI() {
+                if (typeof checkSchoolActiveState === 'function') {
+                    checkSchoolActiveState();
+                }
                 const nameEls = ['login-school-name', 'dashboard-school-name', 'settings-school-name-display'];
                 nameEls.forEach(id => { const el = document.getElementById(id); if (el) el.innerText = schoolConfig.name; });
                 const codeEl = document.getElementById('config-code'); if (codeEl) codeEl.value = schoolConfig.code;
                 const nameInput = document.getElementById('config-name'); if (nameInput) nameInput.value = schoolConfig.name;
                 const aboutEl = document.getElementById('settings-about-display'); if (aboutEl) aboutEl.innerText = schoolConfig.systemAbout || schoolConfig.about || '';
+                const footerRoleEl = document.getElementById('footer-role-label');
+                if (footerRoleEl) footerRoleEl.innerText = (schoolConfig && schoolConfig.code ? schoolConfig.code : 'DPS').toUpperCase();
+                
+                const mainSearch = document.getElementById('mainSearch');
+                if (mainSearch && (!blankRecordMode || blankRecordMode === 'none')) {
+                    mainSearch.placeholder = getSearchPlaceholder();
+                }
                 
                 // Update School Header Contact Details
                 const schoolContactEl = document.getElementById('settings-school-contact-display');
@@ -2621,7 +2746,7 @@
                         adminInfoContainer.classList.add('hidden');
                     }
                 }
-                document.title = "IDentify-" + (schoolConfig.code || "DPS");
+                document.title = "IDentify°-" + (schoolConfig.code || "DPS");
 
                 if (schoolConfig.logo) {
                     const loginLogo = document.getElementById('login-logo-container');
@@ -3407,6 +3532,9 @@
                 let totalCount = 0;
 
                 db.forEach(x => {
+                    if (typeof recordBelongsToSchool === 'function' && !recordBelongsToSchool(x, schoolConfig)) {
+                        return; // skip records not belonging to active school
+                    }
                     const isReturned = (String(x.verified).toLowerCase() === 'returned' || String(x.status).toLowerCase() === 'returned' || x.returned === true || String(x.returned).toLowerCase() === 'true');
                     const isRecVerified = (x.verified === true || String(x.verified).toLowerCase() === 'true' || x.verified === 'Completed') && !isReturned;
                     const hasAppPhoto = (x.docUrl && x.docUrl.length > 10) || (x.photoData && x.photoData.length > 10) || (x.docFileId && String(x.docFileId).length > 5);
@@ -3436,7 +3564,7 @@
                 const recentList = document.getElementById('recent-list'); 
                 if (recentList) {
                     // Sort by most recently added/updated first and take top 8 (exclude deleted)
-                    const recentSorted = db.filter(r => !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true')).sort((a, b) => ((b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
+                    const recentSorted = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : true) && !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true')).sort((a, b) => ((b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
                     let htmlContent = '';
                     recentSorted.slice(0, 8).forEach(x => {
                         const initial = (x.studentName || 'S').charAt(0).toUpperCase();
@@ -3476,6 +3604,9 @@
                 const year = chartYear || new Date().getFullYear().toString();
                 const monthCounts = Array(12).fill(0);
                 db.forEach(x => {
+                    if (typeof recordBelongsToSchool === 'function' && !recordBelongsToSchool(x, schoolConfig)) {
+                        return; // skip records not belonging to active school
+                    }
                     const ts = x.createdAt || x.updatedAt;
                     if (ts) {
                         const d = new Date(Number(ts));
@@ -3666,24 +3797,34 @@
                 let iconClass = 'fa-solid fa-magnifying-glass text-slate-400';
 
                 if (mode === 'student') {
+                    const currentClassVal = (
+                        (typeof previewRecord !== 'undefined' && previewRecord && previewRecord.sclass)
+                        || document.getElementById('blank-class')?.value
+                        || document.getElementById('in-sclass')?.value
+                        || ''
+                    ).trim().toLowerCase();
+                    const isStaff = currentClassVal === 'staff';
+
                     if (previewRecord) {
-                        const firstNameRaw = (previewRecord.studentName || 'Student').trim().split(' ')[0];
+                        const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
                         const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
-                        headerHtml = `<i class="fa-solid fa-file-invoice text-[#059669] mr-2.5"></i> ${firstName}'s ID Preview Edit`;
+                        headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-[#059669] mr-2.5"></i> ${firstName}'s ID Preview Edit`;
                         labelText = `${firstName}'s ID Preview Edit`;
+                        iconClass = `fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600`;
                     } else {
-                        headerHtml = `<i class="fa-solid fa-file-lines text-[#059669] mr-2.5"></i> Student Information Form`;
-                        labelText = 'Student Information Form';
+                        headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-lines'} text-[#059669] mr-2.5"></i> ${isStaff ? 'Staff Information Form' : 'Student Information Form'}`;
+                        labelText = isStaff ? 'Staff Information Form' : 'Student Information Form';
+                        iconClass = `fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-lines'} text-emerald-600`;
                     }
-                    iconClass = 'fa-solid fa-file-lines text-emerald-600';
                 } else if (mode === 'settings') {
                     headerHtml = `<i class="fa-solid fa-gear text-[#059669] mr-2.5"></i> System Settings`;
                     labelText = 'System Settings';
                     iconClass = 'fa-solid fa-gear text-emerald-600';
                 } else if (mode === 'preview' && previewRecord) {
-                    const firstNameRaw = (previewRecord.studentName || 'Student').trim().split(' ')[0];
+                    const isStaff = String(previewRecord.sclass || '').trim().toLowerCase() === 'staff';
+                    const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
                     const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
-                    headerHtml = `<i class="fa-solid fa-file-invoice text-[#059669] mr-2.5"></i> ${firstName}'s ID Preview`;
+                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-[#059669] mr-2.5"></i> ${firstName}'s ID Preview`;
                     labelText = `${firstName}'s ID Preview`;
                 } else if (mode === 'builder') {
                     const isStaffTab = typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff';
@@ -3706,14 +3847,20 @@
                     headerHtml = `<i class="fa-solid fa-trash-can text-[#059669] mr-2.5"></i> Recycle Bin`;
                     labelText = 'Recycle Bin';
                     iconClass = 'fa-solid fa-trash-can text-emerald-600';
-                } else if (mode === 'newEntry' || mode === 'student') {
-                    headerHtml = `<i class="fa-solid fa-file-lines text-[#059669] mr-2.5"></i> Student Information Form`;
-                    labelText = 'Student Information Form';
-                    iconClass = 'fa-solid fa-file-lines text-emerald-600';
+                } else if (mode === 'newEntry') {
+                    const currentClassVal = (
+                        document.getElementById('blank-class')?.value
+                        || document.getElementById('in-sclass')?.value
+                        || ''
+                    ).trim().toLowerCase();
+                    const isStaff = currentClassVal === 'staff';
+                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-lines'} text-[#059669] mr-2.5"></i> ${isStaff ? 'Staff Information Form' : 'Student Information Form'}`;
+                    labelText = isStaff ? 'Staff Information Form' : 'Student Information Form';
+                    iconClass = `fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-lines'} text-emerald-600`;
                 }
 
                 search.value = labelText;
-                search.placeholder = labelText || 'Search students...';
+                search.placeholder = labelText || (typeof getSearchPlaceholder === 'function' ? getSearchPlaceholder() : 'Search students...');
                 search.style.fontWeight = showBlankRecordCard ? '800' : '500';
                 search.style.color = showBlankRecordCard ? '#059669' : '';
                 search.readOnly = showBlankRecordCard;
@@ -3762,9 +3909,62 @@
                         altInfo.innerHTML = headerHtml;
                         altInfo.classList.remove('hidden');
                     }
+                } else if (currentMode === 'student' || currentMode === 'newEntry') {
+                    if (typeof updateStudentFormHeaderForClass === 'function') {
+                        updateStudentFormHeaderForClass();
+                    }
                 }
             }
             window.updateBlankRecordHeader = updateBlankRecordHeader;
+
+            function updateStudentFormHeaderForClass(selectedClass) {
+                if (typeof blankRecordMode === 'undefined' || (blankRecordMode !== 'student' && blankRecordMode !== 'newEntry')) return;
+                const classVal = String(
+                    selectedClass
+                    || document.getElementById('blank-class')?.value
+                    || document.getElementById('in-sclass')?.value
+                    || (typeof previewRecord !== 'undefined' && previewRecord ? previewRecord.sclass : '')
+                    || ''
+                ).trim();
+                const isStaff = classVal.toLowerCase() === 'staff';
+                const isEdit = typeof previewRecord !== 'undefined' && previewRecord;
+                
+                let labelText = '';
+                let headerHtml = '';
+                const iconClass = isStaff ? 'fa-solid fa-id-badge text-emerald-600' : 'fa-solid fa-file-lines text-emerald-600';
+                
+                if (isEdit) {
+                    const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
+                    const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
+                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-[#059669] mr-2.5"></i> ${firstName}'s ID Preview Edit`;
+                    labelText = `${firstName}'s ID Preview Edit`;
+                } else {
+                    headerHtml = `<i class="${iconClass} mr-2.5"></i> ${isStaff ? 'Staff Information Form' : 'Student Information Form'}`;
+                    labelText = isStaff ? 'Staff Information Form' : 'Student Information Form';
+                }
+
+                const search = document.getElementById('mainSearch');
+                const searchIcon = document.getElementById('search-icon');
+                const info = document.getElementById('records-page-info-db');
+                const altInfo = document.getElementById('records-page-info-db');
+
+                if (search) {
+                    search.value = labelText;
+                    search.placeholder = labelText;
+                }
+                if (searchIcon) {
+                    searchIcon.className = (isStaff ? 'fa-solid fa-id-badge text-emerald-600' : 'fa-solid fa-file-lines text-emerald-600') + ' ml-2';
+                }
+                if (info) {
+                    info.innerHTML = headerHtml;
+                    info.classList.remove('hidden');
+                }
+                if (altInfo) {
+                    altInfo.innerHTML = headerHtml;
+                    altInfo.classList.remove('hidden');
+                }
+            }
+            window.updateStudentFormHeaderForClass = updateStudentFormHeaderForClass;
             let lastFetchedSn = null;
             let currentUserLocation = "Not Provided";
 
@@ -4178,14 +4378,54 @@
                         count: counts[opt] !== undefined ? counts[opt] : 0,
                         selected: (opt === currentVal)
                     }));
+                } else if (type.startsWith('customField')) {
+                    const rawClassVal = document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
+                    const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                    const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                    const idx = parseInt(type.replace('customField', ''), 10) - 1;
+                    const f = (activeCustomList && activeCustomList[idx]) ? activeCustomList[idx] : null;
+                    const fieldOptions = (f && Array.isArray(f.options)) ? f.options.filter(Boolean) : [];
+                    
+                    currentVal = document.getElementById('in-' + type)?.value || document.getElementById('blank-' + type)?.value || '';
+                    const optionsWithCurrent = (currentVal && !fieldOptions.includes(currentVal)) ? [...fieldOptions, currentVal] : fieldOptions;
+
+                    const counts = {};
+                    if (Array.isArray(db)) {
+                        db.forEach(r => {
+                            if (!r.isDeleted && r[type]) {
+                                const valStr = String(r[type]).trim();
+                                counts[valStr] = (counts[valStr] || 0) + 1;
+                            }
+                        });
+                    }
+
+                    items = optionsWithCurrent.map(opt => ({
+                        value: opt,
+                        label: opt,
+                        count: counts[opt] !== undefined ? counts[opt] : 0,
+                        selected: (opt === currentVal)
+                    }));
+
+                    if (f && !f.required && currentVal) {
+                        items.unshift({
+                            value: '',
+                            label: 'Clear Selection',
+                            count: '',
+                            selected: false
+                        });
+                    }
                 }
 
-                menu.innerHTML = items.map(item => `
-                    <div class="menu-item ${item.selected ? '!bg-emerald-50 !text-emerald-800' : ''}" onclick="selectFormDropdownOption('${type}', '${String(item.value).replace(/'/g, "\\'")}')">
-                        <span class="menu-item-label font-bold text-slate-700 ${item.selected ? '!text-emerald-700' : ''}">${item.label}</span>
-                        <span class="menu-item-count text-slate-400 font-extrabold text-[12px]">${item.count}</span>
-                    </div>
-                `).join('');
+                if (items.length === 0) {
+                    menu.innerHTML = '<div class="p-3 text-center text-xs text-slate-400 font-bold">No options available</div>';
+                } else {
+                    menu.innerHTML = items.map(item => `
+                        <div class="menu-item ${item.selected ? '!bg-emerald-50 !text-emerald-800' : ''}" data-val="${sanitizeHTML(item.value)}" onclick="selectFormDropdownOption('${type}', this.dataset.val)">
+                            <span class="menu-item-label font-bold text-slate-700 ${item.selected ? '!text-emerald-700' : ''}">${sanitizeHTML(item.label)}</span>
+                            <span class="menu-item-count text-slate-400 font-extrabold text-[12px]">${item.count !== '' ? item.count : ''}</span>
+                        </div>
+                    `).join('');
+                }
 
                 menu.classList.add('show');
                 positionFloatingMenu(menu, btn, { align: 'left', gap: 6, minWidth: Math.max(btn.offsetWidth || 140, 160), fixed: true });
@@ -4200,6 +4440,9 @@
                     const hiddenEl = document.getElementById('blank-class');
                     if (hiddenEl) hiddenEl.value = value;
                     closeFormDropdown();
+                    if (typeof updateStudentFormHeaderForClass === 'function') {
+                        updateStudentFormHeaderForClass(value);
+                    }
                     const wasStaff = prevClass.toLowerCase() === 'staff';
                     const isNowStaff = String(value || '').trim().toLowerCase() === 'staff';
                     if (wasStaff !== isNowStaff && typeof renderCurrentRecordsPage === 'function') {
@@ -4212,6 +4455,27 @@
                     if (textEl) textEl.innerText = value;
                     const hiddenEl = document.getElementById('blank-gender');
                     if (hiddenEl) hiddenEl.value = value;
+                } else if (type.startsWith('customField')) {
+                    syncBlankSelect('in-' + type, value || '');
+                    const textEl = document.getElementById(`blank-${type}-text`);
+                    if (textEl) {
+                        if (value) {
+                            textEl.innerText = value;
+                            textEl.classList.remove('text-slate-400');
+                            textEl.classList.add('text-slate-700');
+                        } else {
+                            const rawClassVal = document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
+                            const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                            const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                            const idx = parseInt(type.replace('customField', ''), 10) - 1;
+                            const f = (activeCustomList && activeCustomList[idx]) ? activeCustomList[idx] : null;
+                            textEl.innerText = f ? ('Select ' + f.label) : 'Select';
+                            textEl.classList.remove('text-slate-700');
+                            textEl.classList.add('text-slate-400');
+                        }
+                    }
+                    const hiddenEl = document.getElementById('blank-' + type);
+                    if (hiddenEl) hiddenEl.value = value || '';
                 }
                 closeFormDropdown();
             }
@@ -4316,7 +4580,7 @@
                 const ws = XLSX.utils.json_to_sheet(exportData);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Student Records");
-                XLSX.writeFile(wb, "IDentify_Student_Data.xlsx");
+                XLSX.writeFile(wb, "IDentify°_Student_Data.xlsx");
                 closeAllMenus();
             }
 
@@ -4464,6 +4728,10 @@
                             }
 
                             const address = fmtText(getColVal(row, ['Address', 'Addr', 'City', 'Place', 'Village', 'Location', 'Residence'], []));
+                            const rollNo = fmtText(getColVal(row, ['Roll No', 'RollNo', 'Roll Number', 'Roll'], []));
+                            const admissionNo = fmtText(getColVal(row, ['Admission No', 'AdmissionNo', 'Scholar No', 'ScholarNo', 'Adm No', 'Admission Number'], []));
+                            const bloodGroup = fmtText(getColVal(row, ['Blood Group', 'BloodGroup', 'Blood', 'BG'], []));
+                            const motherName = fmtText(getColVal(row, ['Mother Name', 'MotherName', 'Mother'], ['father', 'student', 'photo']));
                             const docUrl = getColVal(row, ['Photo Link', 'Photo URL', 'PhotoURL', 'docUrl', 'Image URL', 'Image Link', 'URL'], ['filename', 'name']);
                             const fileName = getColVal(row, ['Photo File', 'Photo Name', 'PhotoFileName', 'fileName', 'Image File', 'Image Name', 'Photo'], ['link', 'url']);
 
@@ -4482,6 +4750,10 @@
                                 fatherName: fatherName,
                                 sclass: sclass,
                                 section: section,
+                                rollNo: rollNo,
+                                admissionNo: admissionNo,
+                                bloodGroup: bloodGroup,
+                                motherName: motherName,
                                 gender: gender,
                                 dob: dob,
                                 mobile: mobile,
@@ -4528,6 +4800,18 @@
                                     }
                                 });
                             }
+
+                            // Preserve all remaining columns from the Excel row so newly created custom fields can find them
+                            Object.keys(row).forEach(colKey => {
+                                const cleanKey = String(colKey || '').trim();
+                                if (!cleanKey) return;
+                                const rawVal = row[colKey];
+                                if (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '') {
+                                    if (rec[cleanKey] === undefined) {
+                                        rec[cleanKey] = String(rawVal).trim();
+                                    }
+                                }
+                            });
 
                             records.push(rec);
                         });
@@ -5311,6 +5595,36 @@
                 if (document.getElementById('blank-gender-text')) document.getElementById('blank-gender-text').innerText = r.gender || 'Other';
                 if (document.getElementById('blank-class-text')) document.getElementById('blank-class-text').innerText = r.sclass || 'General';
                 refreshBlankAgeBadge(r.dob || '');
+
+                // Populate custom fields (dropdowns, dates, text, numbers)
+                for (let i = 1; i <= 5; i++) {
+                    const cfVal = r['customField' + i] || '';
+                    const cfText = document.getElementById(`blank-customField${i}-text`);
+                    const cfHidden = document.getElementById(`blank-customField${i}`);
+                    if (cfText) {
+                        if (cfVal) {
+                            cfText.innerText = cfVal;
+                            cfText.classList.remove('text-slate-400');
+                            cfText.classList.add('text-slate-700');
+                        } else {
+                            const rawClassVal = r.sclass || document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
+                            const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                            const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                            const f = (activeCustomList && activeCustomList[i - 1]) ? activeCustomList[i - 1] : null;
+                            cfText.innerText = f ? ('Select ' + f.label) : 'Select';
+                            cfText.classList.remove('text-slate-700');
+                            cfText.classList.add('text-slate-400');
+                        }
+                    }
+                    if (cfHidden) cfHidden.value = cfVal;
+                    const cfInput = document.getElementById(`blank-customField${i}`);
+                    if (cfInput && cfInput.tagName === 'INPUT' && cfInput.type !== 'hidden') {
+                        cfInput.value = cfVal;
+                    }
+                }
+                if (typeof updateStudentFormHeaderForClass === 'function') {
+                    updateStudentFormHeaderForClass(r.sclass || 'General');
+                }
                 if (document.getElementById('mainSearch')) document.getElementById('mainSearch').value = r.studentName || '';
                 if (document.getElementById('global-search')) document.getElementById('global-search').value = r.fatherName || '';
 
@@ -5621,6 +5935,9 @@
             function syncBlankSelect(fieldId, value) {
                 const target = document.getElementById(fieldId);
                 if (target) target.value = value;
+                if (fieldId === 'in-sclass' && typeof updateStudentFormHeaderForClass === 'function') {
+                    updateStudentFormHeaderForClass(value);
+                }
                 queueDraftSave('Form');
                 queueServerDraftSync();
             }
@@ -5935,6 +6252,8 @@
                         sn: nextSn,
                         id: finalId,
                         recordType: isStaffRecord ? 'staff' : 'student',
+                        schoolCode: schoolCode,
+                        schoolId: (schoolConfig && schoolConfig.id) ? String(schoolConfig.id) : ('school_' + schoolCode.toLowerCase()),
                         oldId: oldId, // Send old ID to server so it can replace the row
                         sclass: cl, gender: g, studentName: n,
                         fatherName: getVal('fatherName'),
@@ -6363,7 +6682,7 @@
 
             function sendToIdentifyFromPreview() {
                 if (!previewRecord || !previewRecord.id) return;
-                showModal('confirm', 'Send to IDentify?', 'Are you sure you want to send this record to IDentify?', () => {
+                showModal('confirm', 'Send to IDentify°?', 'Are you sure you want to send this record to IDentify°?', () => {
                     const finalRec = { ...previewRecord, verified: 'Identify' };
                     serverCallSilent('updateRecord', [finalRec], (res) => {});
                     const idx = db.findIndex(r => String(r.id) === String(finalRec.id));
@@ -6373,7 +6692,7 @@
                     showTab('records');
                     filterRecords();
                     renderHomeAnalysis();
-                    showToast('Sent to IDentify');
+                    showToast('Sent to IDentify°');
                 }, 'Yes, Send');
             }
 
@@ -6400,7 +6719,7 @@
                     const savedQrFields = JSON.parse(localStorage.getItem('identify_qr_fields') || '["id"]');
                     const schoolName = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.name || schoolConfig.schoolName)) ? (schoolConfig.name || schoolConfig.schoolName) : 'Delhi Public School';
                     const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('') || "DPS").toUpperCase();
-                    const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify';
+                    const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify°';
                     
                     for (let i = 0; i < recordsToExport.length; i++) {
                         const rec = recordsToExport[i];
@@ -6520,19 +6839,19 @@
                     const wb = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(wb, ws, "Completed_Data");
                     const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-                    zip.file("Data_Export.xlsx", excelBuffer);
+                    zip.file(`Data_Export_${schoolCode}.xlsx`, excelBuffer);
                     
                     const zipBlob = await zip.generateAsync({ type: "blob" });
                     
                     const downloadLink = document.createElement("a");
                     downloadLink.href = URL.createObjectURL(zipBlob);
-                    downloadLink.download = "Completed_Data_Export.zip";
+                    downloadLink.download = `Completed_Data_Export_${schoolCode}.zip`;
                     document.body.appendChild(downloadLink);
                     downloadLink.click();
                     document.body.removeChild(downloadLink);
                     
                     resetBulkSelection();
-                    showToast("Export Successful!");
+                    showToast(`Export Successful for ${schoolCode}!`);
                     
                 } catch (error) {
                     console.error(error);
@@ -6603,6 +6922,9 @@
                 const q = (globalSearch?.value || mainSearch?.value || '').toLowerCase().trim();
 
                 const res = db.filter(x => {
+                    if (typeof recordBelongsToSchool === 'function' && !recordBelongsToSchool(x, schoolConfig)) {
+                        return false;
+                    }
                     const s = (v) => (v ? String(v) : '').toLowerCase();
                     const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig.code ? schoolConfig.code : 'DPS').toLowerCase();
                     const year = new Date(x.createdAt || Date.now()).getFullYear().toString().slice(-2);
@@ -6889,7 +7211,7 @@
             }
 
             function buildDataInformationHtml() {
-                let dataToAnalyze = (db || []).filter(r => !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true'));
+                let dataToAnalyze = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : true) && !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true'));
                 const info = getDataInfoStats(dataToAnalyze);
                 const classRows = info.classes.length
                     ? info.classes.map(stats => renderDataInfoRow(stats)).join('')
@@ -6961,7 +7283,10 @@
                 t.innerHTML = '';
                 if (showBlankRecordCard) {
                     const genderValue = (document.getElementById('in-gender')?.value || 'Male');
-                    const classValue = (document.getElementById('in-sclass')?.value || 'Class 1');
+                    const classValue = (document.getElementById('in-sclass')?.value || document.getElementById('blank-class')?.value || 'Class 1');
+                    if (typeof updateStudentFormHeaderForClass === 'function') {
+                        updateStudentFormHeaderForClass(classValue);
+                    }
                     const studentNameValue = (document.getElementById('in-studentName')?.value || '');
                     const fatherNameValue = (document.getElementById('in-fatherName')?.value || '');
                     const dobValue = (document.getElementById('in-dob')?.value || '');
@@ -7064,7 +7389,7 @@
                         const aspectStyle = `aspect-ratio: ${pWidth} / ${pHeight};`;
 
                         t.innerHTML = `
-                <div class="animate-in fade-in slide-in-from-bottom-4 duration-500 relative" ${isPreviewFromSave ? '' : 'ontouchstart="handlePreviewTouchStart(event)" ontouchend="handlePreviewTouchEnd(event)"'}>
+                <div class="animate-in fade-in slide-in-from-bottom-4 duration-500 relative select-none" oncontextmenu="return false;" style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;" ${isPreviewFromSave ? '' : 'ontouchstart="handlePreviewTouchStart(event)" ontouchend="handlePreviewTouchEnd(event)"'}>
                     
                     ${isPreviewFromSave ? '' : `
                     <!-- Left Navigation Zone (Previous Card) -->
@@ -7078,7 +7403,7 @@
                     </div>
                     `}
 
-                    <div class="preview-dark-card relative z-[100]">
+                    <div class="preview-dark-card relative z-[100] select-none" oncontextmenu="return false;" style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;">
                                             ${(() => {
                                                 const isStaffPreview = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rec.sclass || '').trim().toLowerCase() === 'staff';
                                                 const activeStdCfg = isStaffPreview ? (typeof fb_staff_standard_config !== 'undefined' ? fb_staff_standard_config : {}) : (typeof fb_standard_config !== 'undefined' ? fb_standard_config : {});
@@ -7090,7 +7415,7 @@
                                                     html += `
                                                     <div class="flex justify-center mb-4 mt-2 relative z-20">
                                                         <div class="premium-photo-frame !w-[150px] !h-auto bg-white relative" style="${aspectStyle}">
-                                                            <img src="${docRes}" class="${hasDoc ? '' : 'hidden'} w-full h-full object-cover">
+                                                            <img src="${docRes}" class="${hasDoc ? '' : 'hidden'} w-full h-full object-cover" draggable="false" oncontextmenu="return false;" style="-webkit-touch-callout: none; pointer-events: none;">
                                                             <div class="flex items-center justify-center h-full w-full ${hasDoc ? 'hidden' : ''}">
                                                                 <i class="fa-solid fa-user-tie text-[#05996c] text-[130px]"></i>
                                                             </div>
@@ -7117,36 +7442,73 @@
                                                 ${(() => {
                                                     const isStaffPreview = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rec.sclass || '').trim().toLowerCase() === 'staff';
                                                     const activeStdCfg = isStaffPreview ? (typeof fb_staff_standard_config !== 'undefined' ? fb_staff_standard_config : {}) : (typeof fb_standard_config !== 'undefined' ? fb_standard_config : {});
+                                                    const activeStdLabels = isStaffPreview ? (typeof fb_staff_standard_labels !== 'undefined' ? fb_staff_standard_labels : {}) : (typeof fb_standard_labels !== 'undefined' ? fb_standard_labels : {});
                                                     const isEnabled = (id) => activeStdCfg && activeStdCfg[id] ? activeStdCfg[id].enabled !== false : true;
                                                     let html = '';
-                                                    if (isEnabled('fatherName')) html += renderPreviewRow('fa-person', isStaffPreview ? (typeof fb_getStaffStandardLabel === 'function' ? fb_getStaffStandardLabel('fatherName', 'F/H Name') : 'F/H Name') : (['female', 'girl', 'f'].some(g => (rec.gender || '').toLowerCase().includes(g)) ? 'D/o' : (['male', 'boy', 'm'].some(g => (rec.gender || '').toLowerCase().includes(g)) ? 'S/o' : 'F:')), rec.fatherName);
-                                                    if (isEnabled('sclass')) html += renderPreviewRow('fa-book', 'Class', rec.sclass);
+                                                    if (isEnabled('fatherName')) html += renderPreviewRow('fa-person', isStaffPreview ? (typeof fb_getStaffStandardLabel === 'function' ? fb_getStaffStandardLabel('fatherName', 'F/H Name') : ((activeStdLabels && activeStdLabels.fatherName) || 'F/H Name')) : ((activeStdLabels && activeStdLabels.fatherName) || (['female', 'girl', 'f'].some(g => (rec.gender || '').toLowerCase().includes(g)) ? 'D/o' : (['male', 'boy', 'm'].some(g => (rec.gender || '').toLowerCase().includes(g)) ? 'S/o' : 'F:'))), rec.fatherName);
+                                                    if (isEnabled('sclass')) html += renderPreviewRow('fa-book', (activeStdLabels && activeStdLabels.sclass) || 'Class', rec.sclass);
                                                     const hideGender = schoolConfig && schoolConfig.hideGenderInPreview;
-                                                    if (isEnabled('gender') && !hideGender) html += renderPreviewRow('fa-venus-mars', 'Gender', rec.gender);
-                                                    if (isEnabled('dob')) html += renderPreviewRow('fa-calendar-day', 'DOB', rec.dob);
+                                                    if (isEnabled('gender') && !hideGender) html += renderPreviewRow('fa-venus-mars', (activeStdLabels && activeStdLabels.gender) || 'Gender', rec.gender);
+                                                    if (isEnabled('dob')) {
+                                                        const ageVal = (typeof calculateStudentAge === 'function') ? calculateStudentAge(rec.dob) : '--';
+                                                        const dobWithAge = (rec.dob && ageVal !== '--' && ageVal !== '') ? `${rec.dob} (${ageVal}Y)` : (rec.dob || '');
+                                                        html += renderPreviewRow('fa-calendar-day', (activeStdLabels && activeStdLabels.dob) || 'DOB', dobWithAge);
+                                                    }
                                                     return html;
                                                 })()}
                                                 ${(() => {
                                                     const isStaffPreview = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rec.sclass || '').trim().toLowerCase() === 'staff';
                                                     const activeStdCfg = isStaffPreview ? (typeof fb_staff_standard_config !== 'undefined' ? fb_staff_standard_config : {}) : (typeof fb_standard_config !== 'undefined' ? fb_standard_config : {});
-                                                    const activeOrder = isStaffPreview ? (typeof fb_staff_form_order !== 'undefined' && Array.isArray(fb_staff_form_order) && fb_staff_form_order.length > 0 ? fb_staff_form_order : ['mobile', 'aadhar', 'address']) : ((typeof fb_form_order !== 'undefined' && Array.isArray(fb_form_order) && fb_form_order.length > 0) ? fb_form_order : ['mobile', 'aadhar', 'address']);
+                                                    const activeStdLabels = isStaffPreview ? (typeof fb_staff_standard_labels !== 'undefined' ? fb_staff_standard_labels : {}) : (typeof fb_standard_labels !== 'undefined' ? fb_standard_labels : {});
+                                                    const baseOrder = isStaffPreview ? (typeof fb_staff_form_order !== 'undefined' && Array.isArray(fb_staff_form_order) && fb_staff_form_order.length > 0 ? fb_staff_form_order : ['mobile', 'aadhar', 'address']) : ((typeof fb_form_order !== 'undefined' && Array.isArray(fb_form_order) && fb_form_order.length > 0) ? fb_form_order : ['mobile', 'aadhar', 'address']);
                                                     const activeCustomFields = isStaffPreview ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
                                                     const fixedTop = ['photo', 'studentName', 'fatherName', 'sclass', 'gender', 'dob'];
                                                     const isEnabled = (id) => activeStdCfg && activeStdCfg[id] ? activeStdCfg[id].enabled !== false : true;
+
+                                                    // Ensure newly added custom fields always appear even if missing from saved order
+                                                    const activeOrder = [...baseOrder];
+                                                    activeCustomFields.forEach(f => {
+                                                        if (f && f.id && !activeOrder.includes(f.id)) {
+                                                            activeOrder.push(f.id);
+                                                        }
+                                                    });
+
                                                     return activeOrder.filter(id => !fixedTop.includes(id) && isEnabled(id)).map(id => {
-                                                        if (id === 'mobile') return renderPreviewRow('fa-mobile-screen', 'Mobile', rec.mobile);
-                                                        if (id === 'aadhar') return renderPreviewRow('fa-fingerprint', 'Aadhar', rec.aadhar);
-                                                        if (id === 'address') return renderPreviewRow('fa-location-dot', 'Address', rec.address);
-                                                        if (activeCustomFields) {
-                                                            const field = activeCustomFields.find(f => f.id === id);
+                                                        if (id === 'mobile') return renderPreviewRow('fa-mobile-screen', (activeStdLabels && activeStdLabels.mobile) || 'Mobile', rec.mobile);
+                                                        if (id === 'aadhar') return renderPreviewRow('fa-fingerprint', (activeStdLabels && activeStdLabels.aadhar) || 'Aadhar', rec.aadhar);
+                                                        if (id === 'address') return renderPreviewRow('fa-location-dot', (activeStdLabels && activeStdLabels.address) || 'Address', rec.address);
+                                                        if (id === 'section') return renderPreviewRow('fa-layer-group', (activeStdLabels && activeStdLabels.section) || 'Section', rec.section);
+                                                        if (id === 'rollNo' || id === 'roll_no') return renderPreviewRow('fa-id-badge', (activeStdLabels && activeStdLabels[id]) || 'Roll No', rec.rollNo || rec.roll_no);
+                                                        if (id === 'admissionNo' || id === 'admission_no') return renderPreviewRow('fa-ticket', (activeStdLabels && activeStdLabels[id]) || 'Admission No', rec.admissionNo || rec.admission_no);
+                                                        if (id === 'bloodGroup' || id === 'blood_group') return renderPreviewRow('fa-droplet', (activeStdLabels && activeStdLabels[id]) || 'Blood Group', rec.bloodGroup || rec.blood_group);
+                                                        if (id === 'motherName' || id === 'mother_name') return renderPreviewRow('fa-person-dress', (activeStdLabels && activeStdLabels[id]) || 'Mother Name', rec.motherName || rec.mother_name);
+
+                                                        if (activeCustomFields && activeCustomFields.length > 0) {
+                                                            const field = activeCustomFields.find(f => f && (f.id === id || f.label === id));
                                                             if (field) {
                                                                 const idx = activeCustomFields.indexOf(field);
-                                                                const val = rec[`customField${idx + 1}`] || '';
-                                                                if (field.type === 'image') {
-                                                                    return val ? `<div class="preview-row flex-col items-start gap-1.5"><div class="flex items-center"><i class="fa-solid fa-camera"></i><span class="preview-label">${field.label}</span></div><div class="w-16 h-16 rounded-lg border border-slate-200 overflow-hidden bg-slate-50 mt-1"><img src="${val}" class="w-full h-full object-cover"></div></div>`
-                                                                               : `<div class="preview-row"><i class="fa-solid fa-camera"></i><span class="preview-label">${field.label}</span><span class="preview-colon">:</span><span class="preview-value">--</span></div>`;
+                                                                let val = '';
+                                                                if (rec[`customField${idx + 1}`] !== undefined && rec[`customField${idx + 1}`] !== null && String(rec[`customField${idx + 1}`]).trim() !== '') {
+                                                                    val = rec[`customField${idx + 1}`];
+                                                                } else if (field.id && rec[field.id] !== undefined && rec[field.id] !== null && String(rec[field.id]).trim() !== '') {
+                                                                    val = rec[field.id];
+                                                                } else if (field.label && rec[field.label] !== undefined && rec[field.label] !== null && String(rec[field.label]).trim() !== '') {
+                                                                    val = rec[field.label];
+                                                                } else if (field.label) {
+                                                                    const normLabel = field.label.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                                                    for (const k of Object.keys(rec)) {
+                                                                        if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === normLabel && rec[k] !== undefined && rec[k] !== null && String(rec[k]).trim() !== '') {
+                                                                            val = rec[k];
+                                                                            break;
+                                                                        }
+                                                                    }
                                                                 }
-                                                                return renderPreviewRow('fa-star', field.label, val);
+
+                                                                if (field.type === 'image') {
+                                                                    return val ? `<div class="preview-row flex-col items-start gap-1.5"><div class="flex items-center"><i class="fa-solid fa-camera"></i><span class="preview-label">${sanitizeHTML(field.label)}</span></div><div class="w-16 h-16 rounded-lg border border-slate-200 overflow-hidden bg-slate-50 mt-1"><img src="${val}" class="w-full h-full object-cover" draggable="false" oncontextmenu="return false;" style="-webkit-touch-callout: none; pointer-events: none;"></div></div>`
+                                                                               : `<div class="preview-row"><i class="fa-solid fa-camera"></i><span class="preview-label">${sanitizeHTML(field.label)}</span><span class="preview-colon">:</span><span class="preview-value">--</span></div>`;
+                                                                }
+                                                                return renderPreviewRow(typeof fb_getFieldIcon === 'function' ? fb_getFieldIcon(field) : 'fa-tag', field.label, val);
                                                             }
                                                         }
                                                         return '';
@@ -7361,7 +7723,7 @@
                                 </button>
                                 <div>
                                     <h4 class="text-sm font-normal">
-                                        <span class="text-emerald-600">IDentify</span>
+                                        <span class="text-emerald-600">IDentify&deg;</span>
                                         <span class="text-slate-800"> By </span>
                                         <span class="text-slate-800">Javed Ansari</span>
                                     </h4>
@@ -7842,10 +8204,13 @@
                                 let inputHtml = '';
                                  if (f.type === 'select') {
                                      inputHtml = `
-                                         <select onchange="syncBlankSelect('in-customField${idx + 1}', this.value)" class="premium-input premium-select">
-                                             <option value="">Select ${f.label}</option>
-                                             ${(f.options || []).map(opt => `<option value="${escapeAttr(opt)}" ${val === opt ? 'selected' : ''}>${escapeAttr(opt)}</option>`).join('')}
-                                         </select>`;
+                                         <div class="relative">
+                                             <button type="button" id="blank-${customKey}-btn" onclick="toggleFormDropdown('${customKey}', this, event)" class="premium-input flex items-center justify-between text-left cursor-pointer active:scale-[0.99] transition-all">
+                                                 <span id="blank-${customKey}-text" class="font-bold ${val ? 'text-slate-700' : 'text-slate-400'} text-[13px] truncate">${escapeAttr(val || ('Select ' + f.label))}</span>
+                                                 <i class="fa-solid fa-chevron-down text-slate-400 text-[11px] shrink-0 ml-2"></i>
+                                             </button>
+                                             <input type="hidden" id="blank-${customKey}" value="${escapeAttr(val)}">
+                                         </div>`;
                                  } else if (f.type === 'image') {
                                       const imgWidth = f.width || 600;
                                       const imgHeight = f.height || 800;
@@ -7882,15 +8247,23 @@
                                          </div>
                                       `;
                                   } else if (f.type === 'date') {
-                                     inputHtml = `<input type="text" inputmode="numeric" placeholder="DD-MM-YYYY" value="${escapeAttr(val)}" oninput="handleCustomDateInput(this, 'in-customField${idx + 1}', event)" class="premium-input">`;
+                                     inputHtml = `
+                                         <div class="relative flex items-center">
+                                             <input type="text" id="blank-${customKey}" inputmode="numeric" placeholder="DD-MM-YYYY" value="${escapeAttr(val)}" oninput="handleCustomDateInput(this, 'in-${customKey}', event)" class="premium-input !pr-10" autocomplete="off">
+                                             <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                                                 <button type="button" onclick="triggerDobCalendar(this, event, 'blank-${customKey}')" class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center hover:bg-emerald-100 active:scale-90 transition-all border border-emerald-200 shadow-xs cursor-pointer" title="Select Date from Calendar">
+                                                     <i class="fa-regular fa-calendar text-[13px]"></i>
+                                                 </button>
+                                             </div>
+                                         </div>`;
                                  } else if (f.type === 'number') {
-                                     inputHtml = `<input type="text" inputmode="numeric" pattern="[0-9]*" value="${escapeAttr(val)}" placeholder="Enter ${f.label}" oninput="this.value = this.value.replace(/[^0-9]/g, ''); syncBlankField('in-customField${idx + 1}', this.value, this)" class="premium-input">`;
+                                     inputHtml = `<input type="text" id="blank-${customKey}" inputmode="numeric" pattern="[0-9]*" value="${escapeAttr(val)}" placeholder="Enter ${escapeAttr(f.label)}" oninput="this.value = this.value.replace(/[^0-9]/g, ''); syncBlankField('in-${customKey}', this.value, this)" class="premium-input">`;
                                  } else {
-                                      inputHtml = `<input type="text" value="${escapeAttr(val)}" placeholder="Enter ${f.label}" oninput="syncBlankField('in-customField${idx + 1}', this.value, this)" class="premium-input">`;
+                                      inputHtml = `<input type="text" id="blank-${customKey}" value="${escapeAttr(val)}" placeholder="Enter ${escapeAttr(f.label)}" oninput="syncBlankField('in-${customKey}', this.value, this)" class="premium-input">`;
                                   }
                                   return `
                                       <div class="premium-input-group">
-                                          <label class="premium-label"><i class="fa-solid ${typeof fb_getFieldIcon === 'function' ? fb_getFieldIcon(f) : 'fa-circle-info'}"></i> ${f.label} ${f.required ? '<span class="text-rose-500">*</span>' : ''}</label>
+                                          <label class="premium-label"><i class="fa-solid ${typeof fb_getFieldIcon === 'function' ? fb_getFieldIcon(f) : 'fa-circle-info'}"></i> ${escapeAttr(f.label)} ${f.required ? '<span class="text-rose-500">*</span>' : ''}</label>
                                           ${inputHtml}
                                       </div>`;
                               }
@@ -8247,7 +8620,8 @@
             }
 
             function syncChipCounts() {
-                const baseDb = activeClassFilter === 'all' ? db : db.filter(x => x.sclass === activeClassFilter);
+                const scopedDb = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : true));
+                const baseDb = activeClassFilter === 'all' ? scopedDb : scopedDb.filter(x => x.sclass === activeClassFilter);
                 const filteredDb = baseDb.filter(x => !(x.isDeleted === true || String(x.isDeleted).toLowerCase() === 'true'));
                 const total = filteredDb.length;
                 const binTotal = baseDb.filter(x => x.isDeleted === true || String(x.isDeleted).toLowerCase() === 'true').length;
@@ -8333,7 +8707,7 @@
                 let orderedClasses = [];
                 let counts = {};
 
-                let dbToCount = (Array.isArray(db) ? db : []).filter(r => !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true'));
+                let dbToCount = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : true) && !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true'));
 
                 if (Array.isArray(classesOverride) && classesOverride.length > 0) {
                     orderedClasses = classesOverride.filter(name => {
@@ -9020,6 +9394,27 @@
                 if (document.getElementById('blank-dob')) document.getElementById('blank-dob').value = '';
                 if (document.getElementById('blank-mobile')) document.getElementById('blank-mobile').value = '';
                 if (document.getElementById('blank-aadhar')) document.getElementById('blank-aadhar').value = '';
+
+                // Reset custom fields
+                for (let i = 1; i <= 5; i++) {
+                    const cfHidden = document.getElementById(`blank-customField${i}`);
+                    if (cfHidden) cfHidden.value = '';
+                    const cfText = document.getElementById(`blank-customField${i}-text`);
+                    if (cfText) {
+                        const rawClassVal = document.getElementById('blank-class')?.value || 'General';
+                        const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                        const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                        const f = (activeCustomList && activeCustomList[i - 1]) ? activeCustomList[i - 1] : null;
+                        cfText.innerText = f ? ('Select ' + f.label) : 'Select';
+                        cfText.classList.remove('text-slate-700');
+                        cfText.classList.add('text-slate-400');
+                    }
+                    const cfInput = document.getElementById(`blank-customField${i}`);
+                    if (cfInput && cfInput.tagName === 'INPUT' && cfInput.type !== 'hidden') {
+                        cfInput.value = '';
+                    }
+                }
+
                 removePhoto();
                 refreshBlankAgeBadge('');
                 if (!stayInFormMode) setBlankRecordMode('student');
@@ -12605,9 +13000,9 @@
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./idapplogo.png" alt="IDentify" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
+                <img src="./idapplogo.png" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
             </div>
-            <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify App</h3>
+            <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">
                 Install this app on your device for quick access, full-screen experience, and offline support.
             </p>

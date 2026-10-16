@@ -354,8 +354,60 @@ function serverCallSilent(fn, args, onSuccess, onFailure) {
     }
 }
 
+function resolveRecordSchoolInfo(rec) {
+    let targetId = rec && rec.schoolId ? String(rec.schoolId).trim() : '';
+    let targetCode = rec && rec.schoolCode ? String(rec.schoolCode).trim().toUpperCase() : '';
+
+    if (!targetId || !targetCode) {
+        const cfg = (typeof window !== 'undefined' && window.schoolConfig) 
+            ? window.schoolConfig 
+            : (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
+        if (cfg) {
+            if (!targetId && cfg.id) targetId = String(cfg.id);
+            if (!targetCode && cfg.code) targetCode = String(cfg.code).trim().toUpperCase();
+        }
+    }
+    if (!targetId) {
+        try {
+            const activeId = localStorage.getItem('identify_active_school_id');
+            if (activeId) targetId = activeId;
+        } catch(e){}
+    }
+    if (!targetId) {
+        try {
+            const raw = localStorage.getItem('school_config_v1');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed) {
+                    if (!targetId && parsed.id) targetId = String(parsed.id);
+                    if (!targetCode && parsed.code) targetCode = String(parsed.code).trim().toUpperCase();
+                }
+            }
+        } catch(e){}
+    }
+    // Match ID prefix if rec.id has rec_XXX_
+    if (!targetCode && rec && rec.id && String(rec.id).startsWith('rec_')) {
+        const parts = String(rec.id).split('_');
+        if (parts.length >= 2 && parts[1]) {
+            targetCode = parts[1].toUpperCase();
+        }
+    }
+    if (!targetId && targetCode) {
+        targetId = 'school_' + targetCode.toLowerCase();
+    }
+    if (!targetId) targetId = 'school_dps';
+    if (!targetCode) targetCode = 'DPS';
+
+    return { schoolId: targetId, schoolCode: targetCode };
+}
+window.resolveRecordSchoolInfo = resolveRecordSchoolInfo;
+
 function prepareRecordForFirestore(data) {
     const cleanData = JSON.parse(JSON.stringify(data));
+    const schoolInfo = resolveRecordSchoolInfo(cleanData);
+    cleanData.schoolId = schoolInfo.schoolId;
+    cleanData.schoolCode = schoolInfo.schoolCode;
+
     // Guard against race conditions: if local db already marked this record verified or uploaded a photo, never overwrite with stale state
     const localDb = getLocalRecordsArray();
     if (cleanData && cleanData.id && localDb.length > 0) {
@@ -408,18 +460,51 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             if (window._recordsUnsubscribe) {
                 try { window._recordsUnsubscribe(); } catch (e) {}
             }
-            const colRef = collection(window.db, "records");
-            window._recordsUnsubscribe = onSnapshot(colRef, (querySnapshot) => {
+            const activeSchoolInfo = resolveRecordSchoolInfo(null);
+            const schoolId = String(activeSchoolInfo.schoolId || 'school_dps');
+            const targetCode = String(activeSchoolInfo.schoolCode || 'DPS').toUpperCase();
+
+            // Isolated school collection path: schools/{schoolId}/records
+            const schoolColRef = collection(window.db, "schools", schoolId, "records");
+            
+            window._recordsUnsubscribe = onSnapshot(schoolColRef, async (querySnapshot) => {
                 const records = [];
-                querySnapshot.forEach((doc) => {
-                    records.push({ id: doc.id, ...doc.data() });
+                querySnapshot.forEach((d) => {
+                    records.push({ id: d.id, ...d.data() });
                 });
+
+                // If isolated subcollection is empty (e.g. legacy records still in root records), check root collection
+                if (records.length === 0) {
+                    try {
+                        const rootSnap = await getDocs(collection(window.db, "records"));
+                        const legacyRecords = [];
+                        rootSnap.forEach(d => {
+                            const r = { id: d.id, ...d.data() };
+                            const matchesId = r.schoolId && String(r.schoolId) === schoolId;
+                            const matchesCode = r.schoolCode && String(r.schoolCode).toUpperCase() === targetCode;
+                            const matchesPrefix = String(r.id || '').startsWith('rec_' + targetCode + '_') || String(r.id || '').startsWith('draft_' + targetCode + '-');
+                            const isDefault = targetCode === 'DPS';
+                            if (matchesId || matchesCode || matchesPrefix || (isDefault && !r.schoolCode && !r.schoolId)) {
+                                records.push(r);
+                                legacyRecords.push(r);
+                            }
+                        });
+                        // Background migrate legacy records into the dedicated school subcollection
+                        if (legacyRecords.length > 0) {
+                            Promise.all(legacyRecords.map(lr => {
+                                const docRef = doc(window.db, "schools", schoolId, "records", String(lr.id));
+                                return setDoc(docRef, lr, { merge: true });
+                            })).catch(()=>{});
+                        }
+                    } catch(e) {}
+                }
+
                 if (onSuccess) onSuccess(records);
             }, (error) => {
-                console.error("Firebase Snapshot Error:", error);
-                getDocs(colRef).then((snapshot) => {
+                console.error("Firebase School Records Snapshot Error:", error);
+                getDocs(schoolColRef).then((snapshot) => {
                     const fallbackRecords = [];
-                    snapshot.forEach((doc) => { fallbackRecords.push({ id: doc.id, ...doc.data() }); });
+                    snapshot.forEach((d) => { fallbackRecords.push({ id: d.id, ...d.data() }); });
                     if (onSuccess) onSuccess(fallbackRecords);
                 }).catch((e) => {
                     if (onFailure) onFailure(e);
@@ -428,10 +513,16 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
         } else if (fn === 'submitStudentData' || fn === 'addRecord') {
             const data = args[0];
             const cleanData = prepareRecordForFirestore(data);
+            const schoolId = String(cleanData.schoolId || 'school_dps');
             
-            // Always use the local ID (e.g. draft_xxx or UUID) as the permanent Firebase Document ID
-            const docRef = doc(window.db, "records", String(cleanData.id));
-            await setDoc(docRef, cleanData, { merge: true });
+            // 1. Save in dedicated school subcollection: schools/{schoolId}/records/{id}
+            const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(cleanData.id));
+            // 2. Also keep root records in sync for compatibility
+            const rootDocRef = doc(window.db, "records", String(cleanData.id));
+            await Promise.all([
+                setDoc(schoolDocRef, cleanData, { merge: true }),
+                setDoc(rootDocRef, cleanData, { merge: true })
+            ]);
             if (onSuccess) onSuccess(data);
         } else if (fn === 'addManyRecords') {
             const records = args[0] || [];
@@ -441,8 +532,13 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                 const chunk = records.slice(i, i + chunkSize);
                 await Promise.all(chunk.map(async (rec) => {
                     const cleanData = prepareRecordForFirestore(rec);
-                    const docRef = doc(window.db, "records", String(cleanData.id));
-                    await setDoc(docRef, cleanData, { merge: true });
+                    const schoolId = String(cleanData.schoolId || 'school_dps');
+                    const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(cleanData.id));
+                    const rootDocRef = doc(window.db, "records", String(cleanData.id));
+                    await Promise.all([
+                        setDoc(schoolDocRef, cleanData, { merge: true }),
+                        setDoc(rootDocRef, cleanData, { merge: true })
+                    ]);
                     addedCount++;
                 }));
             }
@@ -450,8 +546,13 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
         } else if (fn === 'updateStudentData' || fn === 'updateRecord') {
             const data = args[0];
             const cleanData = prepareRecordForFirestore(data);
-            const docRef = doc(window.db, "records", String(cleanData.id));
-            await setDoc(docRef, cleanData, { merge: true });
+            const schoolId = String(cleanData.schoolId || 'school_dps');
+            const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(cleanData.id));
+            const rootDocRef = doc(window.db, "records", String(cleanData.id));
+            await Promise.all([
+                setDoc(schoolDocRef, cleanData, { merge: true }),
+                setDoc(rootDocRef, cleanData, { merge: true })
+            ]);
             
             if (onSuccess) onSuccess(data);
         } else if (fn === 'restoreRecord') {
@@ -462,40 +563,69 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                 ? arg
                 : (localDb.find(r => r && String(r.id) === String(id)) || null);
             if (!recObj && id) {
-                const docRef = doc(window.db, "records", String(id));
-                const docSnap = await getDoc(docRef);
+                const rootDocRef = doc(window.db, "records", String(id));
+                const docSnap = await getDoc(rootDocRef);
                 if (docSnap.exists()) {
                     recObj = { id: docSnap.id, ...docSnap.data() };
                 }
             }
             if (recObj && recObj.id) {
                 const cleanData = prepareRecordForFirestore({ ...recObj, isDeleted: false, isRestored: true, deletedAt: null });
-                const docRef = doc(window.db, "records", String(cleanData.id));
-                await setDoc(docRef, cleanData, { merge: true });
+                const schoolId = String(cleanData.schoolId || 'school_dps');
+                const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(cleanData.id));
+                const rootDocRef = doc(window.db, "records", String(cleanData.id));
+                await Promise.all([
+                    setDoc(schoolDocRef, cleanData, { merge: true }),
+                    setDoc(rootDocRef, cleanData, { merge: true })
+                ]);
             }
             if (onSuccess) onSuccess(true);
         } else if (fn === 'deleteRecord') {
             const arg = args[0];
             const id = typeof arg === 'object' && arg ? arg.id : arg;
             if (id && !String(id).startsWith('TEMP_')) {
-                const docRef = doc(window.db, "records", String(id));
-                await setDoc(docRef, {
+                const localDb = getLocalRecordsArray();
+                const recObj = localDb.find(r => r && String(r.id) === String(id)) || {};
+                const schoolInfo = resolveRecordSchoolInfo(recObj);
+                const schoolId = String(schoolInfo.schoolId || 'school_dps');
+                const updatePayload = {
                     isDeleted: true,
                     deletedAt: new Date().toISOString(),
                     updatedAt: Date.now()
-                }, { merge: true });
+                };
+                const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(id));
+                const rootDocRef = doc(window.db, "records", String(id));
+                await Promise.all([
+                    setDoc(schoolDocRef, updatePayload, { merge: true }),
+                    setDoc(rootDocRef, updatePayload, { merge: true })
+                ]);
             }
             if (onSuccess) onSuccess(true);
         } else if (fn === 'permanentDelete' || fn === 'permDelete') {
             const arg = args[0];
             const id = typeof arg === 'object' && arg ? arg.id : arg;
-            const docRef = doc(window.db, "records", String(id));
-            await deleteDoc(docRef);
+            const localDb = getLocalRecordsArray();
+            const recObj = localDb.find(r => r && String(r.id) === String(id)) || {};
+            const schoolInfo = resolveRecordSchoolInfo(recObj);
+            const schoolId = String(schoolInfo.schoolId || 'school_dps');
+
+            const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(id));
+            const rootDocRef = doc(window.db, "records", String(id));
+            await Promise.all([
+                deleteDoc(schoolDocRef).catch(()=>{}),
+                deleteDoc(rootDocRef).catch(()=>{})
+            ]);
             if (onSuccess) onSuccess(true);
         } else if (fn === 'getRecordById') {
             const id = args[0];
-            const docRef = doc(window.db, "records", String(id));
-            const docSnap = await getDoc(docRef);
+            const activeSchoolInfo = resolveRecordSchoolInfo(null);
+            const schoolId = String(activeSchoolInfo.schoolId || 'school_dps');
+            const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(id));
+            let docSnap = await getDoc(schoolDocRef);
+            if (!docSnap.exists()) {
+                const rootDocRef = doc(window.db, "records", String(id));
+                docSnap = await getDoc(rootDocRef);
+            }
             if (docSnap.exists()) {
                 if (onSuccess) onSuccess({ id: docSnap.id, ...docSnap.data() });
             } else {
@@ -527,17 +657,31 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             const updatedUser = localUser ? { ...localUser } : { userId: payload.nextUserId || 'admin', role: 'teacher' };
             if (payload.nextUserId) updatedUser.userId = payload.nextUserId;
             if (onSuccess) onSuccess(updatedUser);
-        } else if (fn === 'deleteAllRecords') {
-            const q = query(collection(window.db, "records"));
-            const querySnapshot = await getDocs(q);
-            const promises = [];
-            querySnapshot.forEach((document) => {
-                promises.push(deleteDoc(doc(window.db, "records", document.id)));
-            });
-            // Reset SN counter to 0
-            const counterRef = doc(window.db, "config", "snCounter");
-            promises.push(setDoc(counterRef, { value: 0 }));
+        } else if (fn === 'deleteSchoolRecords' || fn === 'deleteAllRecords') {
+            const activeSchoolInfo = resolveRecordSchoolInfo(args && args[0] ? args[0] : null);
+            const schoolId = String(activeSchoolInfo.schoolId || 'school_dps');
             
+            // Delete only records of THIS school from dedicated subcollection
+            const schoolRecsCol = collection(window.db, "schools", schoolId, "records");
+            const snap = await getDocs(schoolRecsCol);
+            const promises = [];
+            snap.forEach((d) => {
+                promises.push(deleteDoc(doc(window.db, "schools", schoolId, "records", d.id)).catch(()=>{}));
+            });
+
+            // Also delete from root records only those belonging to THIS school
+            const rootSnap = await getDocs(collection(window.db, "records"));
+            const targetCode = String(activeSchoolInfo.schoolCode || '').toUpperCase();
+            rootSnap.forEach((d) => {
+                const rData = d.data() || {};
+                const matchesId = rData.schoolId && String(rData.schoolId) === schoolId;
+                const matchesCode = targetCode && rData.schoolCode && String(rData.schoolCode).toUpperCase() === targetCode;
+                const matchesPrefix = targetCode && (String(d.id).startsWith('rec_' + targetCode + '_') || String(d.id).startsWith('draft_' + targetCode + '-'));
+                if (matchesId || matchesCode || matchesPrefix) {
+                    promises.push(deleteDoc(doc(window.db, "records", d.id)).catch(()=>{}));
+                }
+            });
+
             await Promise.all(promises);
             if (onSuccess) onSuccess(true);
         } else if (fn === 'saveFormFields') {

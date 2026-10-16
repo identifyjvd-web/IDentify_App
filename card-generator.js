@@ -86,45 +86,7 @@ async function bulkDownloadSelectedJpg() {
 }
 
 function downloadPreviewCardAsJpg() {
-    const card = document.querySelector('.preview-dark-card');
-    if (!card) return;
-    
-    if (typeof showToast === 'function') showToast("Generating JPG...");
-    if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
-    
-    // Hide the navigation buttons temporarily so they don't appear in the image
-    const navButtons = document.querySelectorAll('.fixed.top-\\[100px\\]');
-    navButtons.forEach(btn => btn.style.display = 'none');
-    
-    // Hide the preview action buttons
-    const actionBars = document.querySelectorAll('.preview-action-bar');
-    actionBars.forEach(bar => bar.style.display = 'none');
-    
-    const dynamicScale = window.innerWidth < 768 ? 1 : 2;
-    html2canvas(card, {
-        scale: dynamicScale, // High resolution for desktop, 1x for mobile to prevent memory crash
-        useCORS: true,
-        backgroundColor: '#1e293b' // match dark card background
-    }).then(canvas => {
-        navButtons.forEach(btn => btn.style.display = '');
-        actionBars.forEach(bar => bar.style.display = '');
-        
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
-        const link = document.createElement('a');
-        link.href = imgData;
-        const sn = (typeof previewRecord !== 'undefined' && previewRecord && previewRecord.sn) ? previewRecord.sn : 'Unknown';
-        const safeName = (typeof previewRecord !== 'undefined' && previewRecord && (previewRecord.studentName || previewRecord.name))
-            ? (previewRecord.studentName || previewRecord.name).replace(/[^\p{L}\p{N}\s_-]/gu, '_').trim()
-            : '';
-        link.download = safeName ? `ID_Card_${sn}_${safeName}.jpg` : `ID_Card_${sn}.jpg`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        if (typeof showToast === 'function') showToast("Downloaded Successfully!");
-    }).catch(err => {
-        navButtons.forEach(btn => btn.style.display = '');
-        actionBars.forEach(bar => bar.style.display = '');
-        console.error(err);
-        if (typeof showToast === 'function') showToast("Error generating JPG");
-    });
+    // Disabled per user request (no long-press or automatic JPG download on preview card)
+    return;
 }
+

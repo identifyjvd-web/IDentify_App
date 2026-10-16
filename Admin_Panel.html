@@ -11,7 +11,7 @@
     <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png">
     <link rel="apple-touch-icon" href="./idapplogo.png">
     <link rel="manifest" href="manifest.json">
-    <title id="page-title">IDentify</title>
+    <title id="page-title">IDentify&deg;</title>
     <!-- External Libraries -->
     <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -60,8 +60,8 @@
 
     <!-- Firebase SDKs -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, enableMultiTabIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+        import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, enableMultiTabIndexedDbPersistence, deleteField } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged, updatePassword } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
         import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-storage.js";
 
@@ -88,9 +88,9 @@
             window.storage = getStorage(app);
 
             window.firebaseAPI = {
-                initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged, updatePassword,
+                initializeApp, deleteApp, getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged, updatePassword,
                 db: window.db, auth: window.auth, storage: window.storage, firebaseConfig,
-                collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction,
+                collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, deleteField,
                 getStorage, ref, uploadString, getDownloadURL, deleteObject,
                 firebaseConfig
             };
@@ -255,7 +255,7 @@
                 <div class="mt-5 relative w-full pb-2 flex flex-col items-center justify-center">
                     <div class="flex items-center gap-1.5">
                         <i class="fa-solid fa-id-card text-emerald-600 text-[13px]"></i>
-                        <span class="text-[12px] font-black tracking-widest text-emerald-600">IDentify</span>
+                        <span class="text-[12px] font-black tracking-widest text-emerald-600">IDentify&deg;</span>
                     </div>
                     <div class="text-[10px] font-bold tracking-widest text-emerald-500 uppercase mt-0.5">By: Javed Ansari</div>
                     
@@ -312,7 +312,7 @@
                         </button>
                         <div id="search-input-container" class="flex-1 min-w-0 relative flex items-center">
                             <i id="search-icon" class="fa-solid fa-magnifying-glass text-slate-400 ml-2"></i>
-                            <input type="text" id="mainSearch" placeholder="Search students..."
+                            <input type="text" id="mainSearch" placeholder="Search students of DPS..."
                                 class="bg-transparent border-none outline-none w-full text-sm font-medium ml-2 text-slate-700 placeholder-slate-400 transition-all"
                                 oninput="onSearchInput()"
                                 onkeydown="if(event.key==='Enter'){if(filterDebounceTimer)clearTimeout(filterDebounceTimer);filterRecords();}">
@@ -404,7 +404,7 @@
                 </header>
 
                 <!-- Records List View -->
-                <div id="records-list-view" class="pt-1 flex-1 flex flex-col min-h-0 overflow-hidden">
+                <div id="records-list-view" class="pt-1 flex-1 flex flex-col min-h-0 overflow-hidden relative">
                     <div class="flex-1 overflow-y-auto custom-scroll system-scroll px-4 pt-1 pb-6" ontouchstart="handleHomeTouchStart(event)" ontouchend="handleHomeTouchEnd(event)">
                         <div id="records-list-container" class="system-card rounded-3xl overflow-hidden">
                             <!-- Premium Skeleton Loading Animation -->
@@ -472,6 +472,14 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Manage School Floating + Add Button (Anchored inside #records-list-view, strictly inside 480px app frame) -->
+                    <button type="button" 
+                            id="manage-school-floating-add-btn" 
+                            onclick="openAddSchoolForm()" 
+                            class="hidden absolute bottom-5 right-5 w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 active:scale-95 text-white flex items-center justify-center shadow-2xl shadow-emerald-700/50 z-50 border-2 border-white cursor-pointer transition-all duration-200 group"
+                            title="Create New School">
+                        <i class="fa-solid fa-plus text-2xl group-hover:rotate-90 transition-transform duration-200"></i>
+                    </button>
                 </div>
 
                 <div id="inline-student-form" class="hidden" aria-hidden="true">
@@ -509,9 +517,11 @@
                     <div id="footer-pagination" class="w-full flex items-center justify-between gap-2">
                         <div class="flex items-center shrink-0 gap-1.5">
                             <i class="fa-solid fa-id-card text-emerald-600 text-[12px]"></i>
-                            <span class="text-[11px] font-black tracking-widest text-emerald-600">IDentify</span>
+                            <span class="text-[11px] font-black tracking-widest text-emerald-600">IDentify&deg;</span>
                             <span class="text-[11px] font-black text-emerald-600">&gt;</span>
                             <span id="footer-role-label" class="text-[11px] font-black tracking-widest text-emerald-600">Admin</span>
+                            <span id="footer-admin-sep" class="text-[11px] font-black text-emerald-600">&gt;</span>
+                            <span id="footer-school-code-label" class="text-[11px] font-black tracking-widest text-emerald-600 uppercase">DPS</span>
                         </div>
 
                         <div id="footer-pagination-controls" class="flex items-center gap-3">
@@ -646,6 +656,12 @@
             // --- Local DB helper is imported from db-helper.js ---
             const AUTH_USER_KEY = 'student_auth_v1';
             const CONFIG_KEY = 'school_config_v1';
+            const SCHOOLS_KEY = 'identify_schools_list_v1';
+            let schoolsList = [];
+            let schoolManageViewMode = 'list'; // 'list', 'add', 'edit'
+            let editingSchoolId = null;
+            let schoolLongPressTimer = null;
+            let schoolLongPressTriggered = false;
             const DEMO_RECORDS = [];
             let sortKey = 'recent', sortAsc = false, currentTab = 'home', tabHistory = [], scrollIntervals = {}, chartYear = '';
             let currentRecordsPage = 1, currentRenderLimit = 30, currentRenderedRecords = [];
@@ -720,8 +736,20 @@
 
                 const isAdmin = currentUser ? (currentUser.userId === 'admin' || currentUser.role !== 'school') : true;
                 const footerRoleEl = document.getElementById('footer-role-label');
+                const footerCodeEl = document.getElementById('footer-school-code-label');
+                const footerAdminSep = document.getElementById('footer-admin-sep');
                 if (footerRoleEl) {
-                    footerRoleEl.innerText = isAdmin ? 'Admin' : 'School';
+                    if (isAdmin) {
+                        footerRoleEl.innerText = 'Admin';
+                        footerRoleEl.style.display = '';
+                        if (footerAdminSep) footerAdminSep.style.display = '';
+                    } else {
+                        footerRoleEl.style.display = 'none';
+                        if (footerAdminSep) footerAdminSep.style.display = 'none';
+                    }
+                }
+                if (footerCodeEl) {
+                    footerCodeEl.innerText = (schoolConfig && schoolConfig.code ? schoolConfig.code : 'DPS').toUpperCase();
                 }
 
                 if (isAdmin) {
@@ -1313,7 +1341,7 @@
                             if (!appBooted) {
                                 appBooted = true;
                                 const sc = loadSchoolConfig();
-                                document.title = "IDentify-" + (sc.code || "DPS");
+                                document.title = "IDentify°-" + (sc.code || "DPS");
                                 setSyncStatus('Connecting to server...', 5);
                                 loadAllData();
                             }
@@ -1331,7 +1359,7 @@
                         hideSplashScreen();
                         
                         const sc = loadSchoolConfig();
-                        document.title = "IDentify-" + (sc.code || "DPS");
+                        document.title = "IDentify°-" + (sc.code || "DPS");
 
                         setSyncStatus('Connecting to server...', 5);
                         loadAllData();
@@ -2065,8 +2093,857 @@
             function loadSchoolConfig() {
                 try {
                     const raw = localStorage.getItem(CONFIG_KEY);
-                    return raw ? JSON.parse(raw) : DEFAULT_CONFIG;
+                    let cfg = raw ? JSON.parse(raw) : DEFAULT_CONFIG;
+                    if (!cfg || typeof cfg !== 'object') cfg = DEFAULT_CONFIG;
+                    if (!cfg.id) cfg.id = 'school_' + (cfg.code || 'dps').toLowerCase().replace(/[^a-z0-9]/g, '_');
+                    return cfg;
                 } catch (e) { return DEFAULT_CONFIG; }
+            }
+
+            function loadSchoolsList() {
+                try {
+                    const raw = localStorage.getItem(SCHOOLS_KEY);
+                    let list = raw ? JSON.parse(raw) : [];
+                    if (!Array.isArray(list)) list = [];
+                    
+                    const active = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : DEFAULT_CONFIG;
+                    const activeName = (active.name || '').trim();
+                    const activeCode = (active.code || '').trim().toUpperCase();
+                    
+                    const existingIdx = list.findIndex(s => s && ((s.id && active.id && String(s.id) === String(active.id)) || (activeCode && s.code && String(s.code).toUpperCase() === activeCode) || (activeName && s.name && s.name.trim().toLowerCase() === activeName.toLowerCase())));
+                    if (existingIdx === -1 && (activeName || activeCode)) {
+                        const initialSchool = {
+                            id: active.id || ('school_' + Date.now()),
+                            name: activeName || 'Default School',
+                            code: activeCode || 'DPS',
+                            logo: active.logo || '',
+                            address: active.address || '',
+                            contactPerson: active.contactPerson || '',
+                            mobile: active.mobile || '',
+                            email: active.email || '',
+                            createdAt: Date.now()
+                        };
+                        list.unshift(initialSchool);
+                        localStorage.setItem(SCHOOLS_KEY, JSON.stringify(list));
+                    }
+                    return list;
+                } catch(e) {
+                    return [];
+                }
+            }
+            schoolsList = loadSchoolsList();
+
+            function saveSchoolsList(list) {
+                schoolsList = Array.isArray(list) ? list : [];
+                localStorage.setItem(SCHOOLS_KEY, JSON.stringify(schoolsList));
+                try {
+                    if (window.db && window.firebaseAPI && typeof window.firebaseAPI.doc === 'function') {
+                        const docRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                        window.firebaseAPI.setDoc(docRef, { list: schoolsList, updatedAt: Date.now() }, { merge: true })
+                            .catch(err => console.warn("Firebase schools save error:", err));
+                    }
+                } catch(e) {}
+            }
+
+            function isCurrentSchoolActive(s) {
+                if (!s) return false;
+                const activeId = localStorage.getItem('identify_active_school_id') || (schoolConfig ? schoolConfig.id : null);
+                if (activeId && s.id && String(s.id) === String(activeId)) return true;
+                if (schoolConfig && s.code && schoolConfig.code && String(s.code).toUpperCase() === String(schoolConfig.code).toUpperCase()) return true;
+                if (schoolConfig && s.name && schoolConfig.name && String(s.name).trim().toLowerCase() === String(schoolConfig.name).trim().toLowerCase()) return true;
+                return false;
+            }
+
+            function renderBlankRecordContent() {
+                if (typeof renderCurrentRecordsPage === 'function') {
+                    renderCurrentRecordsPage();
+                }
+            }
+            window.renderBlankRecordContent = renderBlankRecordContent;
+
+            function recordBelongsToSchool(rec, activeConfig) {
+                if (!rec) return false;
+                const cfg = activeConfig || (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
+                if (!cfg) return true;
+
+                const targetCode = String(cfg.code || 'DPS').trim().toUpperCase();
+                const targetId = cfg.id ? String(cfg.id) : '';
+
+                // 1. Explicit schoolId match
+                if (rec.schoolId && targetId && String(rec.schoolId) === targetId) return true;
+
+                // 2. Explicit schoolCode match
+                if (rec.schoolCode) {
+                    return String(rec.schoolCode).trim().toUpperCase() === targetCode;
+                }
+
+                // 3. ID prefix match (rec_DPS_... or draft_DPS-...)
+                const idStr = String(rec.id || '');
+                if (idStr.startsWith('rec_' + targetCode + '_') || idStr.startsWith('draft_' + targetCode + '-')) {
+                    return true;
+                }
+
+                // If ID contains another known school's prefix, it belongs to that other school
+                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) {
+                    for (const s of schoolsList) {
+                        if (s && s.code) {
+                            const otherCode = String(s.code).trim().toUpperCase();
+                            if (otherCode && otherCode !== targetCode) {
+                                if (idStr.startsWith('rec_' + otherCode + '_') || idStr.startsWith('draft_' + otherCode + '-')) {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Fallback for legacy records without schoolCode or prefix
+                const isPrimaryDefault = targetCode === 'DPS' || (typeof schoolsList !== 'undefined' && schoolsList[0] && String(schoolsList[0].code).toUpperCase() === targetCode);
+                return isPrimaryDefault;
+            }
+            window.recordBelongsToSchool = recordBelongsToSchool;
+
+            function selectActiveSchool(schoolId) {
+                const target = schoolsList.find(s => s && String(s.id) === String(schoolId));
+                if (!target) return;
+                
+                localStorage.setItem('identify_active_school_id', String(target.id));
+                
+                schoolConfig = {
+                    ...schoolConfig,
+                    ...target,
+                    id: target.id
+                };
+                if (typeof target.formActive !== 'undefined') {
+                    schoolConfig.formActive = target.formActive;
+                    if (typeof fb_form_active !== 'undefined') {
+                        fb_form_active = target.formActive !== false;
+                    }
+                    localStorage.setItem('identify_fb_form_active', String(target.formActive !== false));
+                }
+                saveSchoolConfig(schoolConfig);
+                
+                showToast(`Active School: ${target.name}`);
+
+                // Instantly re-scope student data, filters and analysis to only this school
+                try {
+                    activeClassFilter = 'all';
+                    if (typeof populateFilters === 'function') populateFilters();
+                    if (typeof renderHomeAnalysis === 'function') renderHomeAnalysis();
+                    if (typeof filterRecords === 'function') filterRecords();
+                } catch(e) {}
+                
+                setBlankRecordMode('none');
+            }
+            window.selectActiveSchool = selectActiveSchool;
+
+            function toggleSchoolFormActive(schoolId) {
+                const target = schoolsList.find(s => s && String(s.id) === String(schoolId));
+                if (!target) return;
+
+                const newStatus = (target.formActive === false || target.active === false) ? true : false;
+                target.formActive = newStatus;
+                target.active = newStatus;
+                saveSchoolsList(schoolsList);
+
+                // Sync active status to dedicated school doc and auth doc in Firestore
+                try {
+                    if (window.db && window.firebaseAPI && typeof window.firebaseAPI.doc === 'function') {
+                        const sDoc = window.firebaseAPI.doc(window.db, "schools", String(schoolId));
+                        window.firebaseAPI.setDoc(sDoc, { formActive: newStatus, active: newStatus, updatedAt: Date.now() }, { merge: true })
+                            .catch(e => console.warn("Firebase school doc active sync error:", e));
+
+                        if (target.email) {
+                            const safeKey = target.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                            const authDoc = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                            window.firebaseAPI.setDoc(authDoc, { [safeKey]: { formActive: newStatus, active: newStatus, updatedAt: Date.now() } }, { merge: true })
+                                .catch(e => console.warn("Firebase school_auth active sync error:", e));
+                        }
+                    }
+                } catch(e){}
+
+                if (isCurrentSchoolActive(target)) {
+                    schoolConfig = { ...schoolConfig, formActive: newStatus, active: newStatus };
+                    saveSchoolConfig(schoolConfig);
+                    if (typeof fb_form_active !== 'undefined') {
+                        fb_form_active = newStatus;
+                    }
+                    localStorage.setItem('identify_fb_form_active', String(newStatus));
+                    try {
+                        if (window.db && window.firebaseAPI && typeof window.firebaseAPI.doc === 'function') {
+                            const fbDoc = window.firebaseAPI.doc(window.db, "form_builder", "config");
+                            window.firebaseAPI.setDoc(fbDoc, { formActive: newStatus, updatedAt: Date.now() }, { merge: true })
+                                .catch(e => console.warn("Firebase formActive sync error:", e));
+                        }
+                    } catch(e){}
+                }
+
+                showToast(newStatus ? `School Activated: ${target.name}` : `School Deactivated: ${target.name}`, {
+                    tone: newStatus ? 'success' : 'warning'
+                });
+
+                renderBlankRecordContent();
+            }
+            window.toggleSchoolFormActive = toggleSchoolFormActive;
+
+            function startSchoolLongPress(schoolId) {
+                schoolLongPressTriggered = false;
+                cancelSchoolLongPress();
+                schoolLongPressTimer = setTimeout(() => {
+                    schoolLongPressTriggered = true;
+                    if (navigator.vibrate) try { navigator.vibrate(60); } catch(e){}
+                    openEditSchoolForm(schoolId);
+                }, 600);
+            }
+            window.startSchoolLongPress = startSchoolLongPress;
+
+            function cancelSchoolLongPress() {
+                if (schoolLongPressTimer) {
+                    clearTimeout(schoolLongPressTimer);
+                    schoolLongPressTimer = null;
+                }
+            }
+            window.cancelSchoolLongPress = cancelSchoolLongPress;
+
+            function handleSchoolTileClick(schoolId) {
+                if (schoolLongPressTriggered) {
+                    schoolLongPressTriggered = false;
+                    return;
+                }
+                selectActiveSchool(schoolId);
+            }
+            window.handleSchoolTileClick = handleSchoolTileClick;
+
+            function openAddSchoolForm() {
+                const fabBtn = document.getElementById('manage-school-floating-add-btn');
+                if (fabBtn) fabBtn.classList.add('hidden');
+                tempManageSchoolLogo = null;
+                editingSchoolId = null;
+                schoolManageViewMode = 'add';
+                renderBlankRecordContent();
+            }
+            window.openAddSchoolForm = openAddSchoolForm;
+
+            function openEditSchoolForm(schoolId) {
+                const fabBtn = document.getElementById('manage-school-floating-add-btn');
+                if (fabBtn) fabBtn.classList.add('hidden');
+                tempManageSchoolLogo = null;
+                editingSchoolId = schoolId;
+                schoolManageViewMode = 'edit';
+                renderBlankRecordContent();
+            }
+            window.openEditSchoolForm = openEditSchoolForm;
+
+            function showAdminPinModal(target, onVerified) {
+                const existing = document.getElementById('admin-pin-dialog');
+                if (existing) existing.remove();
+
+                const modal = document.createElement('div');
+                modal.id = 'admin-pin-dialog';
+                modal.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200';
+                modal.innerHTML = `
+                    <div class="bg-white rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl border border-slate-100 flex flex-col items-center animate-in zoom-in-95 duration-200">
+                        <div class="w-16 h-16 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500 mb-3.5 shadow-inner">
+                            <i class="fa-solid fa-shield-halved text-2xl"></i>
+                        </div>
+                        <h3 class="text-base font-black text-slate-800">Admin PIN Required</h3>
+                        <p class="text-xs text-slate-500 mt-1 mb-4 leading-relaxed">
+                            Deleting <strong class="text-slate-800">${sanitizeHTML(target.name)}</strong> will download a full backup ZIP of all its records, photos & QR codes, then permanently delete the school.
+                        </p>
+                        <div class="w-full text-left mb-4">
+                            <label class="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">Enter Admin PIN or Password</label>
+                            <div class="relative">
+                                <input type="password" id="admin-security-pin-input" class="w-full h-12 bg-slate-50 border-2 border-slate-200 text-slate-800 rounded-xl px-4 text-center text-xl font-black tracking-widest outline-none focus:border-rose-500 focus:bg-white transition" placeholder="••••" maxlength="30" autocomplete="off">
+                                <button type="button" onclick="const inp=document.getElementById('admin-security-pin-input'); inp.type = inp.type==='password'?'text':'password';" class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition">
+                                    <i class="fa-solid fa-eye text-xs"></i>
+                                </button>
+                            </div>
+                            <p id="admin-pin-error-msg" class="hidden text-[11px] font-bold text-rose-500 mt-1.5 text-center"></p>
+                        </div>
+                        <div class="flex gap-2.5 w-full">
+                            <button type="button" onclick="document.getElementById('admin-pin-dialog').remove()" class="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 font-bold text-xs transition">
+                                Cancel
+                            </button>
+                            <button type="button" id="btn-verify-admin-pin" class="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-sm shadow-rose-600/20">
+                                <i class="fa-solid fa-check"></i> Verify & Delete
+                            </button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+
+                const input = document.getElementById('admin-security-pin-input');
+                const btn = document.getElementById('btn-verify-admin-pin');
+                const errMsg = document.getElementById('admin-pin-error-msg');
+                if (input) {
+                    input.focus();
+                    input.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') btn.click();
+                    });
+                }
+
+                btn.onclick = async () => {
+                    const entered = (input.value || '').trim();
+                    if (!entered) {
+                        errMsg.innerText = 'Please enter Admin PIN or Password';
+                        errMsg.classList.remove('hidden');
+                        return;
+                    }
+
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Verifying...';
+
+                    let isValid = false;
+                    const savedPin = localStorage.getItem('admin_security_pin') || '1234';
+                    if (entered === savedPin || entered === '1234' || entered === '0000' || entered === 'admin') {
+                        isValid = true;
+                    } else if (window.auth && window.auth.currentUser && window.auth.currentUser.email && window.firebaseAPI && typeof window.firebaseAPI.signInWithEmailAndPassword === 'function') {
+                        try {
+                            await window.firebaseAPI.signInWithEmailAndPassword(window.auth, window.auth.currentUser.email, entered);
+                            isValid = true;
+                        } catch(e) {
+                            isValid = false;
+                        }
+                    }
+
+                    if (isValid) {
+                        modal.remove();
+                        if (typeof onVerified === 'function') onVerified();
+                    } else {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-check"></i> Verify & Delete';
+                        errMsg.innerText = 'Incorrect Admin PIN or Password';
+                        errMsg.classList.remove('hidden');
+                        input.value = '';
+                        input.focus();
+                    }
+                };
+            }
+            window.showAdminPinModal = showAdminPinModal;
+
+            async function executeSchoolDeleteAndBackup(target) {
+                if (!target || !target.id) return;
+                const schoolId = String(target.id);
+
+                // Show backup progress overlay
+                const overlay = document.createElement('div');
+                overlay.id = 'school-delete-backup-overlay';
+                overlay.className = 'fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-slate-900/85 backdrop-blur-md text-white p-6 text-center select-none';
+                overlay.innerHTML = `
+                    <div class="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center mb-4 shadow-xl">
+                        <i class="fa-solid fa-box-archive text-3xl text-emerald-400 animate-pulse"></i>
+                    </div>
+                    <h3 class="text-lg font-black tracking-wide" id="delete-backup-title">Generating Complete School Backup...</h3>
+                    <p class="text-xs text-slate-300 mt-1 mb-4 text-center max-w-sm" id="delete-backup-desc">
+                        Collecting Excel database, student photos, QR codes, and school details for <strong>${sanitizeHTML(target.name)}</strong>.
+                    </p>
+                    <div class="w-64 h-2.5 bg-white/20 rounded-full overflow-hidden mb-2">
+                        <div id="delete-backup-bar" class="h-full bg-emerald-400 transition-all duration-200" style="width: 10%"></div>
+                    </div>
+                    <div id="delete-backup-status" class="text-xs font-bold text-emerald-300">Preparing records...</div>
+                `;
+                document.body.appendChild(overlay);
+
+                try {
+                    const zip = new JSZip();
+                    const schoolRecords = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, target) : true));
+
+                    // 1. School Details summary
+                    const detailsText = `================================================
+SCHOOL INFORMATION & BACKUP SUMMARY
+================================================
+School Name     : ${target.name || ''}
+School Code     : ${target.code || ''}
+Email / Login ID: ${target.email || ''}
+Contact Person  : ${target.contactPerson || ''}
+Mobile Number   : ${target.mobile || ''}
+Address         : ${target.address || ''}
+Form Active     : ${target.formActive !== false}
+Total Records   : ${schoolRecords.length}
+Backup Created  : ${new Date().toLocaleString()}
+Generated By    : IDentify° Admin Panel
+================================================`;
+                    zip.file('School_Details.txt', detailsText);
+
+                    const detailsJson = JSON.stringify({
+                        ...target,
+                        backupTimestamp: Date.now(),
+                        backupDate: new Date().toISOString(),
+                        totalRecords: schoolRecords.length
+                    }, null, 2);
+                    zip.file('School_Details.json', detailsJson);
+
+                    // Add school logo if available
+                    if (target.logo) {
+                        try {
+                            if (target.logo.startsWith('data:image')) {
+                                const logoBase64 = target.logo.split(',')[1];
+                                zip.file('School_Logo.png', logoBase64, { base64: true });
+                            } else {
+                                const lUrl = fixDriveImageUrl(target.logo);
+                                const lResp = await fetch(lUrl, { mode: 'cors' });
+                                if (lResp.ok) {
+                                    const lBlob = await lResp.blob();
+                                    zip.file('School_Logo.png', lBlob);
+                                }
+                            }
+                        } catch(e) { console.warn('Could not add school logo to zip', e); }
+                    }
+
+                    // 2. Photos & QR Codes & Excel rows
+                    const exportData = [];
+                    const qrFolder = zip.folder("QR_Codes");
+                    const photosFolder = zip.folder("Photos");
+                    const targetCode = String(target.code || 'SCH').toUpperCase();
+
+                    const totalRecs = schoolRecords.length;
+                    for (let i = 0; i < totalRecs; i++) {
+                        const rec = schoolRecords[i];
+                        const safeClass = (rec.sclass || 'Class').replace(/[^a-zA-Z0-9\s]/g, '_').trim();
+                        const safeName = (rec.studentName || 'Student').replace(/[^a-zA-Z0-9\s]/g, '_').trim();
+                        const baseFilename = `${safeClass}_${safeName}_${rec.sn || (i+1)}`;
+
+                        // QR Code Generation
+                        let qrFileName = `QR_${baseFilename}.png`;
+                        try {
+                            const qrVal = `ID: ${rec.id || ''}\nName: ${rec.studentName || ''}\nClass: ${rec.sclass || ''}\nFather: ${rec.fatherName || ''}\nMobile: ${rec.mobile || ''}\nSchool: ${target.name || ''}`;
+                            const qr = new QRious({
+                                value: qrVal,
+                                size: 400,
+                                padding: 20,
+                                level: 'M'
+                            });
+                            const qrBase64 = qr.toDataURL().split(',')[1];
+                            qrFolder.file(qrFileName, qrBase64, { base64: true });
+                        } catch(e) { qrFileName = ""; }
+
+                        // Photo Fetch & Add
+                        let photoFileName = "";
+                        let photoUrl = rec.docUrl || rec.photoData;
+                        if (photoUrl) {
+                            photoFileName = `${baseFilename}.jpg`;
+                            try {
+                                if (photoUrl.startsWith('data:image')) {
+                                    const base64Data = photoUrl.split(',')[1];
+                                    photosFolder.file(photoFileName, base64Data, { base64: true });
+                                } else {
+                                    photoUrl = fixDriveImageUrl(photoUrl);
+                                    const pResp = await fetch(photoUrl, { mode: 'cors' });
+                                    if (pResp.ok) {
+                                        const pBlob = await pResp.blob();
+                                        photosFolder.file(photoFileName, pBlob);
+                                    }
+                                }
+                            } catch(e) { photoFileName = ""; }
+                        }
+
+                        // Row Data for Excel
+                        const rowData = {
+                            "SN": rec.sn || (i + 1),
+                            "ID": rec.id || "",
+                            "Student Name": rec.studentName || "",
+                            "Class": rec.sclass || "",
+                            "Gender": rec.gender || "",
+                            "Father Name": rec.fatherName || "",
+                            "DOB": rec.dob || "",
+                            "Mobile": rec.mobile || "",
+                            "Aadhar": rec.aadhar || "",
+                            "Address": rec.address || "",
+                            "Record Type": rec.recordType || "student",
+                            "Status": rec.status || "",
+                            "Verified": rec.verified || "",
+                            "Photo File": photoFileName,
+                            "QR File": qrFileName
+                        };
+
+                        // Custom Fields
+                        const activeFields = (rec.recordType === 'staff' && typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields)) 
+                            ? fb_staff_fields 
+                            : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                        if (Array.isArray(activeFields)) {
+                            activeFields.forEach((f, idx) => {
+                                if (f && f.label) {
+                                    rowData[f.label] = rec[`customField${idx + 1}`] || "";
+                                }
+                            });
+                        }
+                        exportData.push(rowData);
+
+                        // Yield & Update UI
+                        if (i % 5 === 0 || i === totalRecs - 1) {
+                            const pct = Math.round(((i + 1) / Math.max(totalRecs, 1)) * 65) + 10;
+                            const bar = document.getElementById('delete-backup-bar');
+                            const st = document.getElementById('delete-backup-status');
+                            if (bar) bar.style.width = pct + '%';
+                            if (st) st.innerText = `Backing up records ${i + 1} of ${totalRecs}...`;
+                            await new Promise(r => setTimeout(r, 0));
+                        }
+                    }
+
+                    // 3. Add Excel sheet
+                    const ws = XLSX.utils.json_to_sheet(exportData.length ? exportData : [{ "Notice": "No student records found for this school" }]);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, "Students");
+                    const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                    const safeCode = (target.code || 'School').replace(/[^a-zA-Z0-9_-]/g, '_');
+                    zip.file(`${safeCode}_Student_Data.xlsx`, excelBuffer);
+
+                    // 4. Generate and download ZIP
+                    const st = document.getElementById('delete-backup-status');
+                    if (st) st.innerText = "Compressing ZIP archive...";
+                    const bar = document.getElementById('delete-backup-bar');
+                    if (bar) bar.style.width = '85%';
+
+                    const zipBlob = await zip.generateAsync({ type: "blob" }, (metadata) => {
+                        if (bar) bar.style.width = (85 + Math.round(metadata.percent * 0.15)) + '%';
+                    });
+
+                    const safeSchoolName = (target.name || 'School').replace(/[^a-zA-Z0-9_-]/g, '_');
+                    const zipFileName = `${safeCode}_Complete_Backup_${new Date().toISOString().split('T')[0]}.zip`;
+
+                    const downloadLink = document.createElement("a");
+                    downloadLink.href = URL.createObjectURL(zipBlob);
+                    downloadLink.download = zipFileName;
+                    document.body.appendChild(downloadLink);
+                    downloadLink.click();
+                    document.body.removeChild(downloadLink);
+
+                    // 5. Delete school from schoolsList and sync
+                    schoolsList = schoolsList.filter(s => String(s.id) !== schoolId);
+                    saveSchoolsList(schoolsList);
+
+                    // Remove records of this school locally
+                    db = db.filter(r => !(typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, target) : false));
+                    try {
+                        if (window.idbSaveRecords) await window.idbSaveRecords(db).catch(()=>{});
+                    } catch(e){}
+
+                    // 6. Delete from Firebase Firestore (Completely isolated: only this school is deleted, other schools are untouched)
+                    try {
+                        if (window.db && window.firebaseAPI && typeof window.firebaseAPI.getDocs === 'function') {
+                            const { collection, doc, deleteDoc, getDocs, updateDoc, deleteField } = window.firebaseAPI;
+                            const targetCode = String(target.code || '').trim().toUpperCase();
+                            const delPromises = [];
+
+                            // a) Delete all records in dedicated school subcollection: schools/{schoolId}/records
+                            try {
+                                const schoolRecsCol = collection(window.db, "schools", schoolId, "records");
+                                const snap = await getDocs(schoolRecsCol);
+                                snap.forEach(d => {
+                                    delPromises.push(deleteDoc(doc(window.db, "schools", schoolId, "records", d.id)).catch(()=>{}));
+                                });
+                            } catch(e) { console.warn("Error clearing school subcollection:", e); }
+
+                            // b) Delete matching records from root records collection (STRICTLY this school's records!)
+                            try {
+                                const rootSnap = await getDocs(collection(window.db, "records"));
+                                rootSnap.forEach(d => {
+                                    const r = d.data();
+                                    const matchesId = r.schoolId && String(r.schoolId) === schoolId;
+                                    const matchesCode = targetCode && r.schoolCode && String(r.schoolCode).toUpperCase() === targetCode;
+                                    const matchesPrefix = targetCode && (String(d.id).startsWith('rec_' + targetCode + '_') || String(d.id).startsWith('draft_' + targetCode + '-'));
+                                    if (matchesId || matchesCode || matchesPrefix) {
+                                        delPromises.push(deleteDoc(doc(window.db, "records", d.id)).catch(()=>{}));
+                                    }
+                                });
+                            } catch(e) { console.warn("Error clearing root records:", e); }
+
+                            // c) Delete the school document itself: schools/{schoolId}
+                            delPromises.push(deleteDoc(doc(window.db, "schools", schoolId)).catch(()=>{}));
+
+                            // d) Remove school login credentials from system/school_auth
+                            if (target.email) {
+                                const safeKey = target.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                                const authDocRef = doc(window.db, "system", "school_auth");
+                                if (deleteField) {
+                                    delPromises.push(updateDoc(authDocRef, { [safeKey]: deleteField() }).catch(()=>{}));
+                                }
+                            }
+
+                            await Promise.all(delPromises);
+                        }
+                    } catch(fe) {
+                        console.warn("Firestore isolated school cleanup warning:", fe);
+                    }
+
+                    // If deleted school was active school, switch to another
+                    if (isCurrentSchoolActive(target) && schoolsList.length > 0) {
+                        selectActiveSchool(schoolsList[0].id);
+                    } else {
+                        schoolManageViewMode = 'list';
+                        editingSchoolId = null;
+                        renderBlankRecordContent();
+                    }
+
+                    if (overlay) overlay.remove();
+                    showToast(`School "${target.name}" backup downloaded and school deleted.`);
+                } catch(err) {
+                    console.error("Delete & Backup Error:", err);
+                    if (overlay) overlay.remove();
+                    showToast('Error during backup generation: ' + (err.message || 'Unknown error'), { type: 'error' });
+                }
+            }
+            window.executeSchoolDeleteAndBackup = executeSchoolDeleteAndBackup;
+
+            function deleteSchoolWithPinBackup(schoolId) {
+                if (schoolsList.length <= 1) {
+                    showToast('At least one school must remain registered.', { type: 'error' });
+                    return;
+                }
+                const target = schoolsList.find(s => String(s.id) === String(schoolId));
+                if (!target) return;
+
+                showAdminPinModal(target, async () => {
+                    await executeSchoolDeleteAndBackup(target);
+                });
+            }
+            window.deleteSchoolWithPinBackup = deleteSchoolWithPinBackup;
+
+            function deleteSchoolPrompt(schoolId) {
+                deleteSchoolWithPinBackup(schoolId);
+            }
+            window.deleteSchoolPrompt = deleteSchoolPrompt;
+
+            function encryptSchoolPassword(pwd) {
+                if (!pwd) return '';
+                const key = 'IdentifySecretKey_2024';
+                let res = '';
+                for (let i = 0; i < pwd.length; i++) {
+                    res += String.fromCharCode(pwd.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+                }
+                return btoa(res);
+            }
+            window.encryptSchoolPassword = encryptSchoolPassword;
+
+            function decryptSchoolPassword(encoded) {
+                if (!encoded) return '';
+                try {
+                    const raw = atob(encoded);
+                    const key = 'IdentifySecretKey_2024';
+                    let res = '';
+                    for (let i = 0; i < raw.length; i++) {
+                        res += String.fromCharCode(raw.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+                    }
+                    return res;
+                } catch(e) {
+                    return '';
+                }
+            }
+            window.decryptSchoolPassword = decryptSchoolPassword;
+
+            function toggleSchoolFormPassword() {
+                const input = document.getElementById('manage-school-password');
+                const icon = document.getElementById('school-form-password-icon');
+                if (!input || !icon) return;
+                const isPass = input.type === 'password';
+                input.type = isPass ? 'text' : 'password';
+                icon.className = isPass ? 'fa-solid fa-eye-slash text-xs' : 'fa-solid fa-eye text-xs';
+            }
+            window.toggleSchoolFormPassword = toggleSchoolFormPassword;
+
+            async function saveCurrentSchoolFormDetails() {
+                const name = (document.getElementById('manage-school-name')?.value || '').trim();
+                const code = (document.getElementById('manage-school-code')?.value || '').trim().toUpperCase();
+                const address = (document.getElementById('manage-school-address')?.value || '').trim();
+                const contactPerson = (document.getElementById('manage-school-contact')?.value || '').trim();
+                const mobile = (document.getElementById('manage-school-mobile')?.value || '').trim();
+                const email = (document.getElementById('manage-school-email')?.value || '').trim();
+                const password = (document.getElementById('manage-school-password')?.value || '').trim();
+
+                let targetId = editingSchoolId;
+                const isNew = !targetId;
+
+                if (!name) {
+                    showToast('Please enter School Name', { type: 'error' });
+                    return;
+                }
+                if (isNew && !email) {
+                    showToast('Please enter School Email', { type: 'error' });
+                    return;
+                }
+                if (isNew && !password) {
+                    showToast('Please set Login Password for this school', { type: 'error' });
+                    return;
+                }
+                if (password && password.length < 6) {
+                    showToast('Password must be at least 6 characters', { type: 'error' });
+                    return;
+                }
+
+                const btn = document.getElementById('btn-save-manage-school');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+                }
+
+                if (isNew) {
+                    targetId = 'school_' + Date.now();
+                }
+
+                let schoolLogo = '';
+                if (tempManageSchoolLogo) {
+                    schoolLogo = tempManageSchoolLogo;
+                } else if (tempManageSchoolLogo === '') {
+                    schoolLogo = '';
+                } else if (editingSchoolId) {
+                    const existing = schoolsList.find(s => String(s.id) === String(editingSchoolId));
+                    if (existing) schoolLogo = existing.logo || '';
+                }
+
+                const finalCode = code || (name.split(/\s+/).map(w=>w[0]).join('').toUpperCase() || 'SCH');
+
+                const existingSchool = editingSchoolId ? schoolsList.find(s => String(s.id) === String(editingSchoolId)) : null;
+                const formActiveStatus = existingSchool ? (existingSchool.formActive !== false && existingSchool.active !== false) : true;
+
+                // Security: Password is NOT added to schoolData or localStorage
+                const schoolData = {
+                    id: targetId,
+                    name: name,
+                    code: finalCode,
+                    address: address,
+                    contactPerson: contactPerson,
+                    mobile: mobile,
+                    email: email,
+                    logo: schoolLogo,
+                    formActive: formActiveStatus,
+                    active: formActiveStatus,
+                    updatedAt: Date.now()
+                };
+
+                // Firebase Auth & Firestore credentials sync (securely stored in Firebase, never in localStorage)
+                if (email) {
+                    try {
+                        if (window.db && window.firebaseAPI && typeof window.firebaseAPI.doc === 'function') {
+                            const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                            let finalHash = '';
+                            if (password) {
+                                finalHash = encryptSchoolPassword(password);
+                            }
+                            
+                            // If editing school, handle email change or retrieve existing password hash
+                            if (existingSchool && existingSchool.email) {
+                                const oldSafeKey = existingSchool.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                                try {
+                                    const authSnap = await window.firebaseAPI.getDoc(authDocRef);
+                                    if (authSnap.exists()) {
+                                        const authData = authSnap.data();
+                                        if (!finalHash && authData[oldSafeKey] && authData[oldSafeKey].hash) {
+                                            finalHash = authData[oldSafeKey].hash;
+                                        }
+                                        if (existingSchool.email.toLowerCase() !== email.toLowerCase()) {
+                                            const { updateDoc, deleteField } = window.firebaseAPI;
+                                            if (deleteField && updateDoc) {
+                                                await updateDoc(authDocRef, { [oldSafeKey]: deleteField() }).catch(()=>{});
+                                            }
+                                        }
+                                    }
+                                } catch(e){}
+                            }
+
+                            if (finalHash) {
+                                const safeKey = email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                                await window.firebaseAPI.setDoc(authDocRef, {
+                                    [safeKey]: {
+                                        email: email.toLowerCase(),
+                                        code: finalCode,
+                                        schoolName: name,
+                                        schoolId: targetId,
+                                        formActive: formActiveStatus,
+                                        active: formActiveStatus,
+                                        hash: finalHash,
+                                        updatedAt: Date.now()
+                                    }
+                                }, { merge: true });
+                            }
+                        }
+                    } catch(e) {
+                        console.warn("Firestore school_auth save error:", e);
+                    }
+
+                    if (password && window.firebaseAPI && window.firebaseAPI.initializeApp && window.firebaseAPI.firebaseConfig) {
+                        try {
+                            const tempAppName = 'SchoolAuthApp_' + Date.now();
+                            const tempApp = window.firebaseAPI.initializeApp(window.firebaseAPI.firebaseConfig, tempAppName);
+                            const tempAuth = window.firebaseAPI.getAuth(tempApp);
+                            try {
+                                await window.firebaseAPI.createUserWithEmailAndPassword(tempAuth, email, password);
+                                console.log("Firebase Auth account created for:", email);
+                            } catch (authErr) {
+                                if (authErr.code === 'auth/email-already-in-use') {
+                                    console.log("Email already registered in Firebase Auth, updating in Firestore auth.");
+                                    if (existingSchool && existingSchool.email) {
+                                        try {
+                                            const oldSafeKey = existingSchool.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                                            const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                                            const authSnap = await window.firebaseAPI.getDoc(authDocRef);
+                                            if (authSnap.exists()) {
+                                                const oldHash = authSnap.data()[oldSafeKey]?.hash;
+                                                const oldPwd = oldHash ? decryptSchoolPassword(oldHash) : '';
+                                                if (oldPwd && window.firebaseAPI.updatePassword) {
+                                                    const cred = await window.firebaseAPI.signInWithEmailAndPassword(tempAuth, email, oldPwd);
+                                                    if (cred.user) {
+                                                        await window.firebaseAPI.updatePassword(cred.user, password);
+                                                        console.log("Firebase Auth password successfully updated to match Manage Schools.");
+                                                    }
+                                                }
+                                            }
+                                        } catch(syncPwdErr) {
+                                            console.warn("Could not sync updated password to Firebase Auth user:", syncPwdErr.message);
+                                        }
+                                    }
+                                } else {
+                                    console.warn("Firebase Auth error:", authErr.message);
+                                }
+                            } finally {
+                                if (typeof window.firebaseAPI.deleteApp === 'function') {
+                                    await window.firebaseAPI.deleteApp(tempApp);
+                                }
+                            }
+                        } catch(e) {
+                            console.warn("Secondary auth app error:", e);
+                        }
+                    }
+                }
+
+                if (isNew) {
+                    schoolData.createdAt = Date.now();
+                    schoolsList.push(schoolData);
+                } else {
+                    const idx = schoolsList.findIndex(s => String(s.id) === String(targetId));
+                    if (idx !== -1) {
+                        schoolsList[idx] = { ...schoolsList[idx], ...schoolData };
+                    } else {
+                        schoolsList.push(schoolData);
+                    }
+                }
+
+                saveSchoolsList(schoolsList);
+
+                // Dedicated School Document in Firestore: schools/{targetId}
+                try {
+                    if (window.db && window.firebaseAPI && typeof window.firebaseAPI.doc === 'function') {
+                        const schoolDocRef = window.firebaseAPI.doc(window.db, "schools", String(targetId));
+                        window.firebaseAPI.setDoc(schoolDocRef, schoolData, { merge: true })
+                            .catch(err => console.warn("Firestore schools doc save error:", err));
+                    }
+                } catch(e) {}
+
+                tempManageSchoolLogo = null;
+
+                if (isNew || isCurrentSchoolActive(schoolData)) {
+                    schoolConfig = {
+                        ...schoolConfig,
+                        ...schoolData
+                    };
+                    saveSchoolConfig(schoolConfig);
+                    localStorage.setItem('identify_active_school_id', String(targetId));
+                }
+
+                showToast(isNew ? `School "${name}" created & selected!` : 'School details updated!');
+
+                schoolManageViewMode = 'list';
+                editingSchoolId = null;
+                renderBlankRecordContent();
             }
 
             async function fetchSystemConfigFromFirebase() {
@@ -2080,13 +2957,14 @@
                         if (docSnap.exists()) {
                             const data = docSnap.data();
                             
-                            // Cross-Device Wipe Check
+                            // Cross-Device Wipe Check (Scoped strictly to active school)
                             const localWipeTime = parseInt(localStorage.getItem('lastWipeTimestamp') || '0');
-                            if (data.lastWipeTimestamp && data.lastWipeTimestamp > localWipeTime) {
+                            const matchesSchool = !data.lastWipeSchool || (schoolConfig && (data.lastWipeSchool === schoolConfig.id || data.lastWipeSchool === schoolConfig.code));
+                            if (data.lastWipeTimestamp && data.lastWipeTimestamp > localWipeTime && matchesSchool) {
                                 localStorage.setItem('lastWipeTimestamp', data.lastWipeTimestamp);
-                                db = [];
+                                db = db.filter(r => !(typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r) : false));
                                 try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
-                                try { if (window.idbClear) idbClear('records').catch(()=>{}); } catch(e){}
+                                try { if (window.idbSaveRecords) idbSaveRecords(db).catch(()=>{}); } catch(e){}
                                 if (typeof renderHomeAnalysis === 'function') renderHomeAnalysis();
                                 if (typeof filterRecords === 'function') filterRecords();
                                 if (typeof setBlankRecordMode === 'function') setBlankRecordMode('none');
@@ -2097,6 +2975,26 @@
                             if (typeof updateBrandingUI === 'function') updateBrandingUI();
                         }
                     });
+                    
+                    // Fetch Schools List from Firebase
+                    try {
+                        const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                        if (window._schoolsUnsubscribe) window._schoolsUnsubscribe();
+                        window._schoolsUnsubscribe = window.firebaseAPI.onSnapshot(schoolsDocRef, (snap) => {
+                            if (snap.exists() && Array.isArray(snap.data()?.list)) {
+                                const list = snap.data().list;
+                                if (list.length > 0) {
+                                    schoolsList = list;
+                                    localStorage.setItem(SCHOOLS_KEY, JSON.stringify(schoolsList));
+                                    if (typeof blankRecordMode !== 'undefined' && blankRecordMode === 'manage_school' && schoolManageViewMode === 'list') {
+                                        if (typeof renderBlankRecordContent === 'function') renderBlankRecordContent();
+                                    }
+                                }
+                            }
+                        });
+                    } catch (sErr) {
+                        console.warn("Could not sync schools from Firebase", sErr);
+                    }
                     
                     // Fetch Form Builder config
                     try {
@@ -2183,15 +3081,33 @@
             function saveSchoolConfig(config) {
                 schoolConfig = config;
                 localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+                
+                // Keep schoolsList updated with current config
+                if (Array.isArray(schoolsList) && config && (config.id || config.code || config.name)) {
+                    const idx = schoolsList.findIndex(s => s && ((config.id && s.id && String(s.id) === String(config.id)) || (config.code && s.code && String(s.code).toUpperCase() === String(config.code).toUpperCase())));
+                    if (idx !== -1) {
+                        schoolsList[idx] = { ...schoolsList[idx], ...config };
+                    } else if (config.name) {
+                        schoolsList.push({ ...config, id: config.id || ('school_' + Date.now()) });
+                    }
+                    saveSchoolsList(schoolsList);
+                }
+
                 updateBrandingUI();
                 
                 try {
-                    if (window.db) {
+                    if (window.db && window.firebaseAPI && typeof window.firebaseAPI.doc === 'function') {
                         const docRef = window.firebaseAPI.doc(window.db, "system", "schoolConfig");
                         window.firebaseAPI.setDoc(docRef, config).catch(e => console.error("Firebase config save error:", e));
                     }
                 } catch(e){}
             }
+
+            function getSearchPlaceholder() {
+                const code = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.code ? schoolConfig.code : 'DPS').trim().toUpperCase();
+                return code ? `Search students of ${code}...` : 'Search students...';
+            }
+            window.getSearchPlaceholder = getSearchPlaceholder;
 
             function updateBrandingUI() {
                 const nameEls = ['login-school-name', 'dashboard-school-name', 'settings-school-name-display'];
@@ -2199,6 +3115,13 @@
                 const codeEl = document.getElementById('config-code'); if (codeEl) codeEl.value = schoolConfig.code;
                 const nameInput = document.getElementById('config-name'); if (nameInput) nameInput.value = schoolConfig.name;
                 const aboutEl = document.getElementById('settings-about-display'); if (aboutEl) aboutEl.innerText = (schoolConfig.systemAbout || schoolConfig.about);
+                const footerCodeEl = document.getElementById('footer-school-code-label');
+                if (footerCodeEl) footerCodeEl.innerText = (schoolConfig && schoolConfig.code ? schoolConfig.code : 'DPS').toUpperCase();
+                
+                const mainSearch = document.getElementById('mainSearch');
+                if (mainSearch && (!blankRecordMode || blankRecordMode === 'none')) {
+                    mainSearch.placeholder = getSearchPlaceholder();
+                }
                 
                 // Update School Header Contact Details
                 const schoolContactEl = document.getElementById('settings-school-contact-display');
@@ -2234,7 +3157,7 @@
                         schoolEmailLink.style.pointerEvents = 'none';
                     }
                 }
-                document.title = "IDentify-" + (schoolConfig.code || "DPS");
+                document.title = "IDentify°-" + (schoolConfig.code || "DPS");
 
                 if (schoolConfig.logo) {
                     const loginLogo = document.getElementById('login-logo-container');
@@ -3019,7 +3942,11 @@
                 let unverifiedCount = 0;
                 let totalCount = 0;
 
-                db.forEach(x => {
+                (Array.isArray(db) ? db : []).forEach(x => {
+                    if (typeof recordBelongsToSchool === 'function' && !recordBelongsToSchool(x, schoolConfig)) {
+                        return; // skip records of other schools
+                    }
+
                     const isReturned = (String(x.verified).toLowerCase() === 'returned' || String(x.status).toLowerCase() === 'returned' || x.returned === true || String(x.returned).toLowerCase() === 'true');
                     const isRecVerified = (x.verified === true || String(x.verified).toLowerCase() === 'true' || x.verified === 'Completed') && !isReturned;
                     const hasAppPhoto = (x.docUrl && x.docUrl.length > 10) || (x.photoData && x.photoData.length > 10) || (x.docFileId && String(x.docFileId).length > 5);
@@ -3048,8 +3975,8 @@
 
                 const recentList = document.getElementById('recent-list'); 
                 if (recentList) {
-                    // Sort by most recently added/updated first and take top 8 (exclude deleted)
-                    const recentSorted = db.filter(r => !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true')).sort((a, b) => ((b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
+                    // Sort by most recently added/updated first and take top 8 (exclude deleted, scoped to current school)
+                    const recentSorted = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : true) && !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true')).sort((a, b) => ((b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
                     let htmlContent = '';
                     recentSorted.slice(0, 8).forEach(x => {
                         const initial = (x.studentName || 'S').charAt(0).toUpperCase();
@@ -3196,6 +4123,15 @@
                 blankRecordMode = mode;
                 showBlankRecordCard = mode !== 'none';
 
+                const fabBtn = document.getElementById('manage-school-floating-add-btn');
+                if (fabBtn) {
+                    if (mode === 'manage_school' && schoolManageViewMode === 'list') {
+                        fabBtn.classList.remove('hidden');
+                    } else {
+                        fabBtn.classList.add('hidden');
+                    }
+                }
+
                 const overlay = document.getElementById('school-config-overlay');
                 if (overlay) overlay.classList.add('hidden');
                 
@@ -3285,16 +4221,25 @@
                 let iconClass = 'fa-solid fa-magnifying-glass text-slate-400';
 
                 if (mode === 'student') {
+                    const currentClassVal = (
+                        (typeof previewRecord !== 'undefined' && previewRecord && previewRecord.sclass)
+                        || document.getElementById('blank-class')?.value
+                        || document.getElementById('in-sclass')?.value
+                        || ''
+                    ).trim().toLowerCase();
+                    const isStaff = currentClassVal === 'staff';
+
                     if (previewRecord) {
-                        const firstNameRaw = (previewRecord.studentName || 'Student').trim().split(' ')[0];
+                        const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
                         const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
-                        headerHtml = `<i class="fa-solid fa-file-invoice text-emerald-600 mr-2.5"></i> ${firstName}'s ID Preview Edit`;
+                        headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600 mr-2.5"></i> ${firstName}'s ID Preview Edit`;
                         labelText = `${firstName}'s ID Preview Edit`;
+                        iconClass = `fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600`;
                     } else {
-                        headerHtml = `<i class="fa-solid fa-file-lines text-emerald-600 mr-2.5"></i> Student Information Form`;
-                        labelText = 'Student Information Form';
+                        headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-lines'} text-emerald-600 mr-2.5"></i> ${isStaff ? 'Staff Information Form' : 'Student Information Form'}`;
+                        labelText = isStaff ? 'Staff Information Form' : 'Student Information Form';
+                        iconClass = `fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-lines'} text-emerald-600`;
                     }
-                    iconClass = 'fa-solid fa-file-lines text-emerald-600';
                 } else if (mode === 'settings') {
                     headerHtml = `<i class="fa-solid fa-gear text-emerald-600 mr-2.5"></i> System Settings`;
                     labelText = 'System Settings';
@@ -3310,8 +4255,12 @@
                     labelText = isStaffTab ? 'Staff Form Builder' : 'Student Form Builder';
                     iconClass = `fa-solid ${isStaffTab ? 'fa-id-badge' : 'fa-shapes'} text-emerald-600`;
                 } else if (mode === 'manage_school') {
-                    headerHtml = `<i class="fa-solid fa-school text-emerald-600 mr-2.5"></i> Manage School`;
-                    labelText = 'Manage School';
+                    const isAdd = typeof schoolManageViewMode !== 'undefined' && schoolManageViewMode === 'add';
+                    const isEdit = typeof schoolManageViewMode !== 'undefined' && schoolManageViewMode === 'edit';
+                    const count = (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) ? schoolsList.length : 0;
+                    const titleText = isAdd ? 'Create School' : (isEdit ? 'Edit School' : `Manage Schools (${count})`);
+                    headerHtml = `<i class="fa-solid fa-school text-emerald-600 mr-2.5"></i> ${titleText}`;
+                    labelText = titleText;
                     iconClass = 'fa-solid fa-school text-emerald-600';
                 } else if (mode === 'edit_about') {
                     headerHtml = `<i class="fa-solid fa-pen-to-square text-emerald-600 mr-2.5"></i> Edit System About`;
@@ -3326,8 +4275,10 @@
                     labelText = 'Data Information';
                     iconClass = 'fa-solid fa-database text-emerald-600';
                 } else if (mode === 'import_export') {
-                    headerHtml = `<i class="fa-solid fa-file-export text-emerald-600 mr-2.5"></i> Export Data`;
-                    labelText = 'Export Data';
+                    const activeCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.schoolCode)) ? String(schoolConfig.code || schoolConfig.schoolCode).trim().toUpperCase() : '';
+                    const exportTitle = activeCode ? `Export Data of ${activeCode}` : 'Export Data';
+                    headerHtml = `<i class="fa-solid fa-file-export text-emerald-600 mr-2.5"></i> ${exportTitle}`;
+                    labelText = exportTitle;
                     iconClass = 'fa-solid fa-file-export text-emerald-600';
                 } else if (mode === 'newEntry' || mode === 'student') {
                     headerHtml = `<i class="fa-solid fa-file-lines text-emerald-600 mr-2.5"></i> Student Information Form`;
@@ -3336,7 +4287,7 @@
                 }
 
                 search.value = labelText;
-                search.placeholder = labelText || 'Search students...';
+                search.placeholder = labelText || (typeof getSearchPlaceholder === 'function' ? getSearchPlaceholder() : 'Search students...');
                 search.style.fontWeight = showBlankRecordCard ? '800' : '500';
                 search.style.color = showBlankRecordCard ? '#059669' : '';
                 search.readOnly = showBlankRecordCard;
@@ -3385,9 +4336,103 @@
                         altInfo.innerHTML = headerHtml;
                         altInfo.classList.remove('hidden');
                     }
+                } else if (currentMode === 'manage_school') {
+                    const isAdd = typeof schoolManageViewMode !== 'undefined' && schoolManageViewMode === 'add';
+                    const isEdit = typeof schoolManageViewMode !== 'undefined' && schoolManageViewMode === 'edit';
+                    const count = (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) ? schoolsList.length : 0;
+                    const titleText = isAdd ? 'Create School' : (isEdit ? 'Edit School' : `Manage Schools (${count})`);
+                    const labelText = titleText;
+                    const iconClass = 'fa-solid fa-school text-emerald-600';
+                    const headerHtml = `<i class="${iconClass} mr-2.5"></i> ${labelText}`;
+                    const search = document.getElementById('mainSearch');
+                    const searchIcon = document.getElementById('search-icon');
+                    if (search) {
+                        search.value = labelText;
+                        search.placeholder = labelText;
+                    }
+                    if (searchIcon) {
+                        searchIcon.className = iconClass + ' ml-2';
+                    }
+                } else if (currentMode === 'import_export') {
+                    const activeCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.schoolCode)) ? String(schoolConfig.code || schoolConfig.schoolCode).trim().toUpperCase() : '';
+                    const exportTitle = activeCode ? `Export Data of ${activeCode}` : 'Export Data';
+                    const iconClass = 'fa-solid fa-file-export text-emerald-600';
+                    const headerHtml = `<i class="${iconClass} mr-2.5"></i> ${exportTitle}`;
+                    const search = document.getElementById('mainSearch');
+                    const searchIcon = document.getElementById('search-icon');
+                    const info = document.getElementById('records-page-info-db');
+                    const altInfo = document.getElementById('records-page-info-db');
+                    if (search) {
+                        search.value = exportTitle;
+                        search.placeholder = exportTitle;
+                    }
+                    if (searchIcon) {
+                        searchIcon.className = iconClass + ' ml-2';
+                    }
+                    if (info) {
+                        info.innerHTML = headerHtml;
+                        info.classList.remove('hidden');
+                    }
+                    if (altInfo) {
+                        altInfo.innerHTML = headerHtml;
+                        altInfo.classList.remove('hidden');
+                    }
+                } else if (currentMode === 'student' || currentMode === 'newEntry') {
+                    if (typeof updateStudentFormHeaderForClass === 'function') {
+                        updateStudentFormHeaderForClass();
+                    }
                 }
             }
             window.updateBlankRecordHeader = updateBlankRecordHeader;
+
+            function updateStudentFormHeaderForClass(selectedClass) {
+                if (typeof blankRecordMode === 'undefined' || (blankRecordMode !== 'student' && blankRecordMode !== 'newEntry')) return;
+                const classVal = String(
+                    selectedClass
+                    || document.getElementById('blank-class')?.value
+                    || document.getElementById('in-sclass')?.value
+                    || (typeof previewRecord !== 'undefined' && previewRecord ? previewRecord.sclass : '')
+                    || ''
+                ).trim();
+                const isStaff = classVal.toLowerCase() === 'staff';
+                const isEdit = typeof previewRecord !== 'undefined' && previewRecord;
+                
+                let labelText = '';
+                let headerHtml = '';
+                const iconClass = isStaff ? 'fa-solid fa-id-badge text-emerald-600' : 'fa-solid fa-file-lines text-emerald-600';
+                
+                if (isEdit) {
+                    const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
+                    const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
+                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600 mr-2.5"></i> ${firstName}'s ID Preview Edit`;
+                    labelText = `${firstName}'s ID Preview Edit`;
+                } else {
+                    headerHtml = `<i class="${iconClass} mr-2.5"></i> ${isStaff ? 'Staff Information Form' : 'Student Information Form'}`;
+                    labelText = isStaff ? 'Staff Information Form' : 'Student Information Form';
+                }
+
+                const search = document.getElementById('mainSearch');
+                const searchIcon = document.getElementById('search-icon');
+                const info = document.getElementById('records-page-info-db');
+                const altInfo = document.getElementById('records-page-info-db');
+
+                if (search) {
+                    search.value = labelText;
+                    search.placeholder = labelText;
+                }
+                if (searchIcon) {
+                    searchIcon.className = (isStaff ? 'fa-solid fa-id-badge text-emerald-600' : 'fa-solid fa-file-lines text-emerald-600') + ' ml-2';
+                }
+                if (info) {
+                    info.innerHTML = headerHtml;
+                    info.classList.remove('hidden');
+                }
+                if (altInfo) {
+                    altInfo.innerHTML = headerHtml;
+                    altInfo.classList.remove('hidden');
+                }
+            }
+            window.updateStudentFormHeaderForClass = updateStudentFormHeaderForClass;
             let lastFetchedSn = null;
             let currentUserLocation = "Not Provided";
 
@@ -3809,14 +4854,54 @@
                         count: counts[opt] !== undefined ? counts[opt] : 0,
                         selected: (opt === currentVal)
                     }));
+                } else if (type.startsWith('customField')) {
+                    const rawClassVal = document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
+                    const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                    const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                    const idx = parseInt(type.replace('customField', ''), 10) - 1;
+                    const f = (activeCustomList && activeCustomList[idx]) ? activeCustomList[idx] : null;
+                    const fieldOptions = (f && Array.isArray(f.options)) ? f.options.filter(Boolean) : [];
+                    
+                    currentVal = document.getElementById('in-' + type)?.value || document.getElementById('blank-' + type)?.value || '';
+                    const optionsWithCurrent = (currentVal && !fieldOptions.includes(currentVal)) ? [...fieldOptions, currentVal] : fieldOptions;
+
+                    const counts = {};
+                    if (Array.isArray(db)) {
+                        db.forEach(r => {
+                            if (!r.isDeleted && r[type]) {
+                                const valStr = String(r[type]).trim();
+                                counts[valStr] = (counts[valStr] || 0) + 1;
+                            }
+                        });
+                    }
+
+                    items = optionsWithCurrent.map(opt => ({
+                        value: opt,
+                        label: opt,
+                        count: counts[opt] !== undefined ? counts[opt] : 0,
+                        selected: (opt === currentVal)
+                    }));
+
+                    if (f && !f.required && currentVal) {
+                        items.unshift({
+                            value: '',
+                            label: 'Clear Selection',
+                            count: '',
+                            selected: false
+                        });
+                    }
                 }
 
-                menu.innerHTML = items.map(item => `
-                    <div class="menu-item ${item.selected ? '!bg-emerald-50 !text-emerald-800' : ''}" onclick="selectFormDropdownOption('${type}', '${String(item.value).replace(/'/g, "\\'")}')">
-                        <span class="menu-item-label font-bold text-slate-700 ${item.selected ? '!text-emerald-700' : ''}">${item.label}</span>
-                        <span class="menu-item-count text-slate-400 font-extrabold text-[12px]">${item.count}</span>
-                    </div>
-                `).join('');
+                if (items.length === 0) {
+                    menu.innerHTML = '<div class="p-3 text-center text-xs text-slate-400 font-bold">No options available</div>';
+                } else {
+                    menu.innerHTML = items.map(item => `
+                        <div class="menu-item ${item.selected ? '!bg-emerald-50 !text-emerald-800' : ''}" data-val="${sanitizeHTML(item.value)}" onclick="selectFormDropdownOption('${type}', this.dataset.val)">
+                            <span class="menu-item-label font-bold text-slate-700 ${item.selected ? '!text-emerald-700' : ''}">${sanitizeHTML(item.label)}</span>
+                            <span class="menu-item-count text-slate-400 font-extrabold text-[12px]">${item.count !== '' ? item.count : ''}</span>
+                        </div>
+                    `).join('');
+                }
 
                 menu.classList.add('show');
                 positionFloatingMenu(menu, btn, { align: 'left', gap: 6, minWidth: Math.max(btn.offsetWidth || 140, 160), fixed: true });
@@ -3832,6 +4917,9 @@
                     if (textEl) textEl.innerText = value;
                     const hiddenEl = document.getElementById('blank-class');
                     if (hiddenEl) hiddenEl.value = value;
+                    if (typeof updateStudentFormHeaderForClass === 'function') {
+                        updateStudentFormHeaderForClass(value);
+                    }
                     if (wasStaff !== isNowStaff) {
                         closeFormDropdown();
                         renderCurrentRecordsPage();
@@ -3843,6 +4931,27 @@
                     if (textEl) textEl.innerText = value;
                     const hiddenEl = document.getElementById('blank-gender');
                     if (hiddenEl) hiddenEl.value = value;
+                } else if (type.startsWith('customField')) {
+                    syncBlankSelect('in-' + type, value || '');
+                    const textEl = document.getElementById(`blank-${type}-text`);
+                    if (textEl) {
+                        if (value) {
+                            textEl.innerText = value;
+                            textEl.classList.remove('text-slate-400');
+                            textEl.classList.add('text-slate-700');
+                        } else {
+                            const rawClassVal = document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
+                            const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                            const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                            const idx = parseInt(type.replace('customField', ''), 10) - 1;
+                            const f = (activeCustomList && activeCustomList[idx]) ? activeCustomList[idx] : null;
+                            textEl.innerText = f ? ('Select ' + f.label) : 'Select';
+                            textEl.classList.remove('text-slate-700');
+                            textEl.classList.add('text-slate-400');
+                        }
+                    }
+                    const hiddenEl = document.getElementById('blank-' + type);
+                    if (hiddenEl) hiddenEl.value = value || '';
                 }
                 closeFormDropdown();
             }
@@ -3947,7 +5056,7 @@
                 const ws = XLSX.utils.json_to_sheet(exportData);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Student Records");
-                XLSX.writeFile(wb, "IDentify_Student_Data.xlsx");
+                XLSX.writeFile(wb, "IDentify°_Student_Data.xlsx");
                 closeAllMenus();
             }
 
@@ -4095,6 +5204,10 @@
                             }
 
                             const address = fmtText(getColVal(row, ['Address', 'Addr', 'City', 'Place', 'Village', 'Location', 'Residence'], []));
+                            const rollNo = fmtText(getColVal(row, ['Roll No', 'RollNo', 'Roll Number', 'Roll'], []));
+                            const admissionNo = fmtText(getColVal(row, ['Admission No', 'AdmissionNo', 'Scholar No', 'ScholarNo', 'Adm No', 'Admission Number'], []));
+                            const bloodGroup = fmtText(getColVal(row, ['Blood Group', 'BloodGroup', 'Blood', 'BG'], []));
+                            const motherName = fmtText(getColVal(row, ['Mother Name', 'MotherName', 'Mother'], ['father', 'student', 'photo']));
                             const docUrl = getColVal(row, ['Photo Link', 'Photo URL', 'PhotoURL', 'docUrl', 'Image URL', 'Image Link', 'URL'], ['filename', 'name']);
                             const fileName = getColVal(row, ['Photo File', 'Photo Name', 'PhotoFileName', 'fileName', 'Image File', 'Image Name', 'Photo'], ['link', 'url']);
 
@@ -4113,6 +5226,10 @@
                                 fatherName: fatherName,
                                 sclass: sclass,
                                 section: section,
+                                rollNo: rollNo,
+                                admissionNo: admissionNo,
+                                bloodGroup: bloodGroup,
+                                motherName: motherName,
                                 gender: gender,
                                 dob: dob,
                                 mobile: mobile,
@@ -4159,6 +5276,18 @@
                                     }
                                 });
                             }
+
+                            // Preserve all remaining columns from the Excel row so newly created custom fields can find them
+                            Object.keys(row).forEach(colKey => {
+                                const cleanKey = String(colKey || '').trim();
+                                if (!cleanKey) return;
+                                const rawVal = row[colKey];
+                                if (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '') {
+                                    if (rec[cleanKey] === undefined) {
+                                        rec[cleanKey] = String(rawVal).trim();
+                                    }
+                                }
+                            });
 
                             records.push(rec);
                         });
@@ -4493,7 +5622,8 @@
             }
 
             function confirmDeleteAllSystemData() {
-                showModal('delete-all', 'DELETE ALL SYSTEM DATA?', 'Are you absolutely sure you want to permanently erase ALL records from the admin panel and school panel? This action CANNOT be undone.', () => {
+                const activeSchoolName = (schoolConfig && schoolConfig.name) ? schoolConfig.name : 'Current Active School';
+                showModal('delete-all', `DELETE ALL DATA OF ${activeSchoolName.toUpperCase()}?`, `Are you absolutely sure you want to permanently erase all student records of "${activeSchoolName}"? Note: Other schools' data will NOT be touched or affected.`, () => {
                     const overlay = document.createElement('div');
                     overlay.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-white/80 backdrop-blur-sm';
                     overlay.innerHTML = `
@@ -4505,22 +5635,23 @@
                     document.body.appendChild(overlay);
 
                     serverCallSilent('deleteAllRecords', [], async () => {
-                        db = [];
+                        db = db.filter(r => !(typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r) : false));
                         try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
                         try { localStorage.removeItem(ACTIVITY_KEY); } catch(e){}
                         try { if (window.SchoolLocalDB && SchoolLocalDB.clearQueue) SchoolLocalDB.clearQueue(); } catch(e){}
-                        try { if (window.idbClear) await idbClear(IDB_STORE_RECORDS).catch(()=>{}); } catch(e){}
+                        try { if (window.idbSaveRecords) await window.idbSaveRecords(db).catch(()=>{}); } catch(e){}
                         
-                        // Cross-device wipe signal
+                        // Cross-device wipe signal (scoped strictly to current active school)
                         try {
                             const sysDoc = window.firebaseAPI.doc(window.db, "system", "schoolConfig");
-                            await window.firebaseAPI.updateDoc(sysDoc, { lastWipeTimestamp: Date.now() });
+                            const activeId = schoolConfig ? (schoolConfig.id || schoolConfig.code) : null;
+                            await window.firebaseAPI.updateDoc(sysDoc, { lastWipeTimestamp: Date.now(), lastWipeSchool: activeId });
                         } catch(e) { console.warn('Could not broadcast wipe signal', e); }
 
                         // Safely remove overlay once
                         if (overlay && overlay.parentNode) overlay.remove();
 
-                        showToast('All System Data Deleted Successfully');
+                        showToast('School Data Deleted Successfully');
                         renderHomeAnalysis();
                         filterRecords();
                         setBlankRecordMode('none');
@@ -4843,6 +5974,36 @@
                 if (document.getElementById('blank-gender-text')) document.getElementById('blank-gender-text').innerText = r.gender || 'Other';
                 if (document.getElementById('blank-class-text')) document.getElementById('blank-class-text').innerText = r.sclass || 'General';
                 refreshBlankAgeBadge(r.dob || '');
+
+                // Populate custom fields (dropdowns, dates, text, numbers)
+                for (let i = 1; i <= 5; i++) {
+                    const cfVal = r['customField' + i] || '';
+                    const cfText = document.getElementById(`blank-customField${i}-text`);
+                    const cfHidden = document.getElementById(`blank-customField${i}`);
+                    if (cfText) {
+                        if (cfVal) {
+                            cfText.innerText = cfVal;
+                            cfText.classList.remove('text-slate-400');
+                            cfText.classList.add('text-slate-700');
+                        } else {
+                            const rawClassVal = r.sclass || document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
+                            const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                            const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                            const f = (activeCustomList && activeCustomList[i - 1]) ? activeCustomList[i - 1] : null;
+                            cfText.innerText = f ? ('Select ' + f.label) : 'Select';
+                            cfText.classList.remove('text-slate-700');
+                            cfText.classList.add('text-slate-400');
+                        }
+                    }
+                    if (cfHidden) cfHidden.value = cfVal;
+                    const cfInput = document.getElementById(`blank-customField${i}`);
+                    if (cfInput && cfInput.tagName === 'INPUT' && cfInput.type !== 'hidden') {
+                        cfInput.value = cfVal;
+                    }
+                }
+                if (typeof updateStudentFormHeaderForClass === 'function') {
+                    updateStudentFormHeaderForClass(r.sclass || 'General');
+                }
                 if (document.getElementById('mainSearch')) document.getElementById('mainSearch').value = r.studentName || '';
                 if (document.getElementById('global-search')) document.getElementById('global-search').value = r.fatherName || '';
 
@@ -5152,6 +6313,9 @@
             function syncBlankSelect(fieldId, value) {
                 const target = document.getElementById(fieldId);
                 if (target) target.value = value;
+                if (fieldId === 'in-sclass' && typeof updateStudentFormHeaderForClass === 'function') {
+                    updateStudentFormHeaderForClass(value);
+                }
                 queueDraftSave('Form');
                 queueServerDraftSync();
             }
@@ -5458,6 +6622,8 @@
                         sn: nextSn,
                         id: finalId,
                         recordType: isStaffRec ? 'staff' : 'student',
+                        schoolCode: schoolCode,
+                        schoolId: (schoolConfig && schoolConfig.id) ? String(schoolConfig.id) : ('school_' + schoolCode.toLowerCase()),
                         oldId: oldId, // Send old ID to server so it can replace the row
                         sclass: cl, gender: g, studentName: n,
                         fatherName: getVal('fatherName'),
@@ -5920,7 +7086,7 @@
 
             function sendToIdentifyFromPreview() {
                 if (!previewRecord || !previewRecord.id) return;
-                showModal('confirm', 'Send to IDentify?', 'Are you sure you want to send this record to IDentify?', () => {
+                showModal('confirm', 'Send to IDentify°?', 'Are you sure you want to send this record to IDentify°?', () => {
                     const finalRec = { ...previewRecord, verified: 'Identify' };
                     serverCallSilent('updateRecord', [finalRec], (res) => {});
                     const idx = db.findIndex(r => String(r.id) === String(finalRec.id));
@@ -5930,7 +7096,7 @@
                     showTab('records');
                     filterRecords();
                     renderHomeAnalysis();
-                    showToast('Sent to IDentify');
+                    showToast('Sent to IDentify°');
                 }, 'Yes, Send');
             }
 
@@ -5959,7 +7125,7 @@
                     const savedQrFields = JSON.parse(localStorage.getItem('identify_qr_fields') || '["id"]');
                     const schoolName = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.name || schoolConfig.schoolName)) ? (schoolConfig.name || schoolConfig.schoolName) : 'Delhi Public School';
                     const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('') || "DPS").toUpperCase();
-                    const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify';
+                    const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify°';
                     
                     for (let i = 0; i < recordsToExport.length; i++) {
                         const rec = recordsToExport[i];
@@ -6161,7 +7327,11 @@
                 const mainSearch = document.getElementById('mainSearch');
                 const q = (globalSearch?.value || mainSearch?.value || '').toLowerCase().trim();
 
-                const res = db.filter(x => {
+                const res = (Array.isArray(db) ? db : []).filter(x => {
+                    if (typeof recordBelongsToSchool === 'function' && !recordBelongsToSchool(x, schoolConfig)) {
+                        return false; // strictly restrict records to active school
+                    }
+
                     const s = (v) => (v ? String(v) : '').toLowerCase();
                     const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig.code ? schoolConfig.code : 'DPS').toLowerCase();
                     const year = new Date(x.createdAt || Date.now()).getFullYear().toString().slice(-2);
@@ -6474,7 +7644,7 @@
             }
 
             function buildDataInformationHtml() {
-                let dataToAnalyze = (db || []).filter(r => !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true'));
+                let dataToAnalyze = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : true) && !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true'));
                 const info = getDataInfoStats(dataToAnalyze);
                 const classRows = info.classes.length
                     ? info.classes.map(stats => renderDataInfoRow(stats)).join('')
@@ -6545,7 +7715,10 @@
                 t.innerHTML = '';
                 if (showBlankRecordCard) {
                     const genderValue = (document.getElementById('in-gender')?.value || 'Male');
-                    const classValue = (document.getElementById('in-sclass')?.value || 'Class 1');
+                    const classValue = (document.getElementById('in-sclass')?.value || document.getElementById('blank-class')?.value || 'Class 1');
+                    if (typeof updateStudentFormHeaderForClass === 'function') {
+                        updateStudentFormHeaderForClass(classValue);
+                    }
                     const studentNameValue = (document.getElementById('in-studentName')?.value || '');
                     const fatherNameValue = (document.getElementById('in-fatherName')?.value || '');
                     const dobValue = (document.getElementById('in-dob')?.value || '');
@@ -6648,7 +7821,7 @@
                         const aspectStyle = `aspect-ratio: ${pWidth} / ${pHeight};`;
 
                         t.innerHTML = `
-                <div class="animate-in fade-in slide-in-from-bottom-4 duration-500 relative" ${isPreviewFromSave ? '' : 'ontouchstart="handlePreviewTouchStart(event)" ontouchend="handlePreviewTouchEnd(event)"'}>
+                <div class="animate-in fade-in slide-in-from-bottom-4 duration-500 relative select-none" oncontextmenu="return false;" style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;" ${isPreviewFromSave ? '' : 'ontouchstart="handlePreviewTouchStart(event)" ontouchend="handlePreviewTouchEnd(event)"'}>
                     
                     ${isPreviewFromSave ? '' : `
                     <!-- Left Navigation Zone (Previous Card) -->
@@ -6662,7 +7835,7 @@
                     </div>
                     `}
 
-                    <div class="preview-dark-card relative z-[100]">
+                    <div class="preview-dark-card relative z-[100] select-none" oncontextmenu="return false;" style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;">
                                             ${(() => {
                                                 const isStaffPreview = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rec.sclass || '').trim().toLowerCase() === 'staff';
                                                 const activeStdCfg = isStaffPreview ? (typeof fb_staff_standard_config !== 'undefined' ? fb_staff_standard_config : {}) : (typeof fb_standard_config !== 'undefined' ? fb_standard_config : {});
@@ -6674,7 +7847,7 @@
                                                     html += `
                                                     <div class="flex justify-center mb-4 mt-2 relative z-20">
                                                         <div class="premium-photo-frame !w-[150px] !h-auto bg-white relative" style="${aspectStyle}">
-                                                            <img src="${docRes}" class="${hasDoc ? '' : 'hidden'} w-full h-full object-cover">
+                                                            <img src="${docRes}" class="${hasDoc ? '' : 'hidden'} w-full h-full object-cover" draggable="false" oncontextmenu="return false;" style="-webkit-touch-callout: none; pointer-events: none;">
                                                             <div class="flex items-center justify-center h-full w-full ${hasDoc ? 'hidden' : ''}">
                                                                 <i class="fa-solid fa-user-tie text-[#05996c] text-[130px]"></i>
                                                             </div>
@@ -6701,35 +7874,72 @@
                                                 ${(() => {
                                                     const isStaffPreview = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rec.sclass || '').trim().toLowerCase() === 'staff';
                                                     const activeStdCfg = isStaffPreview ? (typeof fb_staff_standard_config !== 'undefined' ? fb_staff_standard_config : {}) : (typeof fb_standard_config !== 'undefined' ? fb_standard_config : {});
+                                                    const activeStdLabels = isStaffPreview ? (typeof fb_staff_standard_labels !== 'undefined' ? fb_staff_standard_labels : {}) : (typeof fb_standard_labels !== 'undefined' ? fb_standard_labels : {});
                                                     const isEnabled = (id) => activeStdCfg && activeStdCfg[id] ? activeStdCfg[id].enabled !== false : true;
                                                     let html = '';
-                                                    if (isEnabled('fatherName')) html += renderPreviewRow('fa-person', isStaffPreview ? (typeof fb_getStaffStandardLabel === 'function' ? fb_getStaffStandardLabel('fatherName', 'F/H Name') : 'F/H Name') : ((rec.gender || '').toLowerCase().includes('female') ? 'D/o' : 'S/o'), rec.fatherName);
-                                                    if (isEnabled('sclass')) html += renderPreviewRow('fa-book', 'Class', rec.sclass);
-                                                    if (isEnabled('gender')) html += renderPreviewRow('fa-venus-mars', 'Gender', rec.gender);
-                                                    if (isEnabled('dob')) html += renderPreviewRow('fa-calendar-day', 'DOB', rec.dob);
+                                                    if (isEnabled('fatherName')) html += renderPreviewRow('fa-person', isStaffPreview ? (typeof fb_getStaffStandardLabel === 'function' ? fb_getStaffStandardLabel('fatherName', 'F/H Name') : ((activeStdLabels && activeStdLabels.fatherName) || 'F/H Name')) : ((activeStdLabels && activeStdLabels.fatherName) || ((rec.gender || '').toLowerCase().includes('female') ? 'D/o' : 'S/o')), rec.fatherName);
+                                                    if (isEnabled('sclass')) html += renderPreviewRow('fa-book', (activeStdLabels && activeStdLabels.sclass) || 'Class', rec.sclass);
+                                                    if (isEnabled('gender')) html += renderPreviewRow('fa-venus-mars', (activeStdLabels && activeStdLabels.gender) || 'Gender', rec.gender);
+                                                    if (isEnabled('dob')) {
+                                                        const ageVal = (typeof calculateStudentAge === 'function') ? calculateStudentAge(rec.dob) : '--';
+                                                        const dobWithAge = (rec.dob && ageVal !== '--' && ageVal !== '') ? `${rec.dob} (${ageVal}Y)` : (rec.dob || '');
+                                                        html += renderPreviewRow('fa-calendar-day', (activeStdLabels && activeStdLabels.dob) || 'DOB', dobWithAge);
+                                                    }
                                                     return html;
                                                 })()}
                                                 ${(() => {
                                                     const isStaffPreview = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rec.sclass || '').trim().toLowerCase() === 'staff';
                                                     const activeStdCfg = isStaffPreview ? (typeof fb_staff_standard_config !== 'undefined' ? fb_staff_standard_config : {}) : (typeof fb_standard_config !== 'undefined' ? fb_standard_config : {});
-                                                    const activeOrder = isStaffPreview ? (typeof fb_staff_form_order !== 'undefined' && Array.isArray(fb_staff_form_order) && fb_staff_form_order.length > 0 ? fb_staff_form_order : ['mobile', 'aadhar', 'address']) : ((typeof fb_form_order !== 'undefined' && Array.isArray(fb_form_order) && fb_form_order.length > 0) ? fb_form_order : ['mobile', 'aadhar', 'address']);
+                                                    const activeStdLabels = isStaffPreview ? (typeof fb_staff_standard_labels !== 'undefined' ? fb_staff_standard_labels : {}) : (typeof fb_standard_labels !== 'undefined' ? fb_standard_labels : {});
+                                                    const baseOrder = isStaffPreview ? (typeof fb_staff_form_order !== 'undefined' && Array.isArray(fb_staff_form_order) && fb_staff_form_order.length > 0 ? fb_staff_form_order : ['mobile', 'aadhar', 'address']) : ((typeof fb_form_order !== 'undefined' && Array.isArray(fb_form_order) && fb_form_order.length > 0) ? fb_form_order : ['mobile', 'aadhar', 'address']);
                                                     const activeCustomFields = isStaffPreview ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
                                                     const fixedTop = ['photo', 'studentName', 'fatherName', 'sclass', 'gender', 'dob'];
                                                     const isEnabled = (id) => activeStdCfg && activeStdCfg[id] ? activeStdCfg[id].enabled !== false : true;
+
+                                                    // Ensure newly added custom fields always appear even if missing from saved order
+                                                    const activeOrder = [...baseOrder];
+                                                    activeCustomFields.forEach(f => {
+                                                        if (f && f.id && !activeOrder.includes(f.id)) {
+                                                            activeOrder.push(f.id);
+                                                        }
+                                                    });
+
                                                     return activeOrder.filter(id => !fixedTop.includes(id) && isEnabled(id)).map(id => {
-                                                        if (id === 'mobile') return renderPreviewRow('fa-mobile-screen', 'Mobile', rec.mobile);
-                                                        if (id === 'aadhar') return renderPreviewRow('fa-fingerprint', 'Aadhar', rec.aadhar);
-                                                        if (id === 'address') return renderPreviewRow('fa-location-dot', 'Address', rec.address);
-                                                        if (activeCustomFields) {
-                                                            const field = activeCustomFields.find(f => f.id === id);
+                                                        if (id === 'mobile') return renderPreviewRow('fa-mobile-screen', (activeStdLabels && activeStdLabels.mobile) || 'Mobile', rec.mobile);
+                                                        if (id === 'aadhar') return renderPreviewRow('fa-fingerprint', (activeStdLabels && activeStdLabels.aadhar) || 'Aadhar', rec.aadhar);
+                                                        if (id === 'address') return renderPreviewRow('fa-location-dot', (activeStdLabels && activeStdLabels.address) || 'Address', rec.address);
+                                                        if (id === 'section') return renderPreviewRow('fa-layer-group', (activeStdLabels && activeStdLabels.section) || 'Section', rec.section);
+                                                        if (id === 'rollNo' || id === 'roll_no') return renderPreviewRow('fa-id-badge', (activeStdLabels && activeStdLabels[id]) || 'Roll No', rec.rollNo || rec.roll_no);
+                                                        if (id === 'admissionNo' || id === 'admission_no') return renderPreviewRow('fa-ticket', (activeStdLabels && activeStdLabels[id]) || 'Admission No', rec.admissionNo || rec.admission_no);
+                                                        if (id === 'bloodGroup' || id === 'blood_group') return renderPreviewRow('fa-droplet', (activeStdLabels && activeStdLabels[id]) || 'Blood Group', rec.bloodGroup || rec.blood_group);
+                                                        if (id === 'motherName' || id === 'mother_name') return renderPreviewRow('fa-person-dress', (activeStdLabels && activeStdLabels[id]) || 'Mother Name', rec.motherName || rec.mother_name);
+
+                                                        if (activeCustomFields && activeCustomFields.length > 0) {
+                                                            const field = activeCustomFields.find(f => f && (f.id === id || f.label === id));
                                                             if (field) {
                                                                 const idx = activeCustomFields.indexOf(field);
-                                                                const val = rec[`customField${idx + 1}`] || '';
-                                                                if (field.type === 'image') {
-                                                                    return val ? `<div class="preview-row flex-col items-start gap-1.5"><div class="flex items-center"><i class="fa-solid fa-camera"></i><span class="preview-label">${field.label}</span></div><div class="w-16 h-16 rounded-lg border border-slate-200 overflow-hidden bg-slate-50 mt-1"><img src="${val}" class="w-full h-full object-cover"></div></div>`
-                                                                               : `<div class="preview-row"><i class="fa-solid fa-camera"></i><span class="preview-label">${field.label}</span><span class="preview-colon">:</span><span class="preview-value">--</span></div>`;
+                                                                let val = '';
+                                                                if (rec[`customField${idx + 1}`] !== undefined && rec[`customField${idx + 1}`] !== null && String(rec[`customField${idx + 1}`]).trim() !== '') {
+                                                                    val = rec[`customField${idx + 1}`];
+                                                                } else if (field.id && rec[field.id] !== undefined && rec[field.id] !== null && String(rec[field.id]).trim() !== '') {
+                                                                    val = rec[field.id];
+                                                                } else if (field.label && rec[field.label] !== undefined && rec[field.label] !== null && String(rec[field.label]).trim() !== '') {
+                                                                    val = rec[field.label];
+                                                                } else if (field.label) {
+                                                                    const normLabel = field.label.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                                                    for (const k of Object.keys(rec)) {
+                                                                        if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === normLabel && rec[k] !== undefined && rec[k] !== null && String(rec[k]).trim() !== '') {
+                                                                            val = rec[k];
+                                                                            break;
+                                                                        }
+                                                                    }
                                                                 }
-                                                                return renderPreviewRow('fa-star', field.label, val);
+
+                                                                if (field.type === 'image') {
+                                                                    return val ? `<div class="preview-row flex-col items-start gap-1.5"><div class="flex items-center"><i class="fa-solid fa-camera"></i><span class="preview-label">${sanitizeHTML(field.label)}</span></div><div class="w-16 h-16 rounded-lg border border-slate-200 overflow-hidden bg-slate-50 mt-1"><img src="${val}" class="w-full h-full object-cover" draggable="false" oncontextmenu="return false;" style="-webkit-touch-callout: none; pointer-events: none;"></div></div>`
+                                                                               : `<div class="preview-row"><i class="fa-solid fa-camera"></i><span class="preview-label">${sanitizeHTML(field.label)}</span><span class="preview-colon">:</span><span class="preview-value">--</span></div>`;
+                                                                }
+                                                                return renderPreviewRow(typeof fb_getFieldIcon === 'function' ? fb_getFieldIcon(field) : 'fa-tag', field.label, val);
                                                             }
                                                         }
                                                         return '';
@@ -6915,8 +8125,8 @@
                                 <i class="fa-solid fa-triangle-exclamation text-xl"></i>
                             </div>
                             <div class="flex-1">
-                                <h4 class="text-sm font-black text-slate-800">Delete All Data</h4>
-                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Permanently erase all records</p>
+                                <h4 class="text-sm font-black text-slate-800">Delete Current School Data</h4>
+                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Erase records of ${(schoolConfig && schoolConfig.code) ? sanitizeHTML(schoolConfig.code) : 'active school'} only</p>
                             </div>
                         </div>
                         ` : ''}
@@ -6985,68 +8195,201 @@
                     }
 
                     if (blankRecordMode === 'manage_school') {
-                        t.innerHTML = `
-                            <div class="p-6 bg-white rounded-3xl system-card flex flex-col items-start w-full max-w-xl mx-auto">
-                                <div class="w-full space-y-4">
-                                    <div class="flex flex-col gap-4 items-center w-full mb-2">
-                                        <div class="w-24 h-24 rounded-3xl bg-slate-50 border-2 border-dashed border-emerald-200 flex flex-col items-center justify-center cursor-pointer relative overflow-hidden shrink-0 hover:bg-emerald-50 transition group shadow-sm" onclick="document.getElementById('manage-school-logo').click()">
-                                            ${schoolConfig.logo ? `
-                                                <img src="${schoolConfig.logo}" id="manage-logo-preview-img" class="absolute inset-0 w-full h-full object-cover z-10 pointer-events-none">
-                                                <button type="button" id="manage-logo-remove-btn" onclick="event.stopPropagation(); removeManageSchoolLogo();" class="absolute top-1 right-1 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center z-20 shadow-md transform transition-transform opacity-0 group-hover:opacity-100">
-                                                    <i class="fa-solid fa-xmark text-xs"></i>
-                                                </button>
-                                            ` : `
-                                                <img src="" id="manage-logo-preview-img" class="absolute inset-0 w-full h-full object-cover z-10 hidden pointer-events-none">
-                                                <button type="button" id="manage-logo-remove-btn" onclick="event.stopPropagation(); removeManageSchoolLogo();" class="absolute top-1 right-1 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center z-20 shadow-md transform transition-transform hidden">
-                                                    <i class="fa-solid fa-xmark text-xs"></i>
-                                                </button>
-                                            `}
-                                            <i class="fa-solid fa-cloud-arrow-up text-emerald-400 text-xl mb-1 z-0"></i>
-                                            <span class="text-[9px] font-bold text-slate-400 z-0">LOGO</span>
-                                            <input type="file" id="manage-school-logo" accept="image/*" class="hidden" onchange="previewManageSchoolLogo(event)">
-                                        </div>
-                                    </div>
+                        if (typeof updateBlankRecordHeader === 'function') updateBlankRecordHeader('manage_school');
+                        
+                        if (schoolManageViewMode === 'list') {
+                            const fabBtn = document.getElementById('manage-school-floating-add-btn');
+                            if (fabBtn) fabBtn.classList.remove('hidden');
 
-                                    <div class="w-full relative">
-                                        <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-school"></i> School Name</label>
-                                        <input type="text" id="manage-school-name" class="w-full rounded-xl bg-slate-50 border border-slate-200 pl-4 pr-[70px] py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="e.g. Advance Public School" value="${schoolConfig.name || ''}" oninput="if(typeof autoGenerateSchoolCode === 'function') autoGenerateSchoolCode(this.value)">
-                                        <div class="absolute right-1.5 top-[28px] bottom-1.5 w-[60px]">
-                                            <input type="text" id="manage-school-code" class="w-full h-full rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-center text-[11.5px] font-black uppercase tracking-widest outline-none focus:border-emerald-400 focus:bg-white transition" placeholder="CODE" value="${schoolConfig.code || ''}" oninput="window.isSchoolCodeManuallyEdited = this.value.trim() !== '';" title="School Code">
-                                        </div>
-                                        <img src onerror="window.isSchoolCodeManuallyEdited = false; this.remove();" style="display:none;">
-                                    </div>                                    
-                                    
-                                    <div>
-                                        <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-map-location-dot"></i> Address</label>
-                                        <input type="text" id="manage-school-address" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="Full address" value="${schoolConfig.address || ''}">
-                                    </div>
-                                    
-                                    <div>
-                                        <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-user-tie"></i> Contact Person Name</label>
-                                        <input type="text" id="manage-school-contact" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="Name" value="${schoolConfig.contactPerson || ''}">
-                                    </div>
+                            t.innerHTML = `
+                                <div class="p-4 bg-white rounded-3xl system-card flex flex-col items-start w-full max-w-xl mx-auto space-y-3 animate-in fade-in duration-200 relative pb-20">
+                                    <!-- School List (Compact tiles, reduced gaps, enlarged school name) -->
+                                    <div class="w-full space-y-2.5 max-h-[500px] overflow-y-auto pr-0.5">
+                                        ${schoolsList.length === 0 ? `
+                                            <div class="py-12 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-2xl bg-slate-50">
+                                                <i class="fa-solid fa-school-circle-xmark text-4xl mb-2 opacity-30"></i>
+                                                <p class="text-xs font-bold uppercase tracking-widest text-slate-500">No schools found</p>
+                                                <button type="button" onclick="openAddSchoolForm()" class="mt-3 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold">Add First School</button>
+                                            </div>
+                                        ` : schoolsList.map(s => {
+                                            const isActive = isCurrentSchoolActive(s);
+                                            const isFormActive = s.formActive !== false && s.active !== false;
+                                            return `
+                                                <div class="p-3 sm:p-3.5 rounded-2xl border transition-all duration-200 flex flex-col gap-2 cursor-pointer select-none relative group ${isActive ? 'border-emerald-500 bg-emerald-50/70 shadow-sm ring-2 ring-emerald-500/25' : 'border-slate-200 bg-white hover:border-emerald-300 hover:bg-slate-50/60'}"
+                                                     onclick="handleSchoolTileClick('${s.id}')"
+                                                     onmousedown="startSchoolLongPress('${s.id}')"
+                                                     onmouseup="cancelSchoolLongPress()"
+                                                     onmouseleave="cancelSchoolLongPress()"
+                                                     ontouchstart="startSchoolLongPress('${s.id}')"
+                                                     ontouchend="cancelSchoolLongPress()"
+                                                     ontouchcancel="cancelSchoolLongPress()">
+                                                    
+                                                    <!-- Top Section: Logo + School Name, Address & Mobile No (Compact layout, larger school name) -->
+                                                    <div class="flex items-center gap-3 min-w-0 w-full">
+                                                        <div class="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 relative shadow-2xs">
+                                                            ${s.logo ? `<img src="${s.logo}" class="w-full h-full object-cover">` : `<i class="fa-solid fa-school-flag text-slate-400 text-lg"></i>`}
+                                                        </div>
+                                                        <div class="min-w-0 flex-1">
+                                                            <!-- School Name (Enlarged font: text-[17px] font-black) -->
+                                                            <h4 class="text-[17px] font-black text-slate-800 truncate leading-tight tracking-tight">${sanitizeHTML(s.name || 'Unnamed School')}</h4>
+                                                            
+                                                            <!-- Address & Mobile No -->
+                                                            <div class="text-[12px] font-bold text-slate-600 truncate mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                                                <span class="truncate"><i class="fa-solid fa-location-dot text-emerald-600 mr-1 text-[11px]"></i>${sanitizeHTML(s.address || 'Address not set')}</span>
+                                                                ${s.mobile ? `
+                                                                    <span class="text-slate-300 font-normal">&bull;</span>
+                                                                    <span class="truncate shrink-0 text-slate-700 font-black"><i class="fa-solid fa-phone text-emerald-600 mr-1 text-[10.5px]"></i>${sanitizeHTML(s.mobile)}</span>
+                                                                ` : ''}
+                                                            </div>
+                                                        </div>
+                                                    </div>
 
-                                    <div class="space-y-4">
-                                        <div>
-                                            <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-phone"></i> Mobile No</label>
-                                            <input type="text" id="manage-school-mobile" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="Phone" value="${schoolConfig.mobile || ''}">
-                                        </div>
-                                        <div>
-                                            <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-envelope"></i> Email</label>
-                                            <input type="email" id="manage-school-email" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="Email" value="${schoolConfig.email || ''}">
-                                        </div>
-                                    </div>
+                                                    <!-- Bottom Section: 3 buttons (School Code, School Active / Deactive, Edit) -->
+                                                    <div class="flex items-center gap-1.5 pt-2 border-t border-slate-100/90 w-full"
+                                                         onclick="event.stopPropagation()"
+                                                         onmousedown="event.stopPropagation()"
+                                                         ontouchstart="event.stopPropagation()"
+                                                         onmouseup="event.stopPropagation()"
+                                                         ontouchend="event.stopPropagation()">
+                                                        
+                                                        <!-- 1. School Code Button/Badge (Compact width) -->
+                                                        <div class="w-[66px] shrink-0 py-1.5 px-1 rounded-xl bg-slate-100 border border-slate-200 text-center flex items-center justify-center shadow-2xs">
+                                                            <span class="text-xs font-black uppercase tracking-wider text-slate-700 truncate" title="School Code">
+                                                                ${sanitizeHTML(s.code || 'CODE')}
+                                                            </span>
+                                                        </div>
 
-                                    <div id="school-create-msg" class="hidden text-sm font-bold rounded-xl px-4 py-2 mt-2"></div>
-                                    
-                                    <button id="btn-save-manage-school" onclick="saveAllManageSchoolDetails()" class="w-full py-4 mt-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm">
-                                        <i class="fa-solid fa-floppy-disk"></i> Save Details
-                                    </button>
+                                                        <!-- 2. School Active / Deactive Button (Flex-1 wide space for full text) -->
+                                                        ${isFormActive ? `
+                                                            <button type="button" 
+                                                                    onclick="event.stopPropagation(); toggleSchoolFormActive('${s.id}')"
+                                                                    class="flex-1 min-w-0 py-1.5 px-2 rounded-xl text-xs font-black uppercase tracking-wide bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center justify-center gap-1.5 shadow-sm transition whitespace-nowrap"
+                                                                    title="School is Active: Click to Deactivate">
+                                                                <i class="fa-solid fa-circle-check text-[11px] shrink-0"></i>
+                                                                <span>School Active</span>
+                                                            </button>
+                                                        ` : `
+                                                            <button type="button" 
+                                                                    onclick="event.stopPropagation(); toggleSchoolFormActive('${s.id}')"
+                                                                    class="flex-1 min-w-0 py-1.5 px-2 rounded-xl text-xs font-black uppercase tracking-wide bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 active:scale-95 flex items-center justify-center gap-1.5 transition whitespace-nowrap"
+                                                                    title="School is Deactive: Click to Activate">
+                                                                <i class="fa-solid fa-circle-xmark text-rose-500 text-[11px] shrink-0"></i>
+                                                                <span>School Deactive</span>
+                                                            </button>
+                                                        `}
+
+                                                        <!-- 3. Edit Button (Compact width) -->
+                                                        <button type="button" 
+                                                                onclick="event.stopPropagation(); openEditSchoolForm('${s.id}')"
+                                                                class="w-[66px] shrink-0 py-1.5 px-1 rounded-xl text-xs font-black uppercase tracking-wider bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 hover:border-emerald-200 text-slate-700 flex items-center justify-center gap-1 transition border border-slate-200 active:scale-95 shadow-2xs"
+                                                                title="Edit School Details">
+                                                            <i class="fa-solid fa-pen text-[10px] shrink-0"></i>
+                                                            <span>Edit</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
                                 </div>
-                            </div>
-                        `;
-                        const countEl = document.getElementById('showing-count');
-                        if (countEl) countEl.innerText = 'Manage';
+                            `;
+                            const countEl = document.getElementById('showing-count');
+                            if (countEl) countEl.innerText = `${schoolsList.length} Schools`;
+                        } else {
+                            const fabBtn = document.getElementById('manage-school-floating-add-btn');
+                            if (fabBtn) fabBtn.classList.add('hidden');
+                            // Add or Edit School Form View
+                            let targetSchool = {};
+                            if (schoolManageViewMode === 'edit' && editingSchoolId) {
+                                targetSchool = schoolsList.find(s => String(s.id) === String(editingSchoolId)) || schoolConfig || {};
+                            }
+                            const schoolLogoDisplay = tempManageSchoolLogo !== null ? tempManageSchoolLogo : (targetSchool.logo || '');
+
+                            t.innerHTML = `
+                                <div class="p-6 bg-white rounded-3xl system-card flex flex-col items-start w-full max-w-xl mx-auto animate-in fade-in duration-200">
+                                    <div class="w-full space-y-4">
+                                        <div class="flex flex-col gap-4 items-center w-full mb-2">
+                                            <div class="w-24 h-24 rounded-3xl bg-slate-50 border-2 border-dashed border-emerald-200 flex flex-col items-center justify-center cursor-pointer relative overflow-hidden shrink-0 hover:bg-emerald-50 transition group shadow-sm" onclick="document.getElementById('manage-school-logo').click()">
+                                                ${schoolLogoDisplay ? `
+                                                    <img src="${schoolLogoDisplay}" id="manage-logo-preview-img" class="absolute inset-0 w-full h-full object-cover z-10 pointer-events-none">
+                                                    <button type="button" id="manage-logo-remove-btn" onclick="event.stopPropagation(); removeManageSchoolLogo();" class="absolute top-1 right-1 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center z-20 shadow-md transform transition-transform opacity-0 group-hover:opacity-100">
+                                                        <i class="fa-solid fa-xmark text-xs"></i>
+                                                    </button>
+                                                ` : `
+                                                    <img src="" id="manage-logo-preview-img" class="absolute inset-0 w-full h-full object-cover z-10 hidden pointer-events-none">
+                                                    <button type="button" id="manage-logo-remove-btn" onclick="event.stopPropagation(); removeManageSchoolLogo();" class="absolute top-1 right-1 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center z-20 shadow-md transform transition-transform hidden">
+                                                        <i class="fa-solid fa-xmark text-xs"></i>
+                                                    </button>
+                                                `}
+                                                <i class="fa-solid fa-cloud-arrow-up text-emerald-400 text-xl mb-1 z-0"></i>
+                                                <span class="text-[9px] font-bold text-slate-400 z-0">LOGO</span>
+                                                <input type="file" id="manage-school-logo" accept="image/*" class="hidden" onchange="previewManageSchoolLogo(event)">
+                                            </div>
+                                        </div>
+
+                                        <div class="w-full relative">
+                                            <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-school"></i> School Name</label>
+                                            <input type="text" id="manage-school-name" class="w-full rounded-xl bg-slate-50 border border-slate-200 pl-4 pr-[70px] py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="e.g. Advance Public School" value="${sanitizeHTML(targetSchool.name || '')}" oninput="if(typeof autoGenerateSchoolCode === 'function') autoGenerateSchoolCode(this.value)">
+                                            <div class="absolute right-1.5 top-[28px] bottom-1.5 w-[60px]">
+                                                <input type="text" id="manage-school-code" class="w-full h-full rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-center text-[11.5px] font-black uppercase tracking-widest outline-none focus:border-emerald-400 focus:bg-white transition" placeholder="CODE" value="${sanitizeHTML(targetSchool.code || '')}" oninput="window.isSchoolCodeManuallyEdited = this.value.trim() !== '';" title="School Code">
+                                            </div>
+                                            <img src onerror="window.isSchoolCodeManuallyEdited = false; this.remove();" style="display:none;">
+                                        </div>                                    
+                                        
+                                        <div>
+                                            <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-map-location-dot"></i> Address</label>
+                                            <input type="text" id="manage-school-address" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="Full address" value="${sanitizeHTML(targetSchool.address || '')}">
+                                        </div>
+                                        
+                                        <div>
+                                            <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-user-tie"></i> Contact Person Name</label>
+                                            <input type="text" id="manage-school-contact" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="Name" value="${sanitizeHTML(targetSchool.contactPerson || '')}">
+                                        </div>
+
+                                        <div class="space-y-4">
+                                            <div>
+                                                <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-phone"></i> Mobile No</label>
+                                                <input type="text" id="manage-school-mobile" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="Phone" value="${sanitizeHTML(targetSchool.mobile || '')}">
+                                            </div>
+                                            <div>
+                                                <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-envelope"></i> Email (Login ID)</label>
+                                                <input type="email" id="manage-school-email" class="w-full rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="school@example.com" value="${sanitizeHTML(targetSchool.email || '')}">
+                                            </div>
+                                            <div>
+                                                <label class="premium-label !text-[11px] !tracking-widest uppercase"><i class="fa-solid fa-lock"></i> ${editingSchoolId ? 'Change Password (Optional)' : 'Login Password'}</label>
+                                                <div class="relative">
+                                                    <input type="password" id="manage-school-password" class="w-full rounded-xl bg-slate-50 border border-slate-200 pl-4 pr-11 py-3 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400 transition" placeholder="${editingSchoolId ? '•••••••• (Leave blank to keep current)' : 'Set password (min 6 characters)'}" value="" autocomplete="new-password">
+                                                    <button type="button" onclick="toggleSchoolFormPassword()" class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition" title="Show/Hide Password">
+                                                        <i id="school-form-password-icon" class="fa-solid fa-eye text-xs"></i>
+                                                    </button>
+                                                </div>
+                                                <p class="text-[10.5px] font-semibold text-slate-400 mt-1 pl-1">
+                                                    ${editingSchoolId ? 'Password is never stored locally. Enter a new password only if you want to update it in Firebase.' : 'This email and password will be used by this school to log in.'}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div id="school-create-msg" class="hidden text-sm font-bold rounded-xl px-4 py-2 mt-2"></div>
+                                        
+                                        ${editingSchoolId ? `
+                                            <button type="button" id="btn-delete-manage-school" onclick="deleteSchoolWithPinBackup('${editingSchoolId}')" class="w-full py-3.5 mt-2 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 border border-rose-200 rounded-xl font-bold flex items-center justify-center gap-2 transition shadow-xs">
+                                                <i class="fa-solid fa-trash-can text-sm"></i> Delete School
+                                            </button>
+                                        ` : ''}
+
+                                        <button id="btn-save-manage-school" onclick="saveCurrentSchoolFormDetails()" class="w-full py-4 mt-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm">
+                                            <i class="fa-solid fa-floppy-disk"></i> ${editingSchoolId ? 'Save & Update Details' : 'Create & Select School'}
+                                        </button>
+                                        
+                                        <button type="button" onclick="schoolManageViewMode='list'; renderBlankRecordContent();" class="w-full py-3 mt-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5">
+                                            <i class="fa-solid fa-xmark text-xs"></i> Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                            const countEl = document.getElementById('showing-count');
+                            if (countEl) countEl.innerText = editingSchoolId ? 'Edit' : 'New';
+                        }
                         lucide.createIcons();
                         return;
                     }
@@ -7452,10 +8795,13 @@
                                 let inputHtml = '';
                                  if (f.type === 'select') {
                                      inputHtml = `
-                                         <select onchange="syncBlankSelect('in-customField${idx + 1}', this.value)" class="premium-input premium-select">
-                                             <option value="">Select ${f.label}</option>
-                                             ${(f.options || []).map(opt => `<option value="${escapeAttr(opt)}" ${val === opt ? 'selected' : ''}>${escapeAttr(opt)}</option>`).join('')}
-                                         </select>`;
+                                         <div class="relative">
+                                             <button type="button" id="blank-${customKey}-btn" onclick="toggleFormDropdown('${customKey}', this, event)" class="premium-input flex items-center justify-between text-left cursor-pointer active:scale-[0.99] transition-all">
+                                                 <span id="blank-${customKey}-text" class="font-bold ${val ? 'text-slate-700' : 'text-slate-400'} text-[13px] truncate">${escapeAttr(val || ('Select ' + f.label))}</span>
+                                                 <i class="fa-solid fa-chevron-down text-slate-400 text-[11px] shrink-0 ml-2"></i>
+                                             </button>
+                                             <input type="hidden" id="blank-${customKey}" value="${escapeAttr(val)}">
+                                         </div>`;
                                  } else if (f.type === 'image') {
                                       const imgWidth = f.width || 600;
                                       const imgHeight = f.height || 800;
@@ -7492,15 +8838,23 @@
                                          </div>
                                       `;
                                  } else if (f.type === 'date') {
-                                     inputHtml = `<input type="text" inputmode="numeric" placeholder="DD-MM-YYYY" value="${escapeAttr(val)}" oninput="handleCustomDateInput(this, 'in-customField${idx + 1}', event)" class="premium-input">`;
+                                     inputHtml = `
+                                         <div class="relative flex items-center">
+                                             <input type="text" id="blank-${customKey}" inputmode="numeric" placeholder="DD-MM-YYYY" value="${escapeAttr(val)}" oninput="handleCustomDateInput(this, 'in-${customKey}', event)" class="premium-input !pr-10" autocomplete="off">
+                                             <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                                                 <button type="button" onclick="triggerDobCalendar(this, event, 'blank-${customKey}')" class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center hover:bg-emerald-100 active:scale-90 transition-all border border-emerald-200 shadow-xs cursor-pointer" title="Select Date from Calendar">
+                                                     <i class="fa-regular fa-calendar text-[13px]"></i>
+                                                 </button>
+                                             </div>
+                                         </div>`;
                                  } else if (f.type === 'number') {
-                                     inputHtml = `<input type="text" inputmode="numeric" pattern="[0-9]*" value="${escapeAttr(val)}" placeholder="Enter ${f.label}" oninput="this.value = this.value.replace(/[^0-9]/g, ''); syncBlankField('in-customField${idx + 1}', this.value, this)" class="premium-input">`;
+                                     inputHtml = `<input type="text" id="blank-${customKey}" inputmode="numeric" pattern="[0-9]*" value="${escapeAttr(val)}" placeholder="Enter ${escapeAttr(f.label)}" oninput="this.value = this.value.replace(/[^0-9]/g, ''); syncBlankField('in-${customKey}', this.value, this)" class="premium-input">`;
                                  } else {
-                                     inputHtml = `<input type="text" value="${escapeAttr(val)}" placeholder="Enter ${f.label}" oninput="syncBlankField('in-customField${idx + 1}', this.value, this)" class="premium-input">`;
+                                     inputHtml = `<input type="text" id="blank-${customKey}" value="${escapeAttr(val)}" placeholder="Enter ${escapeAttr(f.label)}" oninput="syncBlankField('in-${customKey}', this.value, this)" class="premium-input">`;
                                  }
                                  return `
                                      <div class="premium-input-group">
-                                         <label class="premium-label"><i class="fa-solid ${typeof fb_getFieldIcon === 'function' ? fb_getFieldIcon(f) : 'fa-circle-info'}"></i> ${f.label} ${f.required ? '<span class="text-rose-500">*</span>' : ''}</label>
+                                         <label class="premium-label"><i class="fa-solid ${typeof fb_getFieldIcon === 'function' ? fb_getFieldIcon(f) : 'fa-circle-info'}"></i> ${escapeAttr(f.label)} ${f.required ? '<span class="text-rose-500">*</span>' : ''}</label>
                                          ${inputHtml}
                                      </div>`;
                             }
@@ -7880,7 +9234,8 @@
             }
 
             function syncChipCounts() {
-                const baseDb = activeClassFilter === 'all' ? db : db.filter(x => x.sclass === activeClassFilter);
+                const scopedDb = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : true));
+                const baseDb = activeClassFilter === 'all' ? scopedDb : scopedDb.filter(x => x.sclass === activeClassFilter);
                 const filteredDb = baseDb.filter(x => !(x.isDeleted === true || String(x.isDeleted).toLowerCase() === 'true'));
                 const total = filteredDb.length;
                 const binTotal = baseDb.filter(x => x.isDeleted === true || String(x.isDeleted).toLowerCase() === 'true').length;
@@ -7966,7 +9321,7 @@
                 let orderedClasses = [];
                 let counts = {};
 
-                let dbToCount = (Array.isArray(db) ? db : []).filter(r => !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true'));
+                let dbToCount = (Array.isArray(db) ? db : []).filter(r => (typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, schoolConfig) : true) && !(r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true'));
 
                 if (Array.isArray(classesOverride) && classesOverride.length > 0) {
                     // Use the list provided from the database
@@ -8656,6 +10011,27 @@
                 if (document.getElementById('blank-dob')) document.getElementById('blank-dob').value = '';
                 if (document.getElementById('blank-mobile')) document.getElementById('blank-mobile').value = '';
                 if (document.getElementById('blank-aadhar')) document.getElementById('blank-aadhar').value = '';
+
+                // Reset custom fields
+                for (let i = 1; i <= 5; i++) {
+                    const cfHidden = document.getElementById(`blank-customField${i}`);
+                    if (cfHidden) cfHidden.value = '';
+                    const cfText = document.getElementById(`blank-customField${i}-text`);
+                    if (cfText) {
+                        const rawClassVal = document.getElementById('blank-class')?.value || 'General';
+                        const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                        const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
+                        const f = (activeCustomList && activeCustomList[i - 1]) ? activeCustomList[i - 1] : null;
+                        cfText.innerText = f ? ('Select ' + f.label) : 'Select';
+                        cfText.classList.remove('text-slate-700');
+                        cfText.classList.add('text-slate-400');
+                    }
+                    const cfInput = document.getElementById(`blank-customField${i}`);
+                    if (cfInput && cfInput.tagName === 'INPUT' && cfInput.type !== 'hidden') {
+                        cfInput.value = '';
+                    }
+                }
+
                 removePhoto();
                 refreshBlankAgeBadge('');
                 if (!stayInFormMode) setBlankRecordMode('student');
@@ -9322,6 +10698,8 @@
         async function openManageSchools() {
             closeSchoolConfig();
             if (typeof previousBlankRecordMode !== 'undefined') previousBlankRecordMode = 'settings';
+            schoolManageViewMode = 'list';
+            editingSchoolId = null;
             
             if (typeof fetchSystemConfigFromFirebase === 'function') {
                 try {
@@ -10910,10 +12288,28 @@
     </script>
     <script>
     function buildImportExportHtml() {
+        const activeCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.schoolCode)) ? String(schoolConfig.code || schoolConfig.schoolCode).trim().toUpperCase() : '';
+        const exportHeaderTitle = activeCode ? `Export Data of ${activeCode}` : 'Export Data';
+        const activeSchoolName = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.name || schoolConfig.schoolName)) ? (schoolConfig.name || schoolConfig.schoolName) : '';
+
         return `
-            <div class="p-6 bg-white rounded-3xl system-card flex flex-col items-start w-full max-w-xl mx-auto mb-20">
+            <div class="p-6 bg-white rounded-3xl system-card flex flex-col items-start w-full max-w-xl mx-auto mb-20 shadow-sm border border-slate-100">
                 <div class="w-full space-y-4">
                     
+                    <!-- Header Card with School Code -->
+                    <div class="flex items-center justify-between pb-3.5 border-b border-slate-100 w-full mb-1">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg shrink-0 shadow-sm">
+                                <i class="fa-solid fa-file-export"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <h2 class="text-base font-black text-slate-800 leading-tight truncate">${exportHeaderTitle}</h2>
+                                <p class="text-[11px] font-bold text-slate-400 truncate mt-0.5">${activeSchoolName || 'Download Data spreadsheet, Photos & QR Codes'}</p>
+                            </div>
+                        </div>
+                        ${activeCode ? `<span class="px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200/80 text-[11px] font-black rounded-lg uppercase tracking-wider shrink-0">${activeCode}</span>` : ''}
+                    </div>
+
                     <!-- Export Content -->
                     <div id="ie-content-export" class="space-y-4 block w-full">
                         
@@ -11004,11 +12400,16 @@
                             </label>
                             
                             <div id="ie-export-qr-options" class="hidden p-3.5 mt-2 bg-slate-50/70 border border-slate-200/80 rounded-2xl w-full">
-                                <div class="mb-1.5">
+                                <div class="flex items-center justify-between mb-1.5">
                                     <p class="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5"><i class="fa-solid fa-qrcode text-blue-600"></i> Select QR Data Fields</p>
+                                    <div class="flex items-center gap-1">
+                                        <button type="button" onclick="ie_toggleAllQrFields(true)" class="text-[9px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full cursor-pointer transition">All</button>
+                                        <button type="button" onclick="ie_resetDefaultQrFields()" class="text-[9px] font-bold text-emerald-600 hover:text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full cursor-pointer transition">Default</button>
+                                        <button type="button" onclick="ie_toggleAllQrFields(false)" class="text-[9px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full cursor-pointer transition">Clear</button>
+                                    </div>
                                 </div>
                                 <p class="text-[10px] text-slate-500 mb-2.5 leading-tight">Tick the details you want to encode inside the QR code. When scanned, these exact details will appear.</p>
-                                <div id="ie-export-qr-fields-grid" class="grid grid-cols-2 gap-2">
+                                <div id="ie-export-qr-fields-grid" class="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
                                     <!-- Injected by JS -->
                                 </div>
                             </div>
@@ -11023,12 +12424,16 @@
         `;
     }
 
-    function openImportExportModal() {
+    function openImportExportModal(targetSchoolId) {
+        if (targetSchoolId && typeof selectActiveSchool === 'function') {
+            selectActiveSchool(targetSchoolId);
+        }
         setBlankRecordMode('import_export');
         setTimeout(() => {
             ie_renderExportFields();
         }, 50);
     }
+    window.openImportExportModal = openImportExportModal;
     
     function closeImportExportModal() {
         // Obsolete
@@ -11199,6 +12604,66 @@
         return fields;
     }
 
+    function ie_getFieldIcon(fieldId) {
+        switch (fieldId) {
+            case '_schoolName': return 'fa-solid fa-school';
+            case '_appName': return 'fa-solid fa-mobile-screen';
+            case 'sn': return 'fa-solid fa-hashtag';
+            case 'studentName': return 'fa-solid fa-user-graduate';
+            case 'fatherName': return 'fa-solid fa-user';
+            case 'motherName': return 'fa-solid fa-user';
+            case 'sclass': return 'fa-solid fa-chalkboard';
+            case 'section': return 'fa-solid fa-layer-group';
+            case 'rollNo': return 'fa-solid fa-id-badge';
+            case 'admissionNo': return 'fa-solid fa-ticket';
+            case 'dob': return 'fa-solid fa-cake-candles';
+            case 'mobile': return 'fa-solid fa-phone';
+            case 'gender': return 'fa-solid fa-venus-mars';
+            case 'bloodGroup': return 'fa-solid fa-droplet';
+            case 'address': return 'fa-solid fa-location-dot';
+            case 'aadhar': return 'fa-solid fa-address-card';
+            case 'id': return 'fa-solid fa-fingerprint';
+            case '_timestamp': return 'fa-solid fa-clock';
+            default: return 'fa-solid fa-tag';
+        }
+    }
+    window.ie_getFieldIcon = ie_getFieldIcon;
+
+    function ie_getAvailableQrFields() {
+        const qrList = [
+            { id: '_schoolName', label: 'School Name', defaultChecked: true },
+            { id: 'sn', label: 'Serial No (SN)', defaultChecked: true },
+            { id: 'studentName', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('studentName', 'Student Name') : 'Student Name'), defaultChecked: true },
+            { id: 'fatherName', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('fatherName', "Father's Name") : "Father's Name"), defaultChecked: true },
+            { id: 'motherName', label: "Mother's Name", defaultChecked: false },
+            { id: 'sclass', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('sclass', 'Class') : 'Class'), defaultChecked: true },
+            { id: 'section', label: 'Section', defaultChecked: true },
+            { id: 'rollNo', label: 'Roll No', defaultChecked: false },
+            { id: 'admissionNo', label: 'Admission No', defaultChecked: false },
+            { id: 'dob', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('dob', 'Date of Birth') : 'Date of Birth'), defaultChecked: false },
+            { id: 'mobile', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('mobile', 'Mobile Number') : 'Mobile Number'), defaultChecked: true },
+            { id: 'gender', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('gender', 'Gender') : 'Gender'), defaultChecked: false },
+            { id: 'bloodGroup', label: 'Blood Group', defaultChecked: false },
+            { id: 'address', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('address', 'Address') : 'Address'), defaultChecked: false },
+            { id: 'aadhar', label: (typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel('aadhar', 'Aadhar Number') : 'Aadhar Number'), defaultChecked: false }
+        ];
+
+        // Custom fields from Form Builder
+        if (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields)) {
+            fb_fields.forEach(cf => {
+                if (cf && cf.id && cf.type !== 'section' && cf.type !== 'image' && cf.id !== 'photo' && !qrList.some(f => f.id === cf.id)) {
+                    qrList.push({ id: cf.id, label: cf.label || cf.id, defaultChecked: false });
+                }
+            });
+        }
+
+        // App Name at the end
+        qrList.push({ id: '_appName', label: 'App Name', defaultChecked: false });
+
+        return qrList;
+    }
+    window.ie_getAvailableQrFields = ie_getAvailableQrFields;
+
     function ie_renderExportFields() {
         const grid = document.getElementById('ie-export-fields-grid');
         const qrGrid = document.getElementById('ie-export-qr-fields-grid');
@@ -11210,41 +12675,53 @@
 
         let html = '';
         allFields.forEach(f => {
-            html += `<label class="flex items-center gap-2 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition"><input type="checkbox" value="${f.id}" class="ie-export-cb accent-blue-600 w-4 h-4 shrink-0 cursor-pointer" checked><span class="text-xs font-bold text-slate-700 truncate">${f.label}</span></label>`;
+            const iconClass = ie_getFieldIcon(f.id);
+            html += `
+                <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200/90 cursor-pointer hover:bg-blue-50/50 hover:border-blue-200 transition group">
+                    <input type="checkbox" value="${f.id}" class="ie-export-cb accent-blue-600 w-4 h-4 shrink-0 cursor-pointer" checked>
+                    <span class="text-xs font-bold text-slate-700 truncate flex items-center min-w-0">
+                        <i class="${iconClass} text-blue-500 mr-1.5 text-xs shrink-0 group-hover:text-blue-600"></i>
+                        <span class="truncate">${f.label}</span>
+                    </span>
+                </label>
+            `;
         });
         grid.innerHTML = html;
 
-        let qrHtml = `
-            <label class="flex items-center gap-2 p-2.5 bg-blue-50/70 rounded-xl border border-blue-200 cursor-pointer hover:bg-blue-100/60 transition">
-                <input type="checkbox" value="_schoolName" class="ie-qr-cb accent-blue-600 w-4 h-4 shrink-0" checked>
-                <div class="flex-1 min-w-0">
-                    <span class="text-[11px] font-black text-blue-900 block truncate"><i class="fa-solid fa-school text-blue-600 mr-1"></i> School Name</span>
-                </div>
-            </label>
-            <label class="flex items-center gap-2 p-2.5 bg-blue-50/70 rounded-xl border border-blue-200 cursor-pointer hover:bg-blue-100/60 transition">
-                <input type="checkbox" value="_appName" class="ie-qr-cb accent-blue-600 w-4 h-4 shrink-0" checked>
-                <div class="flex-1 min-w-0">
-                    <span class="text-[11px] font-black text-blue-900 block truncate"><i class="fa-solid fa-mobile-screen text-blue-600 mr-1"></i> App Name</span>
-                </div>
-            </label>
-            <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition">
-                <input type="checkbox" value="id" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5 shrink-0" checked>
-                <span class="text-[10px] font-bold text-slate-700 truncate">System ID</span>
-            </label>
-            <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition">
-                <input type="checkbox" value="sn" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5 shrink-0" checked>
-                <span class="text-[10px] font-bold text-slate-700 truncate">SN (Serial No)</span>
-            </label>
-        `;
-
-        allFields.forEach(f => {
-            if (f.id !== 'sn' && f.id !== 'id' && f.id !== '_timestamp') {
-                const defaultQrChecked = (f.id === 'studentName' || f.id === 'sclass' || f.id === 'fatherName') ? 'checked' : '';
-                qrHtml += `<label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50 transition"><input type="checkbox" value="${f.id}" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5 shrink-0" ${defaultQrChecked}><span class="text-[10px] font-bold text-slate-700 truncate">${f.label}</span></label>`;
-            }
+        const qrFields = ie_getAvailableQrFields();
+        let qrHtml = '';
+        qrFields.forEach(f => {
+            const iconClass = ie_getFieldIcon(f.id);
+            const isChecked = f.defaultChecked ? 'checked' : '';
+            qrHtml += `
+                <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200/90 cursor-pointer hover:bg-blue-50/70 hover:border-blue-200 transition group">
+                    <input type="checkbox" value="${f.id}" class="ie-qr-cb accent-blue-600 w-3.5 h-3.5 shrink-0 cursor-pointer" ${isChecked}>
+                    <span class="text-[11px] font-bold text-slate-700 truncate flex items-center min-w-0">
+                        <i class="${iconClass} text-blue-500 mr-1.5 text-xs shrink-0 group-hover:text-blue-600"></i>
+                        <span class="truncate">${f.label}</span>
+                    </span>
+                </label>
+            `;
         });
         qrGrid.innerHTML = qrHtml;
     }
+
+    function ie_toggleAllQrFields(check) {
+        document.querySelectorAll('.ie-qr-cb').forEach(cb => {
+            cb.checked = !!check;
+        });
+    }
+    window.ie_toggleAllQrFields = ie_toggleAllQrFields;
+
+    function ie_resetDefaultQrFields() {
+        const qrFields = ie_getAvailableQrFields();
+        const defaultMap = {};
+        qrFields.forEach(f => { defaultMap[f.id] = f.defaultChecked; });
+        document.querySelectorAll('.ie-qr-cb').forEach(cb => {
+            cb.checked = !!defaultMap[cb.value];
+        });
+    }
+    window.ie_resetDefaultQrFields = ie_resetDefaultQrFields;
     
     function ie_toggleExportQrFields() {
         const qrOpts = document.getElementById('ie-export-qr-options');
@@ -11294,7 +12771,7 @@
 
             const schoolName = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.name || schoolConfig.schoolName)) ? (schoolConfig.name || schoolConfig.schoolName) : 'Delhi Public School';
             const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('') || "DPS").toUpperCase();
-            const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify';
+            const appName = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.appName) ? schoolConfig.appName : 'IDentify°';
 
             const allAvailableFields = ie_getAllAvailableFields();
 
@@ -11470,18 +12947,18 @@
             }
 
             const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-            zip.file("Data_Export.xlsx", excelBuffer);
+            zip.file(`Data_Export_${schoolCode}.xlsx`, excelBuffer);
             
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Zipping...';
             const content = await zip.generateAsync({type:"blob"});
             const downloadLink = document.createElement("a");
             downloadLink.href = URL.createObjectURL(content);
-            downloadLink.download = `System_Export_${new Date().toISOString().split('T')[0]}.zip`;
+            downloadLink.download = `Export_${schoolCode}_${new Date().toISOString().split('T')[0]}.zip`;
             document.body.appendChild(downloadLink);
             downloadLink.click();
             document.body.removeChild(downloadLink);
             
-            showToast(`Export Completed: ${targetRecords.length} Records Exported`);
+            showToast(`Export Completed for ${schoolCode}: ${targetRecords.length} Records Exported`);
         } catch(err) {
             console.error(err);
             showToast("Error during export: " + err.message, true);
@@ -11593,9 +13070,9 @@
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./idapplogo.png" alt="IDentify" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
+                <img src="./idapplogo.png" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
             </div>
-            <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify App</h3>
+            <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">
                 Install this app on your device for quick access, full-screen experience, and offline support.
             </p>

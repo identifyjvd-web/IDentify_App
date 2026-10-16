@@ -1430,6 +1430,21 @@
             position: relative;
             padding-top: 36px;
             overflow: hidden;
+            -webkit-touch-callout: none !important;
+            -webkit-user-select: none !important;
+            user-select: none !important;
+        }
+
+        .preview-dark-card img {
+            -webkit-touch-callout: none !important;
+            -webkit-user-drag: none !important;
+            user-select: none !important;
+            pointer-events: none !important;
+        }
+
+        .preview-dark-card .preview-action-bar,
+        .preview-dark-card .preview-action-bar * {
+            pointer-events: auto !important;
         }
 
         .preview-dark-card::before {
