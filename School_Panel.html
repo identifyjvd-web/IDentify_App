@@ -2454,7 +2454,7 @@
                                 );
                             }
 
-                            const matchesSchoolConfig = !data.id || !schoolConfig || !schoolConfig.id || (String(data.id) === String(schoolConfig.id));
+                            const matchesSchoolConfig = data.id && schoolConfig && schoolConfig.id && (String(data.id) === String(schoolConfig.id));
                             if (matchesSchoolConfig) {
                                 schoolConfig = { ...DEFAULT_CONFIG, ...schoolConfig, ...data };
                                 localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));

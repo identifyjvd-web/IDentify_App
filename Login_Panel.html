@@ -24,7 +24,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
         const firebaseConfig = {
     apiKey: "AIzaSyBMZ3LUNSQubKjanv4MNyDNsvKwPmsKQY8",
     authDomain: "id3files.firebaseapp.com",
@@ -40,7 +40,7 @@
             window.auth = getAuth(app);
 
             window.firebaseAPI = {
-                initializeApp, getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, signInAnonymously, onAuthStateChanged,
+                initializeApp, getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword,
                 db: window.db, auth: window.auth, firebaseConfig, doc, getDoc, setDoc
             };
             console.log("Firebase initialized successfully on Login Panel.");
@@ -496,29 +496,20 @@
                     }
                 }
 
-                // 5. Authenticate with Firebase Auth (to acquire a valid auth session for Firestore security rules)
+                // 5. Strict Authentication with Firebase Auth (Must exist in Firebase Authentication)
+                // If user was deleted from Firebase Authentication console, login is strictly denied!
                 try {
                     const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, schoolEmail, password);
                     user = userCredential.user;
                 } catch (fbAuthErr) {
-                    if (passwordVerified) {
-                        // Password was verified via school_auth. Ensure user session exists in Firebase Auth
-                        try {
-                            const createCred = await window.firebaseAPI.createUserWithEmailAndPassword(window.auth, schoolEmail, password);
-                            user = createCred.user;
-                        } catch (createErr) {
-                            try {
-                                const anonCred = await window.firebaseAPI.signInAnonymously(window.auth);
-                                user = anonCred.user;
-                            } catch (anonErr) {
-                                user = { uid: String(matchedSchool.id || ('school_' + Date.now())), email: schoolEmail };
-                            }
-                        }
-                    } else {
-                        // If no school_auth hash was found (legacy), check if Firebase Auth accepted it
-                        // Since Firebase Auth failed here, authentication fails.
-                        throw fbAuthErr;
+                    if (fbAuthErr.code === 'auth/user-not-found' || fbAuthErr.code === 'auth/invalid-credential') {
+                        throw new Error("This account is not registered in Firebase Authentication or credentials are invalid. Please check your credentials or contact Admin.");
                     }
+                    throw fbAuthErr;
+                }
+
+                if (!user) {
+                    throw new Error("Authentication failed. Valid Firebase user session could not be established.");
                 }
 
                 // If auth was verified only via Firebase Auth (legacy school without hash), backfill hash to school_auth
@@ -623,6 +614,24 @@
                         errorEl.classList.remove('hidden');
                     }
                 }
+
+                // Clean URL so refreshing the page does not reload old query param errors
+                if (msg) {
+                    try {
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    } catch(e){}
+                }
+
+                // Clear login error automatically when user starts typing
+                ['login-id', 'login-password'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.addEventListener('input', () => {
+                            const errorEl = document.getElementById('login-error');
+                            if (errorEl) errorEl.classList.add('hidden');
+                        });
+                    }
+                });
 
                 // Hide splash screen after delay, or instantly if logged out / session expired / deactivated
                 const splash = document.getElementById('initial-splash-screen');
