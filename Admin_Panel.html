@@ -2149,9 +2149,12 @@
             function isCurrentSchoolActive(s) {
                 if (!s) return false;
                 const activeId = localStorage.getItem('identify_active_school_id') || (schoolConfig ? schoolConfig.id : null);
-                if (activeId && s.id && String(s.id) === String(activeId)) return true;
-                if (schoolConfig && s.code && schoolConfig.code && String(s.code).toUpperCase() === String(schoolConfig.code).toUpperCase()) return true;
-                if (schoolConfig && s.name && schoolConfig.name && String(s.name).trim().toLowerCase() === String(schoolConfig.name).trim().toLowerCase()) return true;
+                if (activeId && s.id) {
+                    return String(s.id) === String(activeId);
+                }
+                if (schoolConfig && schoolConfig.id && s.id) {
+                    return String(s.id) === String(schoolConfig.id);
+                }
                 return false;
             }
 
@@ -2162,6 +2165,44 @@
             }
             window.renderBlankRecordContent = renderBlankRecordContent;
 
+            let _settingsSwipeStartX = 0;
+            let _settingsSwipeStartY = 0;
+            function handleSettingsSchoolTouchStart(e) {
+                if (e.touches && e.touches[0]) {
+                    _settingsSwipeStartX = e.touches[0].clientX;
+                    _settingsSwipeStartY = e.touches[0].clientY;
+                }
+            }
+            window.handleSettingsSchoolTouchStart = handleSettingsSchoolTouchStart;
+
+            function handleSettingsSchoolTouchEnd(e) {
+                if (!e.changedTouches || !e.changedTouches[0]) return;
+                const diffX = e.changedTouches[0].clientX - _settingsSwipeStartX;
+                const diffY = e.changedTouches[0].clientY - _settingsSwipeStartY;
+                if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+                    if (diffX < 0) {
+                        slideSettingsSchool(1); // Swipe left -> Next school
+                    } else {
+                        slideSettingsSchool(-1); // Swipe right -> Previous school
+                    }
+                }
+            }
+            window.handleSettingsSchoolTouchEnd = handleSettingsSchoolTouchEnd;
+
+            function slideSettingsSchool(dir) {
+                if (!Array.isArray(schoolsList) || schoolsList.length <= 1) return;
+                const activeId = localStorage.getItem('identify_active_school_id') || (schoolConfig ? schoolConfig.id : null);
+                let idx = schoolsList.findIndex(s => s && String(s.id) === String(activeId));
+                if (idx === -1) idx = 0;
+                let nextIdx = (idx + dir + schoolsList.length) % schoolsList.length;
+                const target = schoolsList[nextIdx];
+                if (target) {
+                    selectActiveSchool(target.id, false);
+                    renderBlankRecordContent();
+                }
+            }
+            window.slideSettingsSchool = slideSettingsSchool;
+
             function recordBelongsToSchool(rec, activeConfig) {
                 if (!rec) return false;
                 const cfg = activeConfig || (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
@@ -2170,17 +2211,41 @@
                 const targetCode = String(cfg.code || 'DPS').trim().toUpperCase();
                 const targetId = cfg.id ? String(cfg.id) : '';
 
-                // 1. Explicit schoolId match
-                if (rec.schoolId && targetId && String(rec.schoolId) === targetId) return true;
-
-                // 2. Explicit schoolCode match
-                if (rec.schoolCode) {
-                    return String(rec.schoolCode).trim().toUpperCase() === targetCode;
+                // 1. Explicit schoolId match: Authoritative check!
+                if (rec.schoolId && targetId) {
+                    return String(rec.schoolId) === targetId;
                 }
 
-                // 3. ID prefix match (rec_DPS_... or draft_DPS-...)
+                // If record has a schoolId that belongs to another registered school, reject it
+                if (rec.schoolId && typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) {
+                    const belongsToOther = schoolsList.some(s => s && s.id && String(s.id) === String(rec.schoolId));
+                    if (belongsToOther) return false;
+                }
+
+                // 2. Explicit schoolCode match (only if no same-code conflict among schools)
+                if (rec.schoolCode && targetCode) {
+                    const rCode = String(rec.schoolCode).trim().toUpperCase();
+                    if (rCode === targetCode) {
+                        if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) {
+                            const sameCodeCount = schoolsList.filter(s => s && s.code && String(s.code).trim().toUpperCase() === targetCode).length;
+                            if (sameCodeCount > 1) {
+                                return rec.schoolId && targetId ? String(rec.schoolId) === targetId : false;
+                            }
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+
+                // 3. ID prefix match (rec_DPS_... or draft_DPS-... or import_DPS_...)
                 const idStr = String(rec.id || '');
-                if (idStr.startsWith('rec_' + targetCode + '_') || idStr.startsWith('draft_' + targetCode + '-')) {
+                if (targetCode && (idStr.startsWith('rec_' + targetCode + '_') || idStr.startsWith('draft_' + targetCode + '-') || idStr.startsWith('import_' + targetCode + '_'))) {
+                    if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) {
+                        const sameCodeCount = schoolsList.filter(s => s && s.code && String(s.code).trim().toUpperCase() === targetCode).length;
+                        if (sameCodeCount > 1) {
+                            return rec.schoolId && targetId ? String(rec.schoolId) === targetId : false;
+                        }
+                    }
                     return true;
                 }
 
@@ -2190,7 +2255,7 @@
                         if (s && s.code) {
                             const otherCode = String(s.code).trim().toUpperCase();
                             if (otherCode && otherCode !== targetCode) {
-                                if (idStr.startsWith('rec_' + otherCode + '_') || idStr.startsWith('draft_' + otherCode + '-')) {
+                                if (idStr.startsWith('rec_' + otherCode + '_') || idStr.startsWith('draft_' + otherCode + '-') || idStr.startsWith('import_' + otherCode + '_')) {
                                     return false;
                                 }
                             }
@@ -2204,7 +2269,7 @@
             }
             window.recordBelongsToSchool = recordBelongsToSchool;
 
-            function selectActiveSchool(schoolId) {
+            function selectActiveSchool(schoolId, shouldCloseBlankRecord = true) {
                 const target = schoolsList.find(s => s && String(s.id) === String(schoolId));
                 if (!target) return;
                 
@@ -2234,7 +2299,11 @@
                     if (typeof filterRecords === 'function') filterRecords();
                 } catch(e) {}
                 
-                setBlankRecordMode('none');
+                if (shouldCloseBlankRecord) {
+                    setBlankRecordMode('none');
+                } else {
+                    if (typeof updateBrandingUI === 'function') updateBrandingUI();
+                }
             }
             window.selectActiveSchool = selectActiveSchool;
 
@@ -2715,12 +2784,44 @@ Generated By    : IDentify° Admin Panel
                     }
 
                     // If deleted school was active school, switch to another
-                    if (isCurrentSchoolActive(target) && schoolsList.length > 0) {
-                        selectActiveSchool(schoolsList[0].id);
+                    if (schoolsList.length > 0) {
+                        if (isCurrentSchoolActive(target)) {
+                            selectActiveSchool(schoolsList[0].id);
+                        } else {
+                            schoolManageViewMode = 'list';
+                            editingSchoolId = null;
+                            renderBlankRecordContent();
+                        }
                     } else {
+                        // All schools deleted! Reset schoolConfig completely so no old school name appears in settings
+                        schoolConfig = {
+                            ...DEFAULT_CONFIG,
+                            id: '',
+                            name: '',
+                            code: '',
+                            address: '',
+                            contactPerson: '',
+                            mobile: '',
+                            email: '',
+                            logo: '',
+                            formActive: true,
+                            active: true
+                        };
+                        localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+                        localStorage.removeItem('identify_active_school_id');
+                        updateBrandingUI();
+                        try {
+                            if (window.db && window.firebaseAPI && typeof window.firebaseAPI.doc === 'function') {
+                                const docRef = window.firebaseAPI.doc(window.db, "system", "schoolConfig");
+                                window.firebaseAPI.setDoc(docRef, schoolConfig).catch(()=>{});
+                            }
+                        } catch(e){}
                         schoolManageViewMode = 'list';
                         editingSchoolId = null;
                         renderBlankRecordContent();
+                    }
+                    if (typeof updateBlankRecordHeader === 'function') {
+                        updateBlankRecordHeader('manage_school');
                     }
 
                     if (overlay) overlay.remove();
@@ -2734,8 +2835,8 @@ Generated By    : IDentify° Admin Panel
             window.executeSchoolDeleteAndBackup = executeSchoolDeleteAndBackup;
 
             function deleteSchoolWithPinBackup(schoolId) {
-                if (schoolsList.length <= 1) {
-                    showToast('At least one school must remain registered.', { type: 'error' });
+                if (!schoolsList || schoolsList.length === 0) {
+                    showToast('No school to delete.', { type: 'error' });
                     return;
                 }
                 const target = schoolsList.find(s => String(s.id) === String(schoolId));
@@ -2838,7 +2939,13 @@ Generated By    : IDentify° Admin Panel
                     if (existing) schoolLogo = existing.logo || '';
                 }
 
-                const finalCode = code || (name.split(/\s+/).map(w=>w[0]).join('').toUpperCase() || 'SCH');
+                const userCode = code || (name.split(/\s+/).map(w=>w[0]).join('').toUpperCase() || 'SCH');
+                let finalCode = userCode;
+                let codeSuffix = 2;
+                while (schoolsList.some(s => s && String(s.id) !== String(targetId) && s.code && String(s.code).trim().toUpperCase() === finalCode.toUpperCase())) {
+                    finalCode = `${userCode}-${codeSuffix}`;
+                    codeSuffix++;
+                }
 
                 const existingSchool = editingSchoolId ? schoolsList.find(s => String(s.id) === String(editingSchoolId)) : null;
                 const formActiveStatus = existingSchool ? (existingSchool.formActive !== false && existingSchool.active !== false) : true;
@@ -2999,6 +3106,9 @@ Generated By    : IDentify° Admin Panel
 
                 schoolManageViewMode = 'list';
                 editingSchoolId = null;
+                if (typeof updateBlankRecordHeader === 'function') {
+                    updateBlankRecordHeader('manage_school');
+                }
                 renderBlankRecordContent();
             }
 
@@ -3039,12 +3149,19 @@ Generated By    : IDentify° Admin Panel
                         window._schoolsUnsubscribe = window.firebaseAPI.onSnapshot(schoolsDocRef, (snap) => {
                             if (snap.exists() && Array.isArray(snap.data()?.list)) {
                                 const list = snap.data().list;
-                                if (list.length > 0) {
-                                    schoolsList = list;
-                                    localStorage.setItem(SCHOOLS_KEY, JSON.stringify(schoolsList));
-                                    if (typeof blankRecordMode !== 'undefined' && blankRecordMode === 'manage_school' && schoolManageViewMode === 'list') {
-                                        if (typeof renderBlankRecordContent === 'function') renderBlankRecordContent();
-                                    }
+                                schoolsList = list;
+                                localStorage.setItem(SCHOOLS_KEY, JSON.stringify(schoolsList));
+                                if (schoolsList.length === 0) {
+                                    schoolConfig = { ...DEFAULT_CONFIG, id: '', name: '', code: '', address: '', contactPerson: '', mobile: '', email: '', logo: '', formActive: true, active: true };
+                                    localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+                                    localStorage.removeItem('identify_active_school_id');
+                                    updateBrandingUI();
+                                }
+                                if (typeof blankRecordMode !== 'undefined' && blankRecordMode === 'manage_school') {
+                                    if (typeof updateBlankRecordHeader === 'function') updateBlankRecordHeader('manage_school');
+                                    if (typeof renderBlankRecordContent === 'function') renderBlankRecordContent();
+                                } else if (typeof blankRecordMode !== 'undefined' && blankRecordMode === 'settings') {
+                                    if (typeof renderBlankRecordContent === 'function') renderBlankRecordContent();
                                 }
                             }
                         });
@@ -3139,12 +3256,10 @@ Generated By    : IDentify° Admin Panel
                 localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
                 
                 // Keep schoolsList updated with current config
-                if (Array.isArray(schoolsList) && config && (config.id || config.code || config.name)) {
-                    const idx = schoolsList.findIndex(s => s && ((config.id && s.id && String(s.id) === String(config.id)) || (config.code && s.code && String(s.code).toUpperCase() === String(config.code).toUpperCase())));
+                if (Array.isArray(schoolsList) && config && config.id) {
+                    const idx = schoolsList.findIndex(s => s && s.id && String(s.id) === String(config.id));
                     if (idx !== -1) {
                         schoolsList[idx] = { ...schoolsList[idx], ...config };
-                    } else if (config.name) {
-                        schoolsList.push({ ...config, id: config.id || ('school_' + Date.now()) });
                     }
                     saveSchoolsList(schoolsList);
                 }
@@ -4402,12 +4517,22 @@ Generated By    : IDentify° Admin Panel
                     const headerHtml = `<i class="${iconClass} mr-2.5"></i> ${labelText}`;
                     const search = document.getElementById('mainSearch');
                     const searchIcon = document.getElementById('search-icon');
+                    const info = document.getElementById('records-page-info-db');
+                    const altInfo = document.getElementById('records-page-info-db');
                     if (search) {
                         search.value = labelText;
                         search.placeholder = labelText;
                     }
                     if (searchIcon) {
                         searchIcon.className = iconClass + ' ml-2';
+                    }
+                    if (info) {
+                        info.innerHTML = headerHtml;
+                        info.classList.remove('hidden');
+                    }
+                    if (altInfo) {
+                        altInfo.innerHTML = headerHtml;
+                        altInfo.classList.remove('hidden');
                     }
                 } else if (currentMode === 'import_export') {
                     const activeCode = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.code || schoolConfig.schoolCode)) ? String(schoolConfig.code || schoolConfig.schoolCode).trim().toUpperCase() : '';
@@ -5278,6 +5403,8 @@ Generated By    : IDentify° Admin Panel
                             const rec = {
                                 id: recId,
                                 sn: currentSn,
+                                schoolId: (schoolConfig && schoolConfig.id) ? String(schoolConfig.id) : ('school_' + schoolCode.toLowerCase()),
+                                schoolCode: schoolCode,
                                 studentName: studentName,
                                 fatherName: fatherName,
                                 sclass: sclass,
@@ -8078,50 +8205,116 @@ Generated By    : IDentify° Admin Panel
                     }
 
                     if (blankRecordMode === 'settings') {
+                        const totalSchools = (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) ? schoolsList.length : 0;
+                        const activeId = localStorage.getItem('identify_active_school_id') || (schoolConfig ? schoolConfig.id : null);
+                        let currentIdx = totalSchools > 0 ? schoolsList.findIndex(s => s && String(s.id) === String(activeId)) : -1;
+                        if (currentIdx === -1 && totalSchools > 0) currentIdx = 0;
+                        const currentSchool = totalSchools > 0 ? (schoolsList[currentIdx] || schoolConfig || {}) : null;
+
+                        let topSchoolCardHtml = '';
+                        if (!currentSchool || totalSchools === 0) {
+                            topSchoolCardHtml = `
+                            <div class="p-6 bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl text-center space-y-2">
+                                <div class="w-16 h-16 mx-auto rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-2xl shadow-xs">
+                                    <i class="fa-solid fa-school-circle-xmark"></i>
+                                </div>
+                                <h3 class="text-sm font-black text-slate-700">No School Registered</h3>
+                                <p class="text-[11px] text-slate-400 font-medium max-w-xs mx-auto">Please add a new school from Manage Schools to activate settings & features.</p>
+                                ${(currentUser && currentUser.userId === 'admin') ? `
+                                <button type="button" onclick="openManageSchools(); setTimeout(()=>openAddSchoolForm(), 80);" class="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl transition shadow-sm">
+                                    <i class="fa-solid fa-plus text-[10px]"></i> Create School
+                                </button>
+                                ` : ''}
+                            </div>
+                            `;
+                        } else {
+                            topSchoolCardHtml = `
+                            <div ontouchstart="handleSettingsSchoolTouchStart(event)" ontouchend="handleSettingsSchoolTouchEnd(event)" class="relative p-5 bg-gradient-to-br from-white to-emerald-50/40 rounded-3xl border border-emerald-100 shadow-sm transition-all select-none group">
+                                <!-- Top Bar: Navigation indicator and arrows -->
+                                <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                                    <div class="flex items-center gap-2">
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                            ${sanitizeHTML(currentSchool.code || 'DPS')}
+                                        </span>
+                                        ${totalSchools > 1 ? `
+                                        <span class="text-[10.5px] font-bold text-slate-400">
+                                            School ${currentIdx + 1} of ${totalSchools}
+                                        </span>
+                                        ` : `
+                                        <span class="text-[10.5px] font-bold text-slate-400">Active School</span>
+                                        `}
+                                    </div>
+                                    ${totalSchools > 1 ? `
+                                    <div class="flex items-center gap-1">
+                                        <button type="button" onclick="slideSettingsSchool(-1)" class="w-7 h-7 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 flex items-center justify-center active:scale-90 transition shadow-xs" title="Previous School">
+                                            <i class="fa-solid fa-chevron-left text-[11px]"></i>
+                                        </button>
+                                        <button type="button" onclick="slideSettingsSchool(1)" class="w-7 h-7 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 flex items-center justify-center active:scale-90 transition shadow-xs" title="Next School">
+                                            <i class="fa-solid fa-chevron-right text-[11px]"></i>
+                                        </button>
+                                    </div>
+                                    ` : ''}
+                                </div>
+
+                                <!-- School Details (with logo zoom and swipe support) -->
+                                <div class="flex items-stretch gap-3.5 text-left">
+                                    <div onclick="openImagePreviewModal('${currentSchool.logo || ''}')" class="w-20 h-20 rounded-2xl bg-emerald-50 flex items-center justify-center border-2 border-emerald-100 shadow-xs relative overflow-hidden shrink-0 cursor-pointer hover:scale-105 active:scale-95 transition-transform" title="Tap to Zoom Logo">
+                                        ${currentSchool.logo ? `<img src="${currentSchool.logo}" class="w-full h-full object-cover">` : `<i class="fa-solid fa-school-flag text-4xl text-emerald-600"></i>`}
+                                    </div>
+                                    <div class="flex flex-col justify-between py-0.5 min-w-0 flex-1">
+                                        <!-- School Name -->
+                                        <h3 class="text-[15px] font-black text-slate-800 truncate leading-tight" title="${sanitizeHTML(currentSchool.name || '')}">
+                                            ${sanitizeHTML(currentSchool.name || 'School Name')}
+                                        </h3>
+                                        
+                                        <!-- Address -->
+                                        <div class="text-[10.5px] text-slate-700 font-extrabold leading-normal truncate">
+                                            <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(currentSchool.address || '')}" target="_blank" class="hover:underline hover:text-emerald-700 transition-colors">
+                                                <i class="fa-solid fa-location-dot text-emerald-600 mr-1 text-[9px]"></i>${sanitizeHTML(currentSchool.address || 'Address not set')}
+                                            </a>
+                                        </div>
+
+                                        <!-- Contact Person & Mobile -->
+                                        <div class="text-[10px] text-slate-700 font-extrabold leading-normal truncate flex items-center gap-1.5">
+                                            <span class="truncate"><i class="fa-solid fa-user-tie text-emerald-600 mr-1 text-[9px]"></i>${sanitizeHTML(currentSchool.contactPerson || 'Contact not set')}</span>
+                                            <span class="text-slate-400">&bull;</span>
+                                            <span class="text-slate-800 font-black tracking-wider uppercase shrink-0">
+                                                ${currentSchool.mobile ? `
+                                                    <a href="tel:${currentSchool.mobile}" class="hover:underline hover:text-emerald-700 transition-colors">
+                                                        <i class="fa-solid fa-phone text-emerald-600 mr-1 text-[9px]"></i>${sanitizeHTML(currentSchool.mobile)}
+                                                    </a>
+                                                ` : `
+                                                    <i class="fa-solid fa-phone text-emerald-600 mr-1 text-[9px]"></i>No Mobile
+                                                `}
+                                            </span>
+                                        </div>
+
+                                        <!-- Email -->
+                                        <div class="text-[10px] text-slate-800 font-black tracking-wider uppercase truncate">
+                                            ${currentSchool.email ? `
+                                                <a href="mailto:${currentSchool.email}" class="hover:underline hover:text-emerald-700 transition-colors">
+                                                    <i class="fa-solid fa-envelope text-emerald-600 mr-1 text-[9px]"></i>${sanitizeHTML(currentSchool.email)}
+                                                </a>
+                                            ` : `
+                                                <i class="fa-solid fa-envelope text-emerald-600 mr-1 text-[9px]"></i>No Email
+                                            `}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                ${totalSchools > 1 ? `
+                                <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-bold">
+                                    <span class="flex items-center gap-1"><i class="fa-solid fa-arrows-left-right text-emerald-600"></i> Slide left/right to switch school & data</span>
+                                    <span class="text-emerald-600 font-black cursor-pointer hover:underline" onclick="openManageSchools()">Manage (${totalSchools})</span>
+                                </div>
+                                ` : ''}
+                            </div>
+                            `;
+                        }
+
                         t.innerHTML = `
                 <div class="p-6 bg-white rounded-3xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300 system-card">
-                    <div class="flex items-stretch gap-4 text-left pb-2">
-                        <div onclick="openImagePreviewModal(schoolConfig ? schoolConfig.logo : null)" class="w-24 h-24 rounded-3xl bg-emerald-50 flex items-center justify-center border-2 border-emerald-100 shadow-sm relative overflow-hidden shrink-0 cursor-pointer hover:scale-105 active:scale-95 transition-transform" title="Tap to Zoom Logo">
-                            ${schoolConfig.logo ? `<img src="${schoolConfig.logo}" class="w-full h-full object-cover">` : `<i class="fa-solid fa-school-flag text-5xl text-emerald-600"></i>`}
-                        </div>
-                        <div class="flex flex-col justify-between py-1 min-w-0 flex-1 h-24">
-                            <!-- School Name (slightly larger) -->
-                            <h3 class="text-[15px] font-black text-slate-800 truncate leading-tight">${schoolConfig.name || 'School Name'}</h3>
-                            
-                            <!-- Address (immediately under School Name, same text size) -->
-                            <div class="text-[10px] text-slate-700 font-extrabold leading-normal truncate">
-                                <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(schoolConfig.address || '')}" target="_blank" class="hover:underline hover:text-emerald-700 transition-colors">
-                                    <i class="fa-solid fa-location-dot text-emerald-600 mr-1 text-[9px]"></i>${schoolConfig.address || 'Address not set'}
-                                </a>
-                            </div>
-
-                            <!-- Contact Person & Mobile (inline, same text size) -->
-                            <div class="text-[10px] text-slate-700 font-extrabold leading-normal truncate flex items-center gap-1.5">
-                                <span class="truncate"><i class="fa-solid fa-user-tie text-emerald-600 mr-1 text-[9px]"></i>${schoolConfig.contactPerson || 'Contact not set'}</span>
-                                <span class="text-slate-400">&bull;</span>
-                                <span class="text-slate-800 font-black tracking-wider uppercase shrink-0">
-                                    ${schoolConfig.mobile ? `
-                                        <a href="tel:${schoolConfig.mobile}" class="hover:underline hover:text-emerald-700 transition-colors">
-                                            <i class="fa-solid fa-phone text-emerald-600 mr-1 text-[9px]"></i>${schoolConfig.mobile}
-                                        </a>
-                                    ` : `
-                                        <i class="fa-solid fa-phone text-emerald-600 mr-1 text-[9px]"></i>No Mobile
-                                    `}
-                                </span>
-                            </div>
-
-                            <!-- Email (same text size) -->
-                            <div class="text-[10px] text-slate-800 font-black tracking-wider uppercase truncate">
-                                ${schoolConfig.email ? `
-                                    <a href="mailto:${schoolConfig.email}" class="hover:underline hover:text-emerald-700 transition-colors">
-                                        <i class="fa-solid fa-envelope text-emerald-600 mr-1 text-[9px]"></i>${schoolConfig.email}
-                                    </a>
-                                ` : `
-                                    <i class="fa-solid fa-envelope text-emerald-600 mr-1 text-[9px]"></i>No Email
-                                `}
-                            </div>
-                        </div>
-                    </div>
+                    ${topSchoolCardHtml}
 
                     <div class="space-y-3">
                         ${(currentUser && currentUser.userId === 'admin') ? `
@@ -8130,7 +8323,12 @@ Generated By    : IDentify° Admin Panel
                                 <i class="fa-solid fa-school text-xl"></i>
                             </div>
                             <div class="flex-1">
-                                <h4 class="text-sm font-black text-slate-800">Manage Schools</h4>
+                                <div class="flex items-center justify-between">
+                                    <h4 class="text-sm font-black text-slate-800">Manage Schools</h4>
+                                    <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">
+                                        ${totalSchools} ${totalSchools === 1 ? 'School' : 'Schools'}
+                                    </span>
+                                </div>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">School Accounts & Access</p>
                             </div>
                         </div>

@@ -2613,28 +2613,52 @@
                 const targetCode = String(cfg.code || 'DPS').trim().toUpperCase();
                 const targetId = cfg.id ? String(cfg.id) : '';
 
-                // 1. Explicit schoolId match
-                if (rec.schoolId && targetId && String(rec.schoolId) === targetId) return true;
-
-                // 2. Explicit schoolCode match
-                if (rec.schoolCode) {
-                    return String(rec.schoolCode).trim().toUpperCase() === targetCode;
+                // 1. Explicit schoolId match: Authoritative check!
+                if (rec.schoolId && targetId) {
+                    return String(rec.schoolId) === targetId;
                 }
 
-                // 3. ID prefix match (rec_DPS_... or draft_DPS-...)
+                // If record has a schoolId belonging to another registered school, reject it
+                const list = (typeof window.schoolsList !== 'undefined' && Array.isArray(window.schoolsList)) ? window.schoolsList : (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) ? schoolsList : []);
+                if (rec.schoolId && list.length > 0) {
+                    const belongsToOther = list.some(s => s && s.id && String(s.id) === String(rec.schoolId));
+                    if (belongsToOther) return false;
+                }
+
+                // 2. Explicit schoolCode match
+                if (rec.schoolCode && targetCode) {
+                    const rCode = String(rec.schoolCode).trim().toUpperCase();
+                    if (rCode === targetCode) {
+                        if (list.length > 0) {
+                            const sameCodeCount = list.filter(s => s && s.code && String(s.code).trim().toUpperCase() === targetCode).length;
+                            if (sameCodeCount > 1) {
+                                return rec.schoolId && targetId ? String(rec.schoolId) === targetId : false;
+                            }
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+
+                // 3. ID prefix match (rec_DPS_... or draft_DPS-... or import_DPS_...)
                 const idStr = String(rec.id || '');
-                if (idStr.startsWith('rec_' + targetCode + '_') || idStr.startsWith('draft_' + targetCode + '-')) {
+                if (targetCode && (idStr.startsWith('rec_' + targetCode + '_') || idStr.startsWith('draft_' + targetCode + '-') || idStr.startsWith('import_' + targetCode + '_'))) {
+                    if (list.length > 0) {
+                        const sameCodeCount = list.filter(s => s && s.code && String(s.code).trim().toUpperCase() === targetCode).length;
+                        if (sameCodeCount > 1) {
+                            return rec.schoolId && targetId ? String(rec.schoolId) === targetId : false;
+                        }
+                    }
                     return true;
                 }
 
                 // If ID contains another known school's prefix, it belongs to that other school
-                const list = (typeof window.schoolsList !== 'undefined' && Array.isArray(window.schoolsList)) ? window.schoolsList : (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) ? schoolsList : []);
                 if (list.length > 0) {
                     for (const s of list) {
                         if (s && s.code) {
                             const otherCode = String(s.code).trim().toUpperCase();
                             if (otherCode && otherCode !== targetCode) {
-                                if (idStr.startsWith('rec_' + otherCode + '_') || idStr.startsWith('draft_' + otherCode + '-')) {
+                                if (idStr.startsWith('rec_' + otherCode + '_') || idStr.startsWith('draft_' + otherCode + '-') || idStr.startsWith('import_' + otherCode + '_')) {
                                     return false;
                                 }
                             }
@@ -4746,6 +4770,8 @@
                             const rec = {
                                 id: recId,
                                 sn: currentSn,
+                                schoolId: (schoolConfig && schoolConfig.id) ? String(schoolConfig.id) : ('school_' + schoolCode.toLowerCase()),
+                                schoolCode: schoolCode,
                                 studentName: studentName,
                                 fatherName: fatherName,
                                 sclass: sclass,
