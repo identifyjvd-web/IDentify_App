@@ -1952,6 +1952,7 @@
 
             let _publicDeactivatedToastFired = false;
             function renderPublicFormDeactivatedScreen() {
+                document.documentElement.classList.add('is-public-form-closed');
                 currentTab = 'records';
                 const recTab = document.getElementById('records');
                 if (recTab) {
@@ -2112,6 +2113,7 @@
             }
 
             function renderPublicFormActiveScreen() {
+                document.documentElement.classList.remove('is-public-form-closed');
                 _publicDeactivatedToastFired = false;
                 currentTab = 'records';
                 const recTab = document.getElementById('records');
