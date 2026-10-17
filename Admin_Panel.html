@@ -552,8 +552,8 @@
                     <input type="text" id="in-customField3" value="">
                     <input type="text" id="in-customField4" value="">
                     <input type="text" id="in-customField5" value="">
-                    <input type="file" id="photo-upload" accept="image/*">
-                    <input type="file" id="photo-capture" accept="image/*" capture="environment">
+                    <input type="file" id="photo-upload" accept=".jpg, .jpeg, .png, .webp, image/jpeg, image/png, image/webp">
+                    <input type="file" id="photo-capture" accept=".jpg, .jpeg, .png, .webp, image/jpeg, image/png, image/webp" capture="environment">
                     <button type="button" id="remove-photo-btn" class="hidden"></button>
                     <div id="photo-upload-label"></div>
                     <div id="upload-btn-text"></div>
@@ -743,7 +743,134 @@
             
 
             function getCurrentUserName() {
-                return currentUser && currentUser.displayName ? currentUser.displayName : (currentUser && currentUser.userId ? currentUser.userId : 'Admin');
+                if (currentUser && currentUser.displayName && String(currentUser.displayName).trim()) {
+                    return String(currentUser.displayName).trim();
+                }
+                if (currentUser && currentUser.name && String(currentUser.name).trim()) {
+                    return String(currentUser.name).trim();
+                }
+                return 'Admin';
+            }
+
+            function getRecordSchoolName(rec) {
+                if (!rec) {
+                    return (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.name) ? schoolConfig.name : 'School';
+                }
+                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) {
+                    if (rec.schoolId) {
+                        const rawId = String(rec.schoolId).trim();
+                        const s = schoolsList.find(x => x && (
+                            String(x.id).trim() === rawId ||
+                            ('school_' + String(x.id).trim()) === rawId ||
+                            String(x.id).trim() === rawId.replace(/^school_/, '')
+                        ));
+                        if (s && s.name) return s.name;
+                    }
+                    if (rec.schoolCode) {
+                        const codeLower = String(rec.schoolCode).trim().toLowerCase();
+                        const s = schoolsList.find(x => x && x.code && String(x.code).trim().toLowerCase() === codeLower);
+                        if (s && s.name) return s.name;
+                    }
+                    if (rec.createdBy) {
+                        const cLower = String(rec.createdBy).trim().toLowerCase();
+                        const s = schoolsList.find(x => x && (
+                            (x.code && String(x.code).trim().toLowerCase() === cLower) ||
+                            (x.email && String(x.email).trim().toLowerCase() === cLower) ||
+                            (String(x.id).trim().toLowerCase() === cLower)
+                        ));
+                        if (s && s.name) return s.name;
+                    }
+                }
+                if (rec._schoolName && String(rec._schoolName).trim()) return String(rec._schoolName).trim();
+                if (rec.schoolName && String(rec.schoolName).trim()) return String(rec.schoolName).trim();
+                if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.name) return schoolConfig.name;
+                return rec.schoolCode || 'School';
+            }
+
+            function getHumanReadableName(val, rec) {
+                if (val === undefined || val === null) val = '';
+                const raw = String(val).trim();
+
+                // 1. Empty value -> infer from school or default
+                if (!raw) {
+                    if (rec) {
+                        const sName = getRecordSchoolName(rec);
+                        if (sName) return sName;
+                    }
+                    if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.name) {
+                        return schoolConfig.name;
+                    }
+                    return 'Admin';
+                }
+
+                // 2. Public online form
+                if (/public\s*(online)?\s*form/i.test(raw) || raw.toLowerCase() === 'public_online_form') {
+                    return 'Public Online Form';
+                }
+
+                // 3. Admin / System Admin
+                if (/^(admin|system\s*admin|system|super\s*admin)$/i.test(raw) || /admin@/i.test(raw)) {
+                    return 'Admin';
+                }
+
+                // 4. Match with active schoolConfig
+                if (typeof schoolConfig !== 'undefined' && schoolConfig) {
+                    if (schoolConfig.code && String(schoolConfig.code).trim().toLowerCase() === raw.toLowerCase()) {
+                        return schoolConfig.name || schoolConfig.code;
+                    }
+                    if (schoolConfig.id && (String(schoolConfig.id).trim().toLowerCase() === raw.toLowerCase() || ('school_' + String(schoolConfig.id).toLowerCase()) === raw.toLowerCase())) {
+                        return schoolConfig.name || 'School';
+                    }
+                    if (schoolConfig.email && String(schoolConfig.email).trim().toLowerCase() === raw.toLowerCase()) {
+                        return schoolConfig.name || 'School';
+                    }
+                }
+
+                // 5. Match with schoolsList
+                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) {
+                    const byCode = schoolsList.find(s => s && s.code && String(s.code).trim().toLowerCase() === raw.toLowerCase());
+                    if (byCode && byCode.name) return byCode.name;
+
+                    const byId = schoolsList.find(s => s && s.id && (
+                        String(s.id).trim().toLowerCase() === raw.toLowerCase() ||
+                        ('school_' + String(s.id).toLowerCase()) === raw.toLowerCase() ||
+                        String(s.id).toLowerCase() === raw.toLowerCase().replace(/^school_/, '')
+                    ));
+                    if (byId && byId.name) return byId.name;
+
+                    const byEmail = schoolsList.find(s => s && s.email && String(s.email).trim().toLowerCase() === raw.toLowerCase());
+                    if (byEmail && byEmail.name) return byEmail.name;
+
+                    const byEmbed = schoolsList.find(s => s && s.code && raw.toLowerCase().includes(String(s.code).toLowerCase()));
+                    if (byEmbed && (raw.startsWith('school_') || raw.startsWith('rec_') || raw.length < 10)) {
+                        if (byEmbed.name) return byEmbed.name;
+                    }
+                }
+
+                // 6. Infer from record school context
+                if (rec) {
+                    const sName = getRecordSchoolName(rec);
+                    if (sName && (/^[a-zA-Z0-9_-]{15,}$/.test(raw) || /^\d{10,}$/.test(raw) || raw.startsWith('rec_') || raw.startsWith('school_') || raw.toLowerCase() === 'school')) {
+                        return sName;
+                    }
+                }
+
+                // 7. Email address formatting
+                if (raw.includes('@')) {
+                    const userPart = raw.split('@')[0];
+                    if (/admin/i.test(userPart)) return 'Admin';
+                    return userPart.replace(/[._-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).trim();
+                }
+
+                // 8. Technical hash / UID / numeric timestamp
+                if (/^[a-zA-Z0-9_-]{20,}$/.test(raw) || /^\d{10,}$/.test(raw)) {
+                    if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.name) {
+                        return schoolConfig.name;
+                    }
+                    return 'Admin';
+                }
+
+                return raw;
             }
             function saveAuthUser(user) {
                 currentUser = user || null;
@@ -1227,11 +1354,54 @@
                 }
             }
 
-            function previewManageSchoolLogo(event) {
+            async function validateImageFile(file) {
+                if (!file) return false;
+                const name = (file.name || '').toLowerCase();
+                const validExts = ['.jpg', '.jpeg', '.png', '.webp'];
+                const hasValidExt = validExts.some(ext => name.endsWith(ext));
+                if (!hasValidExt) {
+                    showToast('<i class="fa-solid fa-shield-halved text-rose-500 mr-2"></i> Security Alert: Only JPG, PNG, and WEBP photos are allowed!', true);
+                    return false;
+                }
+                const mime = (file.type || '').toLowerCase();
+                if (mime && !['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(mime)) {
+                    showToast('<i class="fa-solid fa-shield-halved text-rose-500 mr-2"></i> Security Alert: Invalid image type!', true);
+                    return false;
+                }
+                try {
+                    const slice = file.slice(0, 12);
+                    const buf = await slice.arrayBuffer();
+                    const bytes = new Uint8Array(buf);
+                    if (bytes.length < 4) return false;
+                    // JPEG: FF D8 FF
+                    const isJpeg = (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF);
+                    // PNG: 89 50 4E 47
+                    const isPng = (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47);
+                    // WEBP: 'RIFF' .... 'WEBP'
+                    const isWebp = (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+                                   bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50);
+                    if (!isJpeg && !isPng && !isWebp) {
+                        showToast('<i class="fa-solid fa-shield-halved text-rose-500 mr-2"></i> Security Alert: Corrupted or fake image file rejected!', true);
+                        return false;
+                    }
+                    return true;
+                } catch(e) {
+                    console.warn("Image verification error:", e);
+                    return false;
+                }
+            }
+            window.validateImageFile = validateImageFile;
+
+            async function previewManageSchoolLogo(event) {
                 if (event && event.stopPropagation) event.stopPropagation();
                 saveManageSchoolFormDraft();
                 const file = event && event.target && event.target.files && event.target.files[0];
                 if (file) {
+                    const isValid = await validateImageFile(file);
+                    if (!isValid) {
+                        if (event && event.target) event.target.value = '';
+                        return;
+                    }
                     compressImage(file, (compFile, dataUrl) => {
                         tempManageSchoolLogo = dataUrl;
                         const img = document.getElementById('manage-logo-preview-img');
@@ -2391,10 +2561,16 @@
                 
                 localStorage.setItem('identify_active_school_id', String(target.id));
                 
+                const targetLogo = (target && typeof target.logo === 'string') ? target.logo.trim() : '';
                 schoolConfig = {
-                    ...schoolConfig,
+                    ...DEFAULT_CONFIG,
                     ...target,
-                    id: target.id
+                    id: target.id,
+                    logo: targetLogo,
+                    address: target.address || '',
+                    contactPerson: target.contactPerson || '',
+                    mobile: target.mobile || '',
+                    email: target.email || ''
                 };
                 if (typeof target.formActive !== 'undefined') {
                     schoolConfig.formActive = target.formActive;
@@ -2417,9 +2593,8 @@
                 
                 if (shouldCloseBlankRecord) {
                     setBlankRecordMode('none');
-                } else {
-                    if (typeof updateBrandingUI === 'function') updateBrandingUI();
                 }
+                if (typeof updateBrandingUI === 'function') updateBrandingUI();
             }
             window.selectActiveSchool = selectActiveSchool;
 
@@ -2767,6 +2942,8 @@ Generated By    : IDentify° Admin Panel
                             "Record Type": rec.recordType || "student",
                             "Status": rec.status || "",
                             "Verified": rec.verified || "",
+                            "Created By": getHumanReadableName(rec.createdBy, rec),
+                            "School Name": getRecordSchoolName(rec),
                             "Photo File": photoFileName,
                             "QR File": qrFileName
                         };
@@ -3344,7 +3521,13 @@ Generated By    : IDentify° Admin Panel
                                 if (typeof setBlankRecordMode === 'function') setBlankRecordMode('none');
                             }
 
-                            schoolConfig = { ...DEFAULT_CONFIG, ...data };
+                            const activeId = localStorage.getItem('identify_active_school_id');
+                            const curSchool = (activeId && Array.isArray(schoolsList)) ? schoolsList.find(s => s && String(s.id) === String(activeId)) : null;
+                            if (curSchool) {
+                                schoolConfig = { ...DEFAULT_CONFIG, ...curSchool, id: curSchool.id, logo: curSchool.logo || '' };
+                            } else {
+                                schoolConfig = { ...DEFAULT_CONFIG, ...data, logo: data.logo || '' };
+                            }
                             localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
                             if (typeof updateBrandingUI === 'function') updateBrandingUI();
                         }
@@ -3540,7 +3723,8 @@ Generated By    : IDentify° Admin Panel
                 }
                 document.title = "IDentify°-" + (schoolConfig.code || "DPS");
 
-                if (schoolConfig.logo) {
+                const validLogo = schoolConfig && schoolConfig.logo && typeof schoolConfig.logo === 'string' && schoolConfig.logo.trim() && schoolConfig.logo !== './idapplogo.png';
+                if (validLogo) {
                     const loginLogo = document.getElementById('login-logo-container');
                     if (loginLogo) loginLogo.innerHTML = `<img src="${schoolConfig.logo}" class="w-full h-full object-cover">`;
                     
@@ -3549,8 +3733,17 @@ Generated By    : IDentify° Admin Panel
 
                     const profileBtn = document.getElementById('profile-btn');
                     if (profileBtn) profileBtn.innerHTML = `<img src="${schoolConfig.logo}" class="w-full h-full object-cover">`;
+                } else {
+                    const loginLogo = document.getElementById('login-logo-container');
+                    if (loginLogo) {
+                        loginLogo.innerHTML = `<i data-lucide="id-card" class="w-7 h-7 text-emerald-600"></i>`;
+                        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+                    }
+                    const settingsLogo = document.getElementById('settings-logo-container');
+                    if (settingsLogo) settingsLogo.innerHTML = `<i class="fa-solid fa-school-flag text-3xl text-emerald-600"></i>`;
 
-                    // PWA manifest is now loaded from the fixed manifest.json file
+                    const profileBtn = document.getElementById('profile-btn');
+                    if (profileBtn) profileBtn.innerHTML = `<i class="fa-solid fa-school"></i>`;
                 }
             }
 
@@ -4167,10 +4360,14 @@ Generated By    : IDentify° Admin Panel
                 const input = document.getElementById(`blank-custom-img-capture-${idx}`);
                 if (input) input.click();
             }
-            function handleCustomPhotoUpload(idx, input) {
-                const file = input.files[0];
+            async function handleCustomPhotoUpload(idx, input) {
+                const file = input && input.files && input.files[0];
                 if (!file) return;
-                if (!file.type.startsWith('image/')) return;
+                const isValid = await validateImageFile(file);
+                if (!isValid) {
+                    if (input) input.value = '';
+                    return;
+                }
                 
                 const f = fb_fields[idx - 1];
                 const targetWidth = (f && f.width) ? parseInt(f.width, 10) : 600;
@@ -4467,8 +4664,13 @@ Generated By    : IDentify° Admin Panel
                     const rawLeft = align === 'right' ? (anchorRect.right - safeWidth) : anchorRect.left;
                     menu.style.left = `${Math.max(viewportPadding, Math.min(rawLeft, viewportWidth - safeWidth - viewportPadding))}px`;
                     menu.style.right = 'auto';
-                    menu.style.top = openUp ? `${Math.max(viewportPadding, anchorRect.top - maxHeight - gap)}px` : `${anchorRect.bottom + gap}px`;
-                    menu.style.bottom = 'auto';
+                    if (openUp) {
+                        menu.style.top = 'auto';
+                        menu.style.bottom = `${Math.max(viewportPadding, viewportHeight - anchorRect.top + gap)}px`;
+                    } else {
+                        menu.style.top = `${anchorRect.bottom + gap}px`;
+                        menu.style.bottom = 'auto';
+                    }
                     menu.style.minWidth = `${Math.max(minWidth || 0, Math.min(anchorRect.width, safeWidth))}px`;
                     menu.style.width = `${safeWidth}px`;
                 }
@@ -4921,6 +5123,11 @@ Generated By    : IDentify° Admin Panel
 
             function fb_downloadLocalExcelOnly() {
                 try {
+                    if (!Array.isArray(db) || db.length === 0) {
+                        showToast('No student records to export.');
+                        if (typeof hideGlobalLoading === 'function') hideGlobalLoading();
+                        return;
+                    }
                     const worksheetData = db.map((r, index) => {
                         const row = {
                             "S.N.": index + 1,
@@ -4933,7 +5140,9 @@ Generated By    : IDentify° Admin Panel
                             "Gender": r.gender || '',
                             "Address": r.address || '',
                             "Verified": (r.verified === true || String(r.verified).toLowerCase() === 'true') ? 'Yes' : 'No',
-                            "Photo Included": (r.photoData && r.photoData.length > 10) ? 'Yes' : 'No'
+                            "Photo Included": (r.photoData && r.photoData.length > 10) ? 'Yes' : 'No',
+                            "Created By": getHumanReadableName(r.createdBy, r),
+                            "School Name": getRecordSchoolName(r)
                         };
                         
                         if (Array.isArray(fb_fields)) {
@@ -5280,8 +5489,30 @@ Generated By    : IDentify° Admin Panel
                     const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
                     const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
                     const idx = parseInt(type.replace('customField', ''), 10) - 1;
-                    const f = (activeCustomList && activeCustomList[idx]) ? activeCustomList[idx] : null;
-                    const fieldOptions = (f && Array.isArray(f.options)) ? f.options.filter(Boolean) : [];
+                    const fieldId = (btn && btn.dataset && btn.dataset.fieldId) ? btn.dataset.fieldId : '';
+                    let f = null;
+                    if (fieldId) {
+                        f = activeCustomList.find(cf => cf && String(cf.id) === String(fieldId));
+                        if (!f && typeof fb_fields !== 'undefined' && Array.isArray(fb_fields)) {
+                            f = fb_fields.find(cf => cf && String(cf.id) === String(fieldId));
+                        }
+                        if (!f && typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields)) {
+                            f = fb_staff_fields.find(cf => cf && String(cf.id) === String(fieldId));
+                        }
+                    }
+                    if (!f) {
+                        f = (activeCustomList && activeCustomList[idx]) ? activeCustomList[idx] : null;
+                    }
+
+                    let fieldOptions = [];
+                    if (f && Array.isArray(f.options)) {
+                        fieldOptions = f.options.map(o => String(o || '').trim()).filter(Boolean);
+                    } else if (f && typeof f.options === 'string' && f.options.trim()) {
+                        fieldOptions = f.options.split(',').map(o => o.trim()).filter(Boolean);
+                    }
+                    if (fieldOptions.length === 0 && f && f.type === 'select') {
+                        fieldOptions = ['Option 1', 'Option 2'];
+                    }
                     
                     currentVal = document.getElementById('in-' + type)?.value || document.getElementById('blank-' + type)?.value || '';
                     const optionsWithCurrent = (currentVal && !fieldOptions.includes(currentVal)) ? [...fieldOptions, currentVal] : fieldOptions;
@@ -5365,7 +5596,21 @@ Generated By    : IDentify° Admin Panel
                             const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
                             const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
                             const idx = parseInt(type.replace('customField', ''), 10) - 1;
-                            const f = (activeCustomList && activeCustomList[idx]) ? activeCustomList[idx] : null;
+                            const btnEl = document.getElementById(`blank-${type}-btn`);
+                            const fieldId = (btnEl && btnEl.dataset && btnEl.dataset.fieldId) ? btnEl.dataset.fieldId : '';
+                            let f = null;
+                            if (fieldId) {
+                                f = activeCustomList.find(cf => cf && String(cf.id) === String(fieldId));
+                                if (!f && typeof fb_fields !== 'undefined' && Array.isArray(fb_fields)) {
+                                    f = fb_fields.find(cf => cf && String(cf.id) === String(fieldId));
+                                }
+                                if (!f && typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields)) {
+                                    f = fb_staff_fields.find(cf => cf && String(cf.id) === String(fieldId));
+                                }
+                            }
+                            if (!f) {
+                                f = (activeCustomList && activeCustomList[idx]) ? activeCustomList[idx] : null;
+                            }
                             textEl.innerText = f ? ('Select ' + f.label) : 'Select';
                             textEl.classList.remove('text-slate-700');
                             textEl.classList.add('text-slate-400');
@@ -5459,7 +5704,9 @@ Generated By    : IDentify° Admin Panel
                         'Class': r.sclass || '',
                         'Gender': r.gender || '',
                         'Photo Name': r.fileName || '',
-                        'Photo Link': r.docUrl || ''
+                        'Photo Link': r.docUrl || '',
+                        'Created By': getHumanReadableName(r.createdBy, r),
+                        'School Name': getRecordSchoolName(r)
                     };
 
                     const activeFields = (r.recordType === 'staff' && typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields))
@@ -5481,9 +5728,36 @@ Generated By    : IDentify° Admin Panel
                 closeAllMenus();
             }
 
-            function importFromExcel(input) {
+            async function importFromExcel(input) {
                 const file = input && input.files ? input.files[0] : null;
                 if (!file) return;
+
+                const fileName = (file.name || '').toLowerCase();
+                if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+                    showToast('<i class="fa-solid fa-shield-halved text-rose-500 mr-2"></i> Security Alert: Only genuine .xlsx or .xls files are allowed!', true);
+                    input.value = '';
+                    if (typeof closeAllMenus === 'function') closeAllMenus();
+                    return;
+                }
+
+                try {
+                    const headSlice = file.slice(0, 8);
+                    const headBuf = await headSlice.arrayBuffer();
+                    const b = new Uint8Array(headBuf);
+                    const isXlsx = (b.length >= 4 && b[0] === 0x50 && b[1] === 0x4B);
+                    const isXls = (b.length >= 8 && b[0] === 0xD0 && b[1] === 0xCF && b[2] === 0x11 && b[3] === 0xE0);
+                    if (!isXlsx && !isXls) {
+                        showToast('<i class="fa-solid fa-shield-halved text-rose-500 mr-2"></i> Security Alert: Invalid Excel file! Fake or non-spreadsheet file rejected.', true);
+                        input.value = '';
+                        if (typeof closeAllMenus === 'function') closeAllMenus();
+                        return;
+                    }
+                } catch(err) {
+                    showToast('<i class="fa-solid fa-shield-halved text-rose-500 mr-2"></i> Security check failed for Excel file.', true);
+                    input.value = '';
+                    if (typeof closeAllMenus === 'function') closeAllMenus();
+                    return;
+                }
 
                 const reader = new FileReader();
                 reader.onload = function (e) {
@@ -6200,7 +6474,8 @@ Generated By    : IDentify° Admin Panel
 
             // --- ACTIVITY MODAL ---
             function addActivity(action, rec) {
-                const log = JSON.parse(localStorage.getItem(ACTIVITY_KEY) || '[]');
+                let log = [];
+                try { log = JSON.parse(localStorage.getItem(ACTIVITY_KEY) || '[]'); } catch(e){}
                 const entry = {
                     action: action,
                     id: rec && rec.id ? rec.id : '',
@@ -6211,16 +6486,18 @@ Generated By    : IDentify° Admin Panel
                 };
                 log.push(entry);
                 if (log.length > 200) log.shift();
-                localStorage.setItem(ACTIVITY_KEY, JSON.stringify(log));
+                try { localStorage.setItem(ACTIVITY_KEY, JSON.stringify(log)); } catch(e){}
                 updateActivityBadge();
             }
             function updateActivityBadge() {
-                const log = JSON.parse(localStorage.getItem(ACTIVITY_KEY) || '[]');
+                let log = [];
+                try { log = JSON.parse(localStorage.getItem(ACTIVITY_KEY) || '[]'); } catch(e){}
                 const countEl = document.getElementById('activity-count');
                 if (countEl) countEl.innerText = log.length;
             }
             function openActivityModal() {
-                const log = JSON.parse(localStorage.getItem(ACTIVITY_KEY) || '[]');
+                let log = [];
+                try { log = JSON.parse(localStorage.getItem(ACTIVITY_KEY) || '[]'); } catch(e){}
                 const container = document.getElementById('activity-content');
                 container.innerHTML = '';
                 if (log.length === 0) {
@@ -6732,9 +7009,10 @@ Generated By    : IDentify° Admin Panel
                 // Drafts remain locally in LocalStorage/IndexedDB until user explicitly saves the record.
             }
 
-            function handlePhotoFile(file) {
+            async function handlePhotoFile(file) {
                 if (!file) return;
-                if (!file.type.startsWith('image/')) return;
+                const isValid = await validateImageFile(file);
+                if (!isValid) return;
 
                 setUploadFieldProgress('Compressing...', 10, true);
                 compressImage(file, (compFile, dataUrl) => {
@@ -7692,6 +7970,8 @@ Generated By    : IDentify° Admin Panel
                             "Address": rec.address || "",
                             "Status": rec.status || "",
                             "Verified": rec.verified || "",
+                            "Created By": getHumanReadableName(rec.createdBy, rec),
+                            "School Name": getRecordSchoolName(rec),
                             "Photo File": photoFileName,
                             "QR File": qrFileName
                         };
@@ -9253,7 +9533,7 @@ Generated By    : IDentify° Admin Panel
                                                 `}
                                                 <i class="fa-solid fa-cloud-arrow-up text-emerald-400 text-xl mb-1 z-0"></i>
                                                 <span class="text-[9px] font-bold text-slate-400 z-0">LOGO</span>
-                                                <input type="file" id="manage-school-logo" accept="image/*" class="hidden" onclick="event.stopPropagation();" onchange="previewManageSchoolLogo(event)">
+                                                <input type="file" id="manage-school-logo" accept=".jpg, .jpeg, .png, .webp, image/jpeg, image/png, image/webp" class="hidden" onclick="event.stopPropagation();" onchange="previewManageSchoolLogo(event)">
                                             </div>
                                         </div>
 
@@ -9353,7 +9633,7 @@ Generated By    : IDentify° Admin Panel
                                                 `}
                                                 <i class="fa-solid fa-cloud-arrow-up text-emerald-400 text-xl mb-1 z-0"></i>
                                                 <span class="text-[9px] font-bold text-slate-400 z-0 text-center leading-tight">ADMIN<br>PHOTO</span>
-                                                <input type="file" id="manage-school-logo" accept="image/*" class="hidden" onchange="previewManageSchoolLogo(event)">
+                                                <input type="file" id="manage-school-logo" accept=".jpg, .jpeg, .png, .webp, image/jpeg, image/png, image/webp" class="hidden" onchange="previewManageSchoolLogo(event)">
                                             </div>
                                             <div class="text-[10px] font-black text-slate-400 text-center uppercase mt-1.5 tracking-wider">Admin Photo</div>
                                         </div>
@@ -9735,7 +10015,7 @@ Generated By    : IDentify° Admin Panel
                                  if (f.type === 'select') {
                                      inputHtml = `
                                          <div class="relative">
-                                             <button type="button" id="blank-${customKey}-btn" onclick="toggleFormDropdown('${customKey}', this, event)" class="premium-input flex items-center justify-between text-left cursor-pointer active:scale-[0.99] transition-all">
+                                             <button type="button" id="blank-${customKey}-btn" data-field-id="${escapeAttr(f.id)}" onclick="toggleFormDropdown('${customKey}', this, event)" class="premium-input flex items-center justify-between text-left cursor-pointer active:scale-[0.99] transition-all">
                                                  <span id="blank-${customKey}-text" class="font-bold ${val ? 'text-slate-700' : 'text-slate-400'} text-[13px] truncate">${escapeAttr(val || ('Select ' + f.label))}</span>
                                                  <i class="fa-solid fa-chevron-down text-slate-400 text-[11px] shrink-0 ml-2"></i>
                                              </button>
@@ -9771,8 +10051,8 @@ Generated By    : IDentify° Admin Panel
                                                      <i class="fa-solid fa-camera text-sm"></i> Capture
                                                  </button>
                                                  
-                                                 <input type="file" id="blank-custom-img-file-${idx + 1}" accept="image/*" class="hidden" onchange="handleCustomPhotoUpload(${idx + 1}, this)">
-                                                 <input type="file" id="blank-custom-img-capture-${idx + 1}" accept="image/*" capture="environment" class="hidden" onchange="handleCustomPhotoUpload(${idx + 1}, this)">
+                                                 <input type="file" id="blank-custom-img-file-${idx + 1}" accept=".jpg, .jpeg, .png, .webp, image/jpeg, image/png, image/webp" class="hidden" onchange="handleCustomPhotoUpload(${idx + 1}, this)">
+                                                 <input type="file" id="blank-custom-img-capture-${idx + 1}" accept=".jpg, .jpeg, .png, .webp, image/jpeg, image/png, image/webp" capture="environment" class="hidden" onchange="handleCustomPhotoUpload(${idx + 1}, this)">
                                              </div>
                                          </div>
                                       `;
@@ -14129,6 +14409,24 @@ Generated By    : IDentify° Admin Panel
 
     function ie_getRecordFieldValue(rec, fieldId) {
         if (!rec) return '';
+        const lower = String(fieldId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        if (lower === 'createdby' || lower === 'created' || lower === 'creator' || lower === 'createby') {
+            const rawVal = rec.createdBy || rec.creator || rec.created_by || '';
+            return getHumanReadableName(rawVal, rec);
+        }
+        if (lower === 'updatedby' || lower === 'modifiedby' || lower === 'updated_by' || lower === 'updateby') {
+            const rawVal = rec.updatedBy || rec.modifiedBy || rec.updated_by || '';
+            return getHumanReadableName(rawVal, rec);
+        }
+        if (lower === 'verifiedby' || lower === 'verified_by' || lower === 'verifyby') {
+            const rawVal = rec.verifiedBy || rec.verified_by || '';
+            return getHumanReadableName(rawVal, rec);
+        }
+        if (lower === 'schoolname' || lower === 'school' || lower === 'schoolcode' || lower === 'schoolid') {
+            return getRecordSchoolName(rec);
+        }
+
         if (rec[fieldId] !== undefined && rec[fieldId] !== null && String(rec[fieldId]).trim() !== '') {
             return String(rec[fieldId]).trim();
         }
@@ -14183,12 +14481,24 @@ Generated By    : IDentify° Admin Panel
         (Array.isArray(db) ? db : []).forEach(r => {
             if (!r || typeof r !== 'object') return;
             Object.keys(r).forEach(k => {
-                if (!systemKeys.has(k) && !fields.some(f => f.id === k)) {
-                    const niceLabel = k.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()).trim();
-                    fields.push({ id: k, label: niceLabel });
+                if (!systemKeys.has(k)) {
+                    let niceLabel = k.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()).trim();
+                    let fieldId = k;
+                    if (k === 'schoolCode' || k === 'schoolId') {
+                        niceLabel = 'School Name';
+                        fieldId = 'schoolName';
+                    }
+                    if (!fields.some(f => f.id === fieldId || f.label === niceLabel)) {
+                        fields.push({ id: fieldId, label: niceLabel });
+                    }
                 }
             });
         });
+
+        // Ensure School Name is available
+        if (!fields.some(f => f.id === 'schoolName' || f.label === 'School Name')) {
+            fields.push({ id: 'schoolName', label: 'School Name' });
+        }
 
         // Add System ID and Timestamp
         fields.push({ id: 'id', label: 'System ID' });
@@ -14199,7 +14509,11 @@ Generated By    : IDentify° Admin Panel
 
     function ie_getFieldIcon(fieldId) {
         switch (fieldId) {
+            case 'schoolName':
             case '_schoolName': return 'fa-solid fa-school';
+            case 'createdBy':
+            case 'updatedBy':
+            case 'verifiedBy': return 'fa-solid fa-user-check';
             case '_appName': return 'fa-solid fa-mobile-screen';
             case 'sn': return 'fa-solid fa-hashtag';
             case 'studentName': return 'fa-solid fa-user-graduate';
