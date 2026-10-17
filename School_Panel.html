@@ -51,20 +51,65 @@
             }
         })();
 
-        // Safe standard QR generator with UTF-8 multi-byte support (Hindi, symbols) and standard quiet zone
-        function generateStandardQRCodeDataURL(rawText, size, level) {
+        // Safe standard QR generator with UTF-8 multi-byte support (Hindi, symbols), format support (JPG/PNG) and standard quiet zone
+        function generateStandardQRCodeDataURL(rawText, size, level, format) {
             try {
                 if (!rawText) rawText = '';
+                var targetFormat = (String(format || 'png').toLowerCase().includes('jpg') || String(format || 'png').toLowerCase().includes('jpeg')) ? 'jpeg' : 'png';
+                var targetSize = size || 450;
                 var utf8Text = unescape(encodeURIComponent(String(rawText)));
+                var qrPadding = Math.max(16, Math.round(targetSize * 0.05));
                 var qr = new QRious({
                     value: utf8Text,
-                    size: size || 400,
+                    size: targetSize,
+                    padding: qrPadding,
+                    background: '#ffffff',
+                    foreground: '#000000',
                     level: level || 'M'
                 });
-                return qr.toDataURL();
+                if (targetFormat === 'jpeg') {
+                    var canvas = document.createElement('canvas');
+                    canvas.width = targetSize;
+                    canvas.height = targetSize;
+                    var ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, targetSize, targetSize);
+                    if (qr.canvas) {
+                        ctx.drawImage(qr.canvas, 0, 0);
+                    }
+                    return canvas.toDataURL('image/jpeg', 0.98);
+                }
+                return qr.toDataURL('image/png');
             } catch(e) {
-                console.error("QR Code Generation Error:", e);
-                return '';
+                try {
+                    var targetFormat2 = (String(format || 'png').toLowerCase().includes('jpg') || String(format || 'png').toLowerCase().includes('jpeg')) ? 'jpeg' : 'png';
+                    var targetSize2 = size || 450;
+                    var qrPadding2 = Math.max(16, Math.round(targetSize2 * 0.05));
+                    var qr2 = new QRious({
+                        value: String(rawText || ''),
+                        size: targetSize2,
+                        padding: qrPadding2,
+                        background: '#ffffff',
+                        foreground: '#000000',
+                        level: 'L'
+                    });
+                    if (targetFormat2 === 'jpeg') {
+                        var canvas2 = document.createElement('canvas');
+                        canvas2.width = targetSize2;
+                        canvas2.height = targetSize2;
+                        var ctx2 = canvas2.getContext('2d');
+                        ctx2.fillStyle = '#ffffff';
+                        ctx2.fillRect(0, 0, targetSize2, targetSize2);
+                        if (qr2.canvas) {
+                            ctx2.drawImage(qr2.canvas, 0, 0);
+                        }
+                        return canvas2.toDataURL('image/jpeg', 0.98);
+                    }
+                    return qr2.toDataURL('image/png');
+                } catch(err2) {
+                    console.error("QR Code Generation Error:", err2);
+                    return '';
+                }
             }
         }
     </script>
@@ -89,6 +134,12 @@
         html.is-public-form #btn-tab-home,
         html.is-public-form #btn-tab-db,
         html.is-public-form #btn-tab-new {
+            display: none !important;
+        }
+        html.is-public-form #public-form-entry-counter {
+            display: flex !important;
+        }
+        html.is-public-form-closed #public-form-entry-counter {
             display: none !important;
         }
 
@@ -206,8 +257,11 @@
                             }
                         }
                     } catch(e){}
+                    window._firebaseUserReady = true;
                     if (typeof loadAllData === 'function') {
                         loadAllData();
+                    } else {
+                        window._pendingLoadAllData = true;
                     }
                 }
             });
@@ -431,6 +485,13 @@
                             <span id="bulk-select-count" class="text-sm font-black text-white">0</span>
                             <i id="bulk-select-icon" class="fa-solid fa-square text-sm text-white"></i>
                         </button>
+                        <!-- Public Form Live Entry Counter Circle (Right Side) -->
+                        <div id="public-form-entry-counter"
+                            onclick="if(window.isPublicFormMode)showToast('Submitted entries from this link: ' + (Number(window.schoolConfig?.publicFormEntryCount)||0))"
+                            class="hidden w-9 h-9 rounded-full bg-emerald-600 text-white font-extrabold text-[13px] flex items-center justify-center shadow-md border-2 border-emerald-100 shrink-0 select-none cursor-pointer transition-all active:scale-95"
+                            title="Submitted entries from this link">
+                            <span id="public-form-count-val" class="font-black leading-none">0</span>
+                        </div>
                         <!-- Selection Toggle Button (Replaces Plus when items selected or in Unverified view) -->
                         <button id="toggle-form-btn" onclick="toggleStudentForm()"
                             class="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg active:scale-90 transition-all relative">
@@ -1728,7 +1789,22 @@
                     }, 400);
                 }
             }
-            let appBooted = false;
+            function updatePublicFormHeaderCounter(count) {
+                if (!window.isPublicFormMode) return;
+                const counterEl = document.getElementById('public-form-entry-counter');
+                const valEl = document.getElementById('public-form-count-val');
+                const num = Math.max(0, parseInt(count, 10) || 0);
+                if (valEl) {
+                    valEl.innerText = String(num);
+                    valEl.className = num > 99 ? 'text-[11px] font-black leading-none' : 'text-[13px] font-black leading-none';
+                }
+                if (counterEl) {
+                    counterEl.title = `Submitted entries from this link: ${num}`;
+                    counterEl.classList.remove('hidden');
+                    counterEl.style.display = 'flex';
+                }
+            }
+            window.updatePublicFormHeaderCounter = updatePublicFormHeaderCounter;
 
             async function bootPublicFormMode(schoolParam) {
                 hideSplashScreen();
@@ -1801,6 +1877,7 @@
                                     schoolConfig = { ...schoolConfig, ...updated };
                                     window.schoolConfig = schoolConfig;
                                     applyPublicFormState();
+                                    updatePublicFormHeaderCounter(schoolConfig.publicFormEntryCount);
                                 }
                             }
                         });
@@ -1850,6 +1927,7 @@
                 }
 
                 applyPublicFormState();
+                updatePublicFormHeaderCounter(schoolConfig ? schoolConfig.publicFormEntryCount : 0);
             }
 
             function isSchoolPublicFormActive() {
@@ -1928,6 +2006,11 @@
                         toggleBtn.onclick = null;
                         toggleBtn.className = 'h-8 px-2.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 shrink-0 flex items-center gap-1 shadow-xs pointer-events-none text-[10px] font-black';
                         toggleBtn.innerHTML = `<i class="fa-solid fa-lock text-[9px]"></i> Closed`;
+                    }
+                    const entryCounter = document.getElementById('public-form-entry-counter');
+                    if (entryCounter) {
+                        entryCounter.classList.add('hidden');
+                        entryCounter.style.display = 'none';
                     }
                 }
 
@@ -2081,6 +2164,9 @@
                         toggleBtn.classList.add('hidden');
                         toggleBtn.style.display = 'none';
                     }
+
+                    // Show Entry Count Circle on the right side
+                    updatePublicFormHeaderCounter(schoolConfig ? schoolConfig.publicFormEntryCount : 0);
                 }
 
                 const filterRow = document.getElementById('class-filter-row');
@@ -2231,6 +2317,53 @@
                 }
                 
                 serverCallSilent('addRecord', [rec], () => {}, () => {});
+
+                // Increment entry count for this public form link session
+                try {
+                    if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
+                    const currentCount = Number(schoolConfig.publicFormEntryCount) || 0;
+                    const newCount = currentCount + 1;
+                    schoolConfig.publicFormEntryCount = newCount;
+                    try {
+                        localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+                    } catch(e){}
+                    updatePublicFormHeaderCounter(newCount);
+
+                    if (window.db && window.firebaseAPI && window.firebaseAPI.doc) {
+                        const targetSchoolId = String(rec.schoolId || (schoolConfig ? schoolConfig.id : ''));
+                        const targetSchoolCode = String(schoolConfig.code || '').toLowerCase();
+                        
+                        // 1. Update in system/schools list
+                        if (window.firebaseAPI.getDoc && window.firebaseAPI.setDoc) {
+                            const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                            window.firebaseAPI.getDoc(schoolsDocRef).then(snap => {
+                                if (snap.exists() && Array.isArray(snap.data().list)) {
+                                    const list = snap.data().list;
+                                    const idx = list.findIndex(s => s && (
+                                        (targetSchoolId && String(s.id) === targetSchoolId) ||
+                                        (targetSchoolCode && String(s.code).toLowerCase() === targetSchoolCode)
+                                    ));
+                                    if (idx !== -1) {
+                                        list[idx].publicFormEntryCount = newCount;
+                                        window.firebaseAPI.setDoc(schoolsDocRef, { list: list, updatedAt: Date.now() }, { merge: true }).catch(()=>{});
+                                    }
+                                }
+                            }).catch(()=>{});
+                        }
+                        // 2. Update in schools/{id}
+                        if (targetSchoolId && window.firebaseAPI.setDoc) {
+                            const sDocRef = window.firebaseAPI.doc(window.db, "schools", targetSchoolId);
+                            window.firebaseAPI.setDoc(sDocRef, { publicFormEntryCount: newCount, updatedAt: Date.now() }, { merge: true }).catch(()=>{});
+                        }
+                        // 3. Update in system/schoolConfig
+                        if (window.firebaseAPI.setDoc) {
+                            const scDocRef = window.firebaseAPI.doc(window.db, "system", "schoolConfig");
+                            window.firebaseAPI.setDoc(scDocRef, { publicFormEntryCount: newCount, updatedAt: Date.now() }, { merge: true }).catch(()=>{});
+                        }
+                    }
+                } catch(e) {
+                    console.warn("Could not increment public form count:", e);
+                }
                 
                 clearDraft();
                 resetForm();
@@ -2256,51 +2389,52 @@
                 }
                 localStorage.setItem('last_active_time', Date.now());
                 
-                if (window.firebaseAPI && window.firebaseAPI.onAuthStateChanged && window.auth) {
-                    window.firebaseAPI.onAuthStateChanged(window.auth, async (firebaseUser) => {
-                        // Dev login bypass mock
-                        if (savedUser && savedUser.userId === 'school_dev') {
-                            firebaseUser = { uid: 'school_dev' };
-                        }
-                        // We strictly use Firebase Email/Password Auth, which auto-persists.
-                        // No anonymous login fallback needed.
-
-                        if (firebaseUser && savedUser) {
-                            currentUser = savedUser;
-                            
-                            // Log activity on session start
-                            if (!sessionStorage.getItem('activity_logged_' + currentUser.userId)) {
-                                logSchoolActivity(currentUser.email || currentUser.userId);
-                                sessionStorage.setItem('activity_logged_' + currentUser.userId, 'true');
-                            }
-
-                            updateCurrentUserUi();
-                            hideSplashScreen();
-                            
-                            if (!appBooted) {
-                                appBooted = true;
-                                const sc = loadSchoolConfig();
-                                document.title = "IDentify°-" + (sc.code || "DPS");
-                                setSyncStatus('Connecting to server...', 5);
-                                loadAllData();
-                            }
-                        } else {
-                            saveAuthUser(null);
-                            currentUser = null;
-                            updateCurrentUserUi();
-                            window.location.replace('Login_Panel.html');
-                        }
-                    });
-                } else {
-                    if (savedUser) {
+                const onAuthResolved = async (firebaseUser) => {
+                    // Dev login bypass mock
+                    if (savedUser && savedUser.userId === 'school_dev') {
+                        firebaseUser = { uid: 'school_dev' };
+                    }
+                    if (firebaseUser && savedUser) {
                         currentUser = savedUser;
+                        
+                        // Log activity on session start
+                        if (!sessionStorage.getItem('activity_logged_' + currentUser.userId)) {
+                            logSchoolActivity(currentUser.email || currentUser.userId);
+                            sessionStorage.setItem('activity_logged_' + currentUser.userId, 'true');
+                        }
+
                         updateCurrentUserUi();
                         hideSplashScreen();
                         
                         const sc = loadSchoolConfig();
                         document.title = "IDentify°-" + (sc.code || "DPS");
-
                         setSyncStatus('Connecting to server...', 5);
+                        loadAllData();
+                    } else if (!firebaseUser && !savedUser) {
+                        saveAuthUser(null);
+                        currentUser = null;
+                        updateCurrentUserUi();
+                        window.location.replace('Login_Panel.html');
+                    }
+                };
+
+                if (window.firebaseAPI && window.firebaseAPI.onAuthStateChanged && window.auth) {
+                    window.firebaseAPI.onAuthStateChanged(window.auth, onAuthResolved);
+                } else {
+                    const waitAuthTimer = setInterval(() => {
+                        if (window.firebaseAPI && window.firebaseAPI.onAuthStateChanged && window.auth) {
+                            clearInterval(waitAuthTimer);
+                            window.firebaseAPI.onAuthStateChanged(window.auth, onAuthResolved);
+                        }
+                    }, 50);
+                    setTimeout(() => clearInterval(waitAuthTimer), 10000);
+
+                    if (savedUser) {
+                        currentUser = savedUser;
+                        updateCurrentUserUi();
+                        hideSplashScreen();
+                        const sc = loadSchoolConfig();
+                        document.title = "IDentify°-" + (sc.code || "DPS");
                         loadAllData();
                     } else {
                         currentUser = null;
@@ -3187,6 +3321,10 @@
 
             const DEFAULT_CONFIG = { name: 'Delhi Public School', code: 'DPS', about: 'ID Card Management Portal', systemAbout: 'ID Card Management Portal', logo: './idapplogo.png' };
             let schoolConfig = loadSchoolConfig();
+            if (window._pendingLoadAllData) {
+                window._pendingLoadAllData = false;
+                setTimeout(() => { if (typeof loadAllData === 'function') loadAllData(); }, 10);
+            }
 
             function loadSchoolConfig() {
                 try {
@@ -4515,6 +4653,45 @@
                 menu.addEventListener('mouseleave', () => { isMouseOverMenu = false; scheduleMenuAutoHide(); });
                 menu.addEventListener('mousemove', () => { isMouseOverMenu = true; clearMenuAutoHideTimer(); });
             }
+            function getPreviewDisplayName(fullName, fallback = 'Student', isEditMode = false) {
+                const raw = String(fullName || '').trim();
+                if (!raw) return fallback;
+                const parts = raw.split(/\s+/).filter(Boolean);
+                if (parts.length === 0) return fallback;
+
+                const cap = (w) => w ? (w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()) : '';
+                if (parts.length === 1) return cap(parts[0]);
+
+                const firstName = cap(parts[0]);
+                const firstAndMiddle = firstName + ' ' + cap(parts[1]);
+
+                // Check available space in the search bar header
+                let containerWidth = 0;
+                try {
+                    const searchBox = document.getElementById('search-input-container') || document.getElementById('mainSearch');
+                    if (searchBox && searchBox.clientWidth > 0) {
+                        containerWidth = Math.max(0, searchBox.clientWidth - 40);
+                    }
+                } catch (e) {}
+
+                if (!containerWidth && typeof window !== 'undefined' && window.innerWidth) {
+                    containerWidth = Math.max(140, window.innerWidth - 170);
+                }
+
+                // Suffix: "'s ID Preview Edit" (19 chars) or "'s ID Preview" (14 chars)
+                const suffixLength = isEditMode ? 19 : 14;
+                const totalChars = firstAndMiddle.length + suffixLength;
+                // At 16px font-extrabold with tracking-tight, each character averages ~8.8px + icon & gap (~26px)
+                const estimatedNeededWidth = (totalChars * 8.8) + 26;
+
+                if (containerWidth >= estimatedNeededWidth) {
+                    return firstAndMiddle;
+                }
+
+                return firstName;
+            }
+            window.getPreviewDisplayName = getPreviewDisplayName;
+
             function setBlankRecordMode(mode = 'none') {
                 if (window.isPublicFormMode) {
                     blankRecordMode = (mode === 'preview') ? 'preview' : 'student';
@@ -4540,6 +4717,8 @@
                     if (bulkActions) bulkActions.classList.add('hidden');
                     const bulkToggle = document.getElementById('btn-bulk-select-toggle');
                     if (bulkToggle) bulkToggle.classList.add('hidden');
+
+                    updatePublicFormHeaderCounter(schoolConfig ? schoolConfig.publicFormEntryCount : 0);
 
                     if (mode === 'preview' && previewRecord) {
                         const isStaff = String(previewRecord.sclass || '').trim().toLowerCase() === 'staff';
@@ -4665,10 +4844,9 @@
                     const isStaff = currentClassVal === 'staff';
 
                     if (previewRecord) {
-                        const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
-                        const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
-                        headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-[#059669] mr-2.5"></i> ${firstName}'s ID Preview Edit`;
-                        labelText = `${firstName}'s ID Preview Edit`;
+                        const displayName = getPreviewDisplayName(previewRecord.studentName, isStaff ? 'Staff' : 'Student', true);
+                        headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-[#059669] mr-2.5"></i> ${displayName}'s ID Preview Edit`;
+                        labelText = `${displayName}'s ID Preview Edit`;
                         iconClass = `fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600`;
                     } else {
                         headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-lines'} text-[#059669] mr-2.5"></i> ${isStaff ? 'Staff Information Form' : 'Student Information Form'}`;
@@ -4685,10 +4863,9 @@
                     iconClass = 'fa-solid fa-link text-emerald-600';
                 } else if (mode === 'preview' && previewRecord) {
                     const isStaff = String(previewRecord.sclass || '').trim().toLowerCase() === 'staff';
-                    const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
-                    const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
-                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-[#059669] mr-2.5"></i> ${firstName}'s ID Preview`;
-                    labelText = `${firstName}'s ID Preview`;
+                    const displayName = getPreviewDisplayName(previewRecord.studentName, isStaff ? 'Staff' : 'Student', false);
+                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-[#059669] mr-2.5"></i> ${displayName}'s ID Preview`;
+                    labelText = `${displayName}'s ID Preview`;
                 } else if (mode === 'builder') {
                     const isStaffTab = typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff';
                     headerHtml = `<i class="fa-solid ${isStaffTab ? 'fa-id-badge' : 'fa-shapes'} text-[#059669] mr-2.5"></i> ${isStaffTab ? 'Staff Form Builder' : 'Student Form Builder'}`;
@@ -4797,6 +4974,31 @@
                         altInfo.innerHTML = headerHtml;
                         altInfo.classList.remove('hidden');
                     }
+                } else if (currentMode === 'preview' && typeof previewRecord !== 'undefined' && previewRecord) {
+                    const isStaff = String(previewRecord.sclass || '').trim().toLowerCase() === 'staff';
+                    const displayName = getPreviewDisplayName(previewRecord.studentName, isStaff ? 'Staff' : 'Student', false);
+                    const labelText = `${displayName}'s ID Preview`;
+                    const iconClass = isStaff ? 'fa-solid fa-id-badge text-emerald-600' : 'fa-solid fa-file-invoice text-emerald-600';
+                    const headerHtml = `<i class="${iconClass} mr-2.5"></i> ${labelText}`;
+                    const search = document.getElementById('mainSearch');
+                    const searchIcon = document.getElementById('search-icon');
+                    const info = document.getElementById('records-page-info-db');
+                    const altInfo = document.getElementById('records-page-info-db');
+                    if (search) {
+                        search.value = labelText;
+                        search.placeholder = labelText;
+                    }
+                    if (searchIcon) {
+                        searchIcon.className = iconClass + ' ml-2';
+                    }
+                    if (info) {
+                        info.innerHTML = headerHtml;
+                        info.classList.remove('hidden');
+                    }
+                    if (altInfo) {
+                        altInfo.innerHTML = headerHtml;
+                        altInfo.classList.remove('hidden');
+                    }
                 } else if (currentMode === 'student' || currentMode === 'newEntry') {
                     if (typeof updateStudentFormHeaderForClass === 'function') {
                         updateStudentFormHeaderForClass();
@@ -4832,10 +5034,9 @@
                 const iconClass = isStaff ? 'fa-solid fa-id-badge text-emerald-600' : 'fa-solid fa-file-lines text-emerald-600';
                 
                 if (isEdit) {
-                    const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
-                    const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
-                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-[#059669] mr-2.5"></i> ${firstName}'s ID Preview Edit`;
-                    labelText = `${firstName}'s ID Preview Edit`;
+                    const displayName = getPreviewDisplayName(previewRecord.studentName, isStaff ? 'Staff' : 'Student', true);
+                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-[#059669] mr-2.5"></i> ${displayName}'s ID Preview Edit`;
+                    labelText = `${displayName}'s ID Preview Edit`;
                 } else {
                     headerHtml = `<i class="${iconClass} mr-2.5"></i> ${isStaff ? 'Staff Information Form' : 'Student Information Form'}`;
                     labelText = isStaff ? 'Staff Information Form' : 'Student Information Form';
@@ -5292,7 +5493,7 @@
                     }));
                 } else if (type.startsWith('customField')) {
                     const rawClassVal = document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
-                    const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                    const isStaff = String(rawClassVal).trim().toLowerCase() === 'staff';
                     const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
                     const idx = parseInt(type.replace('customField', ''), 10) - 1;
                     const fieldId = (btn && btn.dataset && btn.dataset.fieldId) ? btn.dataset.fieldId : '';
@@ -5368,19 +5569,22 @@
             function selectFormDropdownOption(type, value) {
                 if (type === 'sclass') {
                     const prevClass = (document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '').trim();
-                    syncBlankSelect('in-sclass', value);
                     const textEl = document.getElementById('blank-class-text');
                     if (textEl) textEl.innerText = value;
                     const hiddenEl = document.getElementById('blank-class');
                     if (hiddenEl) hiddenEl.value = value;
+                    syncBlankSelect('in-sclass', value);
                     closeFormDropdown();
                     if (typeof updateStudentFormHeaderForClass === 'function') {
                         updateStudentFormHeaderForClass(value);
                     }
                     const wasStaff = prevClass.toLowerCase() === 'staff';
                     const isNowStaff = String(value || '').trim().toLowerCase() === 'staff';
-                    if (wasStaff !== isNowStaff && typeof renderCurrentRecordsPage === 'function') {
-                        renderCurrentRecordsPage();
+                    if (wasStaff !== isNowStaff) {
+                        if (isNowStaff && typeof fb_staff_active !== 'undefined') fb_staff_active = true;
+                        if (typeof renderCurrentRecordsPage === 'function') {
+                            renderCurrentRecordsPage();
+                        }
                     }
                     return;
                 } else if (type === 'gender') {
@@ -5399,7 +5603,7 @@
                             textEl.classList.add('text-slate-700');
                         } else {
                             const rawClassVal = document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
-                            const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                            const isStaff = String(rawClassVal).trim().toLowerCase() === 'staff';
                             const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
                             const idx = parseInt(type.replace('customField', ''), 10) - 1;
                             const btnEl = document.getElementById(`blank-${type}-btn`);
@@ -6882,7 +7086,7 @@
                     originalFileName = compFile.name;
                     currentFileType = compFile.type;
 
-                    setUploadFieldProgress('Saved Locally', 100, false);
+                    setUploadFieldProgress('', 100, false);
                     resetUploadFieldLabel('Saved ✅.');
                     pendingUploadedDocument = null;
                     queueServerDraftSync();
@@ -6917,7 +7121,18 @@
             }
             function syncBlankSelect(fieldId, value) {
                 const target = document.getElementById(fieldId);
-                if (target) target.value = value;
+                if (target) {
+                    if (target.tagName === 'SELECT' && value) {
+                        let hasOpt = Array.from(target.options).some(o => o.value === value);
+                        if (!hasOpt) {
+                            const opt = document.createElement('option');
+                            opt.value = value;
+                            opt.textContent = value;
+                            target.appendChild(opt);
+                        }
+                    }
+                    target.value = value;
+                }
                 if (fieldId === 'in-sclass' && typeof updateStudentFormHeaderForClass === 'function') {
                     updateStudentFormHeaderForClass(value);
                 }
@@ -7084,7 +7299,7 @@
                     };
 
                     const rawClassVal = getVal('sclass') || 'General';
-                    const isStaffRecord = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
+                    const isStaffRecord = String(rawClassVal).trim().toLowerCase() === 'staff';
                     const activeStdConfig = isStaffRecord ? (typeof fb_staff_standard_config !== 'undefined' ? fb_staff_standard_config : fb_standard_config) : fb_standard_config;
                     const activeCustomFields = isStaffRecord ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : fb_fields;
                     const getCfg = (id) => activeStdConfig[id] || { enabled: true, required: false };
@@ -8150,11 +8365,13 @@
             }
             function syncRecordsHeaderAlignment() {
                 const scrollEl = document.querySelector('.records-table-scroll');
-                if (!scrollEl) {
-                    return;
+                if (scrollEl) {
+                    const scrollbarWidth = Math.max(0, scrollEl.offsetWidth - scrollEl.clientWidth);
+                    document.documentElement.style.setProperty('--records-scrollbar-width', `${scrollbarWidth}px`);
                 }
-                const scrollbarWidth = Math.max(0, scrollEl.offsetWidth - scrollEl.clientWidth);
-                document.documentElement.style.setProperty('--records-scrollbar-width', `${scrollbarWidth}px`);
+                if (typeof showBlankRecordCard !== 'undefined' && showBlankRecordCard && typeof updateBlankRecordHeader === 'function') {
+                    updateBlankRecordHeader();
+                }
             }
             function updateRecordsPageInfo() {
                 const info = document.getElementById('footer-page-info');
@@ -8302,7 +8519,7 @@
                 t.innerHTML = '';
                 if (showBlankRecordCard) {
                     const genderValue = (document.getElementById('in-gender')?.value || 'Male');
-                    const classValue = (document.getElementById('in-sclass')?.value || document.getElementById('blank-class')?.value || 'Class 1');
+                    const classValue = (document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || 'Class 1');
                     if (typeof updateStudentFormHeaderForClass === 'function') {
                         updateStudentFormHeaderForClass(classValue);
                     }
@@ -9219,7 +9436,7 @@
                         return;
                     }
 
-                    const isStaffForm = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(classValue || '').trim().toLowerCase() === 'staff';
+                    const isStaffForm = String(classValue || '').trim().toLowerCase() === 'staff';
                     const activeStdConfig = isStaffForm ? (typeof fb_staff_standard_config !== 'undefined' ? fb_staff_standard_config : fb_standard_config) : fb_standard_config;
                     const activeCustomFields = isStaffForm ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : fb_fields;
                     const activeFormOrder = isStaffForm ? (typeof fb_staff_form_order !== 'undefined' && Array.isArray(fb_staff_form_order) ? fb_staff_form_order : fb_form_order) : fb_form_order;
@@ -9286,7 +9503,14 @@
 
                     const standardRenderOrder = (Array.isArray(activeFormOrder) && activeFormOrder.length)
                         ? activeFormOrder.slice()
-                        : FB_STANDARD_FIELDS.map(f => f.id);
+                        : (isStaffForm ? FB_STAFF_STANDARD_FIELDS.map(f => f.id) : FB_STANDARD_FIELDS.map(f => f.id));
+                    if (Array.isArray(activeCustomFields)) {
+                        activeCustomFields.forEach(cf => {
+                            if (cf && cf.id && !standardRenderOrder.includes(cf.id)) {
+                                standardRenderOrder.push(cf.id);
+                            }
+                        });
+                    }
                     const orderedFieldsHtml = standardRenderOrder
                         .filter(id => !FB_FIXED_TOP_FIELDS.includes(id))
                         .map(id => {
@@ -9887,8 +10111,6 @@
                         const f = e.target.files[0];
                         if (!f) { return; }
                         const oldDocFileId = r.docFileId || '';
-                        showStatusCard('Uploading Document', 'Uploading document to Drive...', { progress: 38, tone: 'working' });
-                        updateStatusProgress(38, 'Uploading document to Drive...');
                         const rd = new FileReader();
                         rd.onload = () => {
                             r.photoData = rd.result;
@@ -9918,7 +10140,7 @@
                             pendingHighlightId = r.id;
                             renderHomeAnalysis();
                             filterRecords();
-                            showStatusCard('Saved Complete', 'Document successfully saved & syncing to cloud.', { progress: 100, tone: 'success', dismissible: false, autoHideMs: 1600 });
+                            showToast('Photo uploaded successfully');
                         };
                         rd.readAsDataURL(f);
                     };
@@ -10394,7 +10616,7 @@
                     isActionPending = false;
                     setBlankRecordMode('none');
                     showTab('records');
-                    showToast('All pending records have been verified! 🎉');
+                    showToast('All pending records have been verified!');
                 }
 
                 // Run heavy operations in the background
@@ -11273,6 +11495,14 @@
         function getPublicFormUrl() {
             const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : loadSchoolConfig();
             const code = (sc && (sc.code || sc.id)) ? (sc.code || sc.id) : 'DPS';
+            
+            // Check if user set a custom live domain / base URL
+            const customBase = (sc && sc.publicFormBaseUrl) || localStorage.getItem('identify_public_form_base_url');
+            if (customBase && typeof customBase === 'string' && customBase.trim().startsWith('http')) {
+                let cleanBase = customBase.trim().split('?')[0];
+                return `${cleanBase}?form=${encodeURIComponent(code)}`;
+            }
+
             const loc = window.location;
             let origin = loc.origin;
             let path = loc.pathname;
@@ -11284,6 +11514,34 @@
                 basePath = basePath.replace(/\/+$/, '') + '/School_Panel.html';
             }
             return `${origin}${basePath}?form=${encodeURIComponent(code)}`;
+        }
+
+        function promptSetPublicFormCustomUrl() {
+            const current = localStorage.getItem('identify_public_form_base_url') || '';
+            const entered = prompt('Apna GitHub Pages ya Live Website URL dalein (Example: https://username.github.io/repo/School_Panel.html):\nKhali chhodne par default URL restore hoga.', current);
+            if (entered !== null) {
+                const val = entered.trim();
+                if (val) {
+                    if (!val.startsWith('http://') && !val.startsWith('https://')) {
+                        alert('Kripya valid URL dalein jo https:// ya http:// se shuru ho.');
+                        return;
+                    }
+                    localStorage.setItem('identify_public_form_base_url', val);
+                    if (typeof schoolConfig !== 'undefined' && schoolConfig) {
+                        schoolConfig.publicFormBaseUrl = val;
+                    }
+                    showToast('Live link saved! QR code updated ✓');
+                } else {
+                    localStorage.removeItem('identify_public_form_base_url');
+                    if (typeof schoolConfig !== 'undefined' && schoolConfig) {
+                        delete schoolConfig.publicFormBaseUrl;
+                    }
+                    showToast('Default link restored ✓');
+                }
+                if (typeof renderCurrentBlankRecordPage === 'function') {
+                    renderCurrentBlankRecordPage();
+                }
+            }
         }
 
         function openShareFormLink() {
@@ -11464,9 +11722,14 @@
 
                     <!-- Registration Link Input + Copy Button -->
                     <div class="w-full space-y-1.5">
-                        <label class="premium-label !text-[11px] !tracking-widest uppercase flex items-center gap-1.5 text-slate-600">
-                            <i class="fa-solid fa-link text-emerald-600"></i> Public Form Link
-                        </label>
+                        <div class="flex items-center justify-between">
+                            <label class="premium-label !text-[11px] !tracking-widest uppercase flex items-center gap-1.5 text-slate-600">
+                                <i class="fa-solid fa-link text-emerald-600"></i> Public Form Link
+                            </label>
+                            <button type="button" onclick="promptSetPublicFormCustomUrl()" class="text-[11px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 active:scale-95 transition cursor-pointer" title="Change or Set GitHub / Live Link">
+                                <i class="fa-solid fa-pen-to-square"></i> <span>Set Live Link</span>
+                            </button>
+                        </div>
                         <div class="flex items-center gap-2">
                             <input type="text" id="page-share-url-input" readonly value="${publicUrl}" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 text-xs font-mono text-slate-700 outline-none select-all focus:border-emerald-400 shadow-inner">
                             <button type="button" id="btn-page-share-copy" onclick="copyShareFormPageUrl()" class="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition shadow-sm whitespace-nowrap">
@@ -11583,6 +11846,7 @@
                 schoolConfig.publicFormExpiry = 0;
                 schoolConfig.timerPreset = 'none';
                 schoolConfig.timerPresetLabel = 'No Timer (Open until off)';
+                schoolConfig.publicFormEntryCount = 0;
             }
             try {
                 localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
@@ -11591,10 +11855,10 @@
             // Instant zero-lag UI feedback
             updateShareFormPageUI();
             triggerHapticFeedback(5);
-            showToast(isActive ? 'Public form link activated ✓' : 'Public form link deactivated');
+            showToast(isActive ? 'Public form link activated ✓' : 'Public form link deactivated (counter reset to 0)');
 
             // Non-blocking background sync to Firebase
-            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel).catch(err => {
+            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormEntryCount).catch(err => {
                 console.warn("Background sync error:", err);
             });
         }
@@ -11638,7 +11902,7 @@
             triggerHapticFeedback(5);
 
             // Non-blocking background sync
-            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel).catch(err => {
+            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormEntryCount).catch(err => {
                 console.warn("Background timer sync error:", err);
             });
         }
@@ -11647,12 +11911,13 @@
             await applyPublicFormTimer('none', 'No Timer (Open until off)');
         }
 
-        async function syncPublicFormConfigToFirebase(isActive, expiry, timerPreset, timerPresetLabel) {
+        async function syncPublicFormConfigToFirebase(isActive, expiry, timerPreset, timerPresetLabel, entryCount) {
             if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
             schoolConfig.publicFormActive = !!isActive;
             schoolConfig.publicFormExpiry = Number(expiry) || 0;
             if (timerPreset !== undefined) schoolConfig.timerPreset = timerPreset;
             if (timerPresetLabel !== undefined) schoolConfig.timerPresetLabel = timerPresetLabel;
+            if (entryCount !== undefined) schoolConfig.publicFormEntryCount = Number(entryCount);
 
             try {
                 localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
@@ -11665,7 +11930,8 @@
                         publicFormActive: !!isActive,
                         publicFormExpiry: Number(expiry) || 0,
                         timerPreset: schoolConfig.timerPreset || 'none',
-                        timerPresetLabel: schoolConfig.timerPresetLabel || 'No Timer (Open until off)'
+                        timerPresetLabel: schoolConfig.timerPresetLabel || 'No Timer (Open until off)',
+                        publicFormEntryCount: Number(schoolConfig.publicFormEntryCount) || 0
                     }, { merge: true }).catch(()=>{});
                 }
             } catch(e){}
@@ -11685,6 +11951,7 @@
                             list[idx].publicFormExpiry = Number(expiry) || 0;
                             if (schoolConfig.timerPreset !== undefined) list[idx].timerPreset = schoolConfig.timerPreset;
                             if (schoolConfig.timerPresetLabel !== undefined) list[idx].timerPresetLabel = schoolConfig.timerPresetLabel;
+                            list[idx].publicFormEntryCount = Number(schoolConfig.publicFormEntryCount) || 0;
                             await window.firebaseAPI.setDoc(schoolsDocRef, { list: list, updatedAt: Date.now() }, { merge: true });
                         }
                     }
@@ -11692,6 +11959,20 @@
             } catch(e){
                 console.warn("Firebase system/schools update error:", e);
             }
+
+            try {
+                if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.setDoc && schoolConfig.id) {
+                    const sDocRef = window.firebaseAPI.doc(window.db, "schools", String(schoolConfig.id));
+                    window.firebaseAPI.setDoc(sDocRef, {
+                        publicFormActive: !!isActive,
+                        publicFormExpiry: Number(expiry) || 0,
+                        timerPreset: schoolConfig.timerPreset || 'none',
+                        timerPresetLabel: schoolConfig.timerPresetLabel || 'No Timer (Open until off)',
+                        publicFormEntryCount: Number(schoolConfig.publicFormEntryCount) || 0,
+                        updatedAt: Date.now()
+                    }, { merge: true }).catch(()=>{});
+                }
+            } catch(e){}
         }
 
         function copyShareFormPageUrl() {
@@ -12351,7 +12632,7 @@
             let result = clean.length ? clean : defaults.slice();
             if (fieldId === 'sclass') {
                 result = result.filter(v => v.toLowerCase() !== 'staff');
-                if (includeStaff && typeof fb_staff_active !== 'undefined' && fb_staff_active) {
+                if (includeStaff) {
                     result.push('Staff');
                 }
             }
@@ -14703,7 +14984,7 @@
             renderCurrentRecordsPage();
         });
         
-        showToast('Photo saved. Card moved to Unverified & Syncing.');
+        showToast('Photo saved successfully');
         
         tempPreviewPhotoData = null;
         setBlankRecordMode('none');

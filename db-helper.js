@@ -259,6 +259,15 @@ function serverCall(fn, args, onSuccess, onFailure) {
 
     function tryHandleFirebase() {
         if (window.db && window.firebaseAPI) {
+            // If on a private panel (not public registration form), ensure Firebase Auth has restored the user session
+            if (!window.isPublicFormMode && window.auth && !window.auth.currentUser) {
+                try {
+                    const saved = localStorage.getItem('student_auth_v1');
+                    if (saved) {
+                        return false; // Wait for Firebase Auth session to finish restoring!
+                    }
+                } catch(e) {}
+            }
             handleFirebaseCall(fn, args, (res) => {
                 if (['addRecord', 'submitStudentData', 'addManyRecords', 'updateRecord', 'updateStudentData', 'deleteRecord', 'restoreRecord', 'permanentDelete', 'permDelete', 'saveFormFields'].includes(fn)) {
                     broadcastAppSync(fn, args && args[0]);
@@ -501,6 +510,18 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                 if (onSuccess) onSuccess(records);
             }, (error) => {
                 console.error("Firebase School Records Snapshot Error:", error);
+                // If permission-denied occurred because auth state was still restoring, auto-retry when auth resolves
+                if (error && (error.code === 'permission-denied' || String(error.message).toLowerCase().includes('permission'))) {
+                    if (window.auth && window.firebaseAPI && window.firebaseAPI.onAuthStateChanged) {
+                        const unsub = window.firebaseAPI.onAuthStateChanged(window.auth, (u) => {
+                            if (u) {
+                                unsub();
+                                handleFirebaseCall('getRecords', args, onSuccess, onFailure);
+                            }
+                        });
+                        return;
+                    }
+                }
                 getDocs(schoolColRef).then((snapshot) => {
                     const fallbackRecords = [];
                     snapshot.forEach((d) => { fallbackRecords.push({ id: d.id, ...d.data() }); });
