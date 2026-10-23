@@ -76,7 +76,7 @@ async function bulkDownloadSelectedJpg() {
             }
         }
         if (!schoolCode) schoolCode = 'DPS';
-        const zipFileName = `${schoolCode}_${dd}_${mm}_${yyyy}_${selectedIds.length}count.zip`;
+        const zipFileName = `${schoolCode}_${dd}_${mm}_${yyyy}_${count}count.zip`;
 
         const downloadLink = document.createElement("a");
         downloadLink.href = URL.createObjectURL(content);

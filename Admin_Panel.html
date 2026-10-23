@@ -4,12 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <!-- Browser Cache Invalidation Meta Tags -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/x-icon" href="./favicon.ico">
-    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png">
-    <link rel="apple-touch-icon" href="./idapplogo.png">
+    <link rel="icon" type="image/x-icon" href="./favicon.ico?v=231026_4">
+    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png?v=231026_4">
+    <link rel="apple-touch-icon" href="./idapplogo.png?v=231026_4">
     <link rel="manifest" href="manifest.json">
     <title id="page-title">IDentify&deg;</title>
     <script>
@@ -156,7 +160,7 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, enableMultiTabIndexedDbPersistence, deleteField } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, enableMultiTabIndexedDbPersistence, deleteField, writeBatch, collectionGroup } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged, updatePassword } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
         import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-storage.js";
 
@@ -227,16 +231,16 @@
             console.error("Firebase initialization error:", e);
         }
     </script>
-    <script src="db-helper.js"></script>
-    <script src="cropper-helper.js"></script>
-    <script src="card-generator.js"></script>
+    <script src="db-helper.js?v=231026_4"></script>
+    <script src="cropper-helper.js?v=231026_4"></script>
+    <script src="card-generator.js?v=231026_4"></script>
 </head>
 
 <body class="flex flex-col h-screen items-center bg-slate-100">
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
         <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
-            <img src="./idapplogo.png" class="w-[180px] h-[180px] object-contain mix-blend-multiply">
+            <img src="./idapplogo.png?v=231026_4" class="w-[180px] h-[180px] object-contain drop-shadow-md">
         </div>
         <!-- 3 Loading Dots -->
         <div class="absolute bottom-16 flex space-x-3 justify-center items-center">
@@ -356,6 +360,7 @@
                         <span class="text-[12px] font-black tracking-widest text-emerald-600">IDentify&deg;</span>
                     </div>
                     <div class="text-[10px] font-bold tracking-widest text-emerald-500 uppercase mt-0.5">By: Javed Ansari</div>
+                    <div id="login-app-version" class="text-[9px] font-bold tracking-widest text-slate-400 uppercase mt-1">V JVD 23.10.26</div>
                     
                 </div>
             </div>
@@ -753,7 +758,7 @@
             }
             let currentUser = null;
             var schoolConfig = null;
-            const APP_VERSION = 'JVD 1.04.26';
+            const APP_VERSION = 'JVD 23.10.26';
             const MENU_AUTO_HIDE_MS = 4000;
             const ACTIVITY_KEY = 'student_activity_v1';
             const SN_KEY = 'fb_form_sn_v1';
@@ -797,14 +802,7 @@
             function getHighestVerifiedSn() {
                 let maxSn = 0;
                 (Array.isArray(typeof db !== 'undefined' ? db : [])).forEach(r => {
-                    if (!r) return;
-                    if (isRecordVerified(r)) {
-                        const val = parseInt(r.sn, 10);
-                        if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
-                    }
-                });
-                (Array.isArray(typeof bin !== 'undefined' ? bin : [])).forEach(r => {
-                    if (!r) return;
+                    if (!r || r.isDeleted) return;
                     if (isRecordVerified(r)) {
                         const val = parseInt(r.sn, 10);
                         if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
@@ -812,9 +810,48 @@
                 });
                 try {
                     const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
-                    if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
+                    if (!isNaN(savedSn) && savedSn <= maxSn && savedSn < 1000000000) maxSn = Math.max(maxSn, savedSn);
                 } catch(e) {}
                 return maxSn;
+            }
+
+            function syncMaxSnAfterDeletion() {
+                let maxSn = 0;
+                (Array.isArray(typeof db !== 'undefined' ? db : [])).forEach(r => {
+                    if (!r || r.isDeleted) return;
+                    const val = parseInt(r.sn, 10);
+                    if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+                });
+                try {
+                    localStorage.setItem(SN_KEY, maxSn);
+                } catch(e){}
+                lastFetchedSn = maxSn;
+                try {
+                    if (window.db && window.firebaseAPI && schoolConfig && schoolConfig.id) {
+                        const counterRef = window.firebaseAPI.doc(window.db, "schools", String(schoolConfig.id), "config", "snCounter");
+                        window.firebaseAPI.setDoc(counterRef, { value: maxSn }, { merge: true }).catch(()=>{});
+                    }
+                } catch(e){}
+            }
+
+            async function fetchAtomicNextSn() {
+                const localMax = getHighestVerifiedSn();
+                try {
+                    if (typeof serverCall === 'function') {
+                        const next = await new Promise((resolve, reject) => {
+                            serverCall('generateId', [localMax], resolve, reject);
+                        });
+                        if (next && Number(next) > 0) {
+                            try { localStorage.setItem(SN_KEY, next); } catch(e){}
+                            return Number(next);
+                        }
+                    }
+                } catch(e) {
+                    console.warn('Atomic SN generation fallback to local max:', e);
+                }
+                const fallback = localMax + 1;
+                try { localStorage.setItem(SN_KEY, fallback); } catch(e){}
+                return fallback;
             }
 
             function getHighestDraftSn() {
@@ -1969,6 +2006,114 @@
                 });
             }
 
+            function setupDesktopRightClickReload() {
+                let isDesktopSyncing = false;
+                let desktopIndicator = null;
+
+                function showIndicator() {
+                    if (!desktopIndicator) {
+                        desktopIndicator = document.createElement('div');
+                        desktopIndicator.id = 'desktop-refresh-hud';
+                        desktopIndicator.className = 'fixed top-5 left-1/2 -translate-x-1/2 z-[999999] bg-slate-900/90 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-xs sm:text-sm font-semibold tracking-wide backdrop-blur-md border border-slate-700/60 transition-all duration-300 transform -translate-y-6 opacity-0 pointer-events-none select-none';
+                        desktopIndicator.innerHTML = '<i class="fa-solid fa-rotate animate-spin text-emerald-400 text-sm"></i><span>Syncing & Refreshing Data...</span>';
+                        document.body.appendChild(desktopIndicator);
+                    }
+                    const runAnim = window.requestAnimationFrame || setTimeout;
+                    runAnim(() => {
+                        if (desktopIndicator) {
+                            desktopIndicator.classList.remove('-translate-y-6', 'opacity-0');
+                            desktopIndicator.classList.add('translate-y-0', 'opacity-100');
+                        }
+                    });
+                }
+
+                function hideIndicator() {
+                    if (desktopIndicator) {
+                        desktopIndicator.classList.remove('translate-y-0', 'opacity-100');
+                        desktopIndicator.classList.add('-translate-y-6', 'opacity-0');
+                        setTimeout(() => {
+                            if (desktopIndicator && desktopIndicator.parentNode) {
+                                desktopIndicator.remove();
+                                desktopIndicator = null;
+                            }
+                        }, 350);
+                    }
+                }
+
+                window.addEventListener('contextmenu', (e) => {
+                    // Only active on desktop (fine pointer or screen width >= 768px, not mobile touch)
+                    const isTouchOnly = window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 768;
+                    if (isTouchOnly) return;
+
+                    const isDesktop = window.innerWidth >= 768 || (window.matchMedia && window.matchMedia('(pointer: fine)').matches);
+                    if (!isDesktop) return;
+
+                    // Allow native context menu on input, textarea, select, or contenteditable fields
+                    const target = e.target;
+                    const tag = (target && target.tagName) ? target.tagName.toLowerCase() : '';
+                    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (target && target.isContentEditable)) {
+                        return;
+                    }
+
+                    // Allow custom contextmenu on recycle bin items
+                    if (target && target.closest && target.closest('.bin-selection-zone')) {
+                        return;
+                    }
+
+                    // Prevent browser's default context menu
+                    e.preventDefault();
+
+                    // Shortcut: Ctrl + Right Click or Shift + Right Click triggers full page reload
+                    if (e.ctrlKey || e.shiftKey) {
+                        showToast('<i class="fa-solid fa-rotate animate-spin mr-2"></i> Reloading Page...');
+                        setTimeout(() => { window.location.reload(); }, 250);
+                        return;
+                    }
+
+                    // Prevent concurrent syncs
+                    if (isDesktopSyncing) {
+                        showToast('<i class="fa-solid fa-rotate animate-spin mr-2"></i> Sync already in progress...');
+                        return;
+                    }
+
+                    isDesktopSyncing = true;
+                    showIndicator();
+
+                    // Safety timeout to prevent getting stuck
+                    const safetyTimer = setTimeout(() => {
+                        if (isDesktopSyncing) {
+                            isDesktopSyncing = false;
+                            hideIndicator();
+                            showToast('Data Synced & Updated!');
+                        }
+                    }, 7000);
+
+                    // Re-trigger live system config if needed
+                    try {
+                        if (typeof fetchSystemConfigFromFirebase === 'function') {
+                            fetchSystemConfigFromFirebase();
+                        }
+                    } catch (err) {}
+
+                    // Trigger data sync just like mobile pull-to-refresh
+                    if (typeof loadAllData === 'function') {
+                        loadAllData(() => {
+                            clearTimeout(safetyTimer);
+                            isDesktopSyncing = false;
+                            hideIndicator();
+                            showToast('Data Synced & Updated!');
+                        });
+                    } else {
+                        clearTimeout(safetyTimer);
+                        setTimeout(() => {
+                            isDesktopSyncing = false;
+                            hideIndicator();
+                            window.location.reload();
+                        }, 500);
+                    }
+                }, true);
+            }
+
             function setupEventDelegation() {
                 const container = document.getElementById('records-list-container');
                 if (!container) return;
@@ -2074,6 +2219,7 @@
                     setupAutoLogoutTracking();
                     setupLoginUi();
                     setupPullToRefresh();
+                    setupDesktopRightClickReload();
                     setupEventDelegation();
 
                     // Splash screen will be hidden by requireLoginAndBoot after auth state check
@@ -3076,6 +3222,227 @@
             }
             window.showAdminPinModal = showAdminPinModal;
 
+            
+            // --- DEEP CLOUD DATABASE CLEANUP (Purges ghost schools & orphan student records from Firestore) ---
+            async function cleanupOrphanSchoolsAndRecords(onProgress) {
+                if (!window.db || !window.firebaseAPI) {
+                    throw new Error("Firebase is not initialized or offline");
+                }
+                const { collection, doc, deleteDoc, getDocs, writeBatch, collectionGroup } = window.firebaseAPI;
+
+                // 1. Get list of active schools to PROTECT
+                const currentSchools = (typeof loadSchoolsList === 'function' ? loadSchoolsList() : (Array.isArray(window.schoolsList) ? window.schoolsList : []));
+                const protectedIds = new Set();
+                const protectedCodes = new Set();
+
+                currentSchools.forEach(s => {
+                    if (s) {
+                        if (s.id) protectedIds.add(String(s.id).trim());
+                        if (s.code) {
+                            const codeUpper = String(s.code).trim().toUpperCase();
+                            protectedCodes.add(codeUpper);
+                            protectedIds.add('school_' + codeUpper.toLowerCase());
+                        }
+                    }
+                });
+
+                if (typeof schoolConfig !== 'undefined' && schoolConfig) {
+                    if (schoolConfig.id) protectedIds.add(String(schoolConfig.id).trim());
+                    if (schoolConfig.code) {
+                        const codeUpper = String(schoolConfig.code).trim().toUpperCase();
+                        protectedCodes.add(codeUpper);
+                        protectedIds.add('school_' + codeUpper.toLowerCase());
+                    }
+                }
+
+                console.log("[Cleanup] Protected active school IDs:", Array.from(protectedIds));
+                console.log("[Cleanup] Protected active school codes:", Array.from(protectedCodes));
+
+                // 2. Discover all candidate school IDs in Firestore
+                const candidateSchoolIds = new Set([
+                    '9xmvfHIMdMPCPGKLZjxQ6fcnMAo1',
+                    'Qd25qzh5XhdGUxv3BDzEmo9d7pD3',
+                    'school_1792097698093',
+                    'school_1792166693296',
+                    'school_1792738535131',
+                    'school_dps',
+                    'school_kvc',
+                    'school_शएम'
+                ]);
+
+                // Discover from collection("schools")
+                try {
+                    const schoolsSnap = await getDocs(collection(window.db, "schools"));
+                    schoolsSnap.forEach(d => {
+                        candidateSchoolIds.add(String(d.id).trim());
+                    });
+                } catch(e) {
+                    console.warn("[Cleanup] Error reading schools collection:", e);
+                }
+
+                // Discover from collectionGroup("records")
+                try {
+                    if (typeof collectionGroup === 'function') {
+                        const allRecordsSnap = await getDocs(collectionGroup(window.db, "records"));
+                        allRecordsSnap.forEach(d => {
+                            const parts = d.ref.path.split('/');
+                            if (parts[0] === 'schools' && parts.length >= 3) {
+                                candidateSchoolIds.add(String(parts[1]).trim());
+                            }
+                        });
+                    }
+                } catch(cgErr) {
+                    console.warn("[Cleanup] collectionGroup query error (continuing with discovered list):", cgErr);
+                }
+
+                // Filter candidateSchoolIds to only ORPHAN / DELETED schools
+                const orphanSchoolIds = Array.from(candidateSchoolIds).filter(id => !protectedIds.has(id));
+                console.log("[Cleanup] Found orphan school IDs to purge:", orphanSchoolIds);
+
+                let totalDeletedRecords = 0;
+                let totalDeletedSchools = 0;
+
+                const totalSteps = orphanSchoolIds.length + 1;
+                let currentStep = 0;
+
+                // 3. For each orphan school, wipe subcollection records, config, and parent document
+                for (const orphanId of orphanSchoolIds) {
+                    currentStep++;
+                    if (onProgress) onProgress(`Purging ghost school ${currentStep} of ${orphanSchoolIds.length} (${orphanId})...`, Math.round((currentStep / totalSteps) * 80));
+
+                    try {
+                        // Delete subcollection "records"
+                        const recCol = collection(window.db, "schools", orphanId, "records");
+                        const recSnap = await getDocs(recCol);
+                        if (!recSnap.empty) {
+                            let batch = typeof writeBatch === 'function' ? writeBatch(window.db) : null;
+                            let count = 0;
+                            for (const docSnap of recSnap.docs) {
+                                if (batch) {
+                                    batch.delete(docSnap.ref);
+                                    count++;
+                                    if (count >= 400) {
+                                        await batch.commit();
+                                        batch = writeBatch(window.db);
+                                        count = 0;
+                                    }
+                                } else {
+                                    await deleteDoc(docSnap.ref).catch(()=>{});
+                                }
+                                totalDeletedRecords++;
+                            }
+                            if (batch && count > 0) {
+                                await batch.commit();
+                            }
+                        }
+                    } catch(e) { console.warn(`[Cleanup] Error cleaning records in ${orphanId}:`, e); }
+
+                    try {
+                        // Delete subcollection "config"
+                        const cfgCol = collection(window.db, "schools", orphanId, "config");
+                        const cfgSnap = await getDocs(cfgCol);
+                        if (!cfgSnap.empty) {
+                            for (const docSnap of cfgSnap.docs) {
+                                await deleteDoc(docSnap.ref).catch(()=>{});
+                            }
+                        }
+                    } catch(e) {}
+
+                    try {
+                        // Delete the parent school document itself
+                        await deleteDoc(doc(window.db, "schools", orphanId)).catch(()=>{});
+                        totalDeletedSchools++;
+                    } catch(e) {}
+                }
+
+                // 4. Scan root records collection to remove any orphan records
+                if (onProgress) onProgress("Scanning root records for leftover student data...", 85);
+                try {
+                    const rootSnap = await getDocs(collection(window.db, "records"));
+                    if (!rootSnap.empty) {
+                        let batch = typeof writeBatch === 'function' ? writeBatch(window.db) : null;
+                        let count = 0;
+                        for (const docSnap of rootSnap.docs) {
+                            const r = docSnap.data() || {};
+                            const rSchoolId = String(r.schoolId || '').trim();
+                            const rSchoolCode = String(r.schoolCode || '').trim().toUpperCase();
+
+                            const isOrphan = (rSchoolId && orphanSchoolIds.includes(rSchoolId)) ||
+                                             (rSchoolCode && !protectedCodes.has(rSchoolCode) && protectedCodes.size > 0);
+
+                            if (isOrphan) {
+                                if (batch) {
+                                    batch.delete(docSnap.ref);
+                                    count++;
+                                    if (count >= 400) {
+                                        await batch.commit();
+                                        batch = writeBatch(window.db);
+                                        count = 0;
+                                    }
+                                } else {
+                                    await deleteDoc(docSnap.ref).catch(()=>{});
+                                }
+                                totalDeletedRecords++;
+                            }
+                        }
+                        if (batch && count > 0) {
+                            await batch.commit();
+                        }
+                    }
+                } catch(e) { console.warn("[Cleanup] Error cleaning root records:", e); }
+
+                if (onProgress) onProgress("Deep clean complete!", 100);
+
+                return {
+                    deletedSchoolsCount: totalDeletedSchools,
+                    deletedRecordsCount: totalDeletedRecords,
+                    orphanSchoolIds
+                };
+            }
+            window.cleanupOrphanSchoolsAndRecords = cleanupOrphanSchoolsAndRecords;
+
+            window.triggerDeepCloudCleanup = function() {
+                showModal('delete-all', 'Clean Firebase Cloud Data?', 
+                    'Yeh feature Firebase Firestore se sabhi purane/deleted ghost schools aur unke bache huye student records (jaise <code>9xmvfHIMdMPCPGKLZjxQ6fcnMAo1</code>, <code>school_1792097698093</code>, etc.) ko permanently delete kar dega taaki Firebase console bilkul saaf ho jaye.<br><br><span class="text-emerald-700 font-bold">Aapke active schools aur records 100% surakshit rahenge.</span>', 
+                    async () => {
+                        const overlay = document.createElement('div');
+                        overlay.id = 'cloud-cleanup-overlay';
+                        overlay.className = 'fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-slate-900/85 backdrop-blur-md text-white p-6 text-center select-none';
+                        overlay.innerHTML = `
+                            <div class="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center mb-4 shadow-xl">
+                                <i class="fa-solid fa-broom text-3xl text-rose-400 animate-pulse"></i>
+                            </div>
+                            <h3 class="text-lg font-black tracking-wide" id="cleanup-title">Cleaning Firebase Cloud Database...</h3>
+                            <p class="text-xs text-slate-300 mt-1 mb-4 text-center max-w-sm" id="cleanup-desc">
+                                Scanning Firestore for deleted schools and orphan student records.
+                            </p>
+                            <div class="w-64 h-2.5 bg-white/20 rounded-full overflow-hidden mb-2">
+                                <div id="cleanup-bar" class="h-full bg-rose-500 transition-all duration-200" style="width: 10%"></div>
+                            </div>
+                            <div id="cleanup-status" class="text-xs font-bold text-rose-300">Connecting to Firebase...</div>
+                        `;
+                        document.body.appendChild(overlay);
+
+                        try {
+                            const res = await cleanupOrphanSchoolsAndRecords((statusText, pct) => {
+                                const st = document.getElementById('cleanup-status');
+                                const bar = document.getElementById('cleanup-bar');
+                                if (st) st.innerText = statusText;
+                                if (bar) bar.style.width = pct + '%';
+                            });
+
+                            document.body.removeChild(overlay);
+                            showModal('success', 'Cloud Cleanup Complete!', 
+                                `Firebase Firestore se <b>${res.deletedSchoolsCount} ghost schools</b> aur <b>${res.deletedRecordsCount} orphan student records</b> successfully permanently delete ho gaye hain.<br><br>Ab aap apna Firebase console check kar sakte hain.`);
+                            if (typeof renderCurrentRecordsPage === 'function') renderCurrentRecordsPage();
+                        } catch(err) {
+                            if (document.getElementById('cloud-cleanup-overlay')) document.body.removeChild(overlay);
+                            showModal('error', 'Cleanup Failed', err.message || 'Error communicating with Firebase.');
+                        }
+                    }, 'Clean Cloud Data Now');
+            };
+
+
             async function executeSchoolDeleteAndBackup(target) {
                 if (!target || !target.id) return;
                 const schoolId = String(target.id);
@@ -3188,12 +3555,11 @@ Generated By    : IDentify° Admin Panel
                             if (rec.address) lines.push(`Address: ${rec.address}`);
 
                             const qrVal = lines.length > 0 ? lines.join('\n') : String(rec.id || 'NID');
-                            const qrDataUrl = generateStandardQRCodeDataURL(qrVal, 400, 'M', 'jpg');
+                            const qrDataUrl = generateStandardQRCodeDataURL(qrVal, 400, 'M', 'png');
                             const qrBase64 = qrDataUrl ? qrDataUrl.split(',')[1] : '';
                             if (qrBase64) {
-                                qrFileName = `${baseFilename}.jpg`;
+                                qrFileName = `QR_${baseFilename}.png`;
                                 qrFolder.file(qrFileName, qrBase64, { base64: true });
-                                qrFolder.file(`QR_${qrFileName}`, qrBase64, { base64: true });
                             }
                         } catch(e) { qrFileName = ""; }
 
@@ -3332,51 +3698,80 @@ Generated By    : IDentify° Admin Panel
                         }
                     }
 
-                    // 7. Delete from Firebase Firestore (Completely isolated: only this school is deleted, other schools are untouched)
+                    // 7. Delete from Firebase Firestore (Completely wipes all subcollections and ghost entries across all aliases)
                     try {
                         if (window.db && window.firebaseAPI && typeof window.firebaseAPI.getDocs === 'function') {
-                            const { collection, doc, deleteDoc, getDocs, updateDoc, deleteField } = window.firebaseAPI;
+                            const { collection, doc, deleteDoc, getDocs, updateDoc, deleteField, writeBatch } = window.firebaseAPI;
                             const targetCode = String(target.code || '').trim().toUpperCase();
-                            const delPromises = [];
+                            const schoolAliases = new Set([schoolId]);
+                            if (targetCode) schoolAliases.add('school_' + targetCode.toLowerCase());
 
-                            // a) Delete all records in dedicated school subcollection: schools/{schoolId}/records
-                            try {
-                                const schoolRecsCol = collection(window.db, "schools", schoolId, "records");
-                                const snap = await getDocs(schoolRecsCol);
-                                snap.forEach(d => {
-                                    delPromises.push(deleteDoc(doc(window.db, "schools", schoolId, "records", d.id)).catch(()=>{}));
-                                });
-                            } catch(e) { console.warn("Error clearing school subcollection:", e); }
+                            for (const aliasId of schoolAliases) {
+                                // a) Delete all records in subcollection: schools/{aliasId}/records
+                                try {
+                                    const schoolRecsCol = collection(window.db, "schools", aliasId, "records");
+                                    const snap = await getDocs(schoolRecsCol);
+                                    if (!snap.empty) {
+                                        let batch = typeof writeBatch === 'function' ? writeBatch(window.db) : null;
+                                        let bCount = 0;
+                                        for (const d of snap.docs) {
+                                            if (batch) {
+                                                batch.delete(d.ref);
+                                                bCount++;
+                                                if (bCount >= 400) { await batch.commit(); batch = writeBatch(window.db); bCount = 0; }
+                                            } else {
+                                                await deleteDoc(d.ref).catch(()=>{});
+                                            }
+                                        }
+                                        if (batch && bCount > 0) await batch.commit();
+                                    }
+                                } catch(e) { console.warn("Error clearing school records for alias " + aliasId + ":", e); }
 
-                            // b) Delete matching records from root records collection (STRICTLY this school's records or all if 0 schools remain)
+                                // b) Delete config subcollection
+                                try {
+                                    const cfgSnap = await getDocs(collection(window.db, "schools", aliasId, "config"));
+                                    for (const d of cfgSnap.docs) {
+                                        await deleteDoc(d.ref).catch(()=>{});
+                                    }
+                                } catch(e) {}
+
+                                // c) Delete school document itself
+                                await deleteDoc(doc(window.db, "schools", aliasId)).catch(()=>{});
+                            }
+
+                            // d) Delete matching records from root records collection
                             try {
                                 const rootSnap = await getDocs(collection(window.db, "records"));
                                 const totalRemaining = schoolsList.length;
-                                rootSnap.forEach(d => {
+                                let rBatch = typeof writeBatch === 'function' ? writeBatch(window.db) : null;
+                                let rCount = 0;
+                                for (const d of rootSnap.docs) {
                                     const r = d.data() || {};
                                     const matchesId = r.schoolId && String(r.schoolId) === schoolId;
                                     const matchesCode = targetCode && r.schoolCode && String(r.schoolCode).toUpperCase() === targetCode;
-                                    const matchesPrefix = targetCode && (String(d.id).startsWith('rec_' + targetCode + '_') || String(d.id).startsWith('draft_' + targetCode + '-'));
+                                    const matchesPrefix = targetCode && (String(d.id).startsWith('rec_' + targetCode + '_') || String(d.id).startsWith('draft_' + targetCode + '-') || String(d.id).startsWith('import_' + targetCode + '_'));
                                     const belongs = typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool({ id: d.id, ...r }, target) : false;
                                     if (matchesId || matchesCode || matchesPrefix || belongs || totalRemaining === 0) {
-                                        delPromises.push(deleteDoc(doc(window.db, "records", d.id)).catch(()=>{}));
+                                        if (rBatch) {
+                                            rBatch.delete(d.ref);
+                                            rCount++;
+                                            if (rCount >= 400) { await rBatch.commit(); rBatch = writeBatch(window.db); rCount = 0; }
+                                        } else {
+                                            await deleteDoc(d.ref).catch(()=>{});
+                                        }
                                     }
-                                });
+                                }
+                                if (rBatch && rCount > 0) await rBatch.commit();
                             } catch(e) { console.warn("Error clearing root records:", e); }
 
-                            // c) Delete the school document itself: schools/{schoolId}
-                            delPromises.push(deleteDoc(doc(window.db, "schools", schoolId)).catch(()=>{}));
-
-                            // d) Remove school login credentials from system/school_auth
+                            // e) Remove school login credentials from system/school_auth
                             if (target.email) {
                                 const safeKey = target.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
                                 const authDocRef = doc(window.db, "system", "school_auth");
                                 if (deleteField) {
-                                    delPromises.push(updateDoc(authDocRef, { [safeKey]: deleteField() }).catch(()=>{}));
+                                    await updateDoc(authDocRef, { [safeKey]: deleteField() }).catch(()=>{});
                                 }
                             }
-
-                            await Promise.all(delPromises);
                         }
                     } catch(fe) {
                         console.warn("Firestore isolated school cleanup warning:", fe);
@@ -5041,45 +5436,6 @@ Generated By    : IDentify° Admin Panel
                 menu.addEventListener('mouseleave', () => { isMouseOverMenu = false; scheduleMenuAutoHide(); });
                 menu.addEventListener('mousemove', () => { isMouseOverMenu = true; clearMenuAutoHideTimer(); });
             }
-            function getPreviewDisplayName(fullName, fallback = 'Student', isEditMode = false) {
-                const raw = String(fullName || '').trim();
-                if (!raw) return fallback;
-                const parts = raw.split(/\s+/).filter(Boolean);
-                if (parts.length === 0) return fallback;
-
-                const cap = (w) => w ? (w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()) : '';
-                if (parts.length === 1) return cap(parts[0]);
-
-                const firstName = cap(parts[0]);
-                const firstAndMiddle = firstName + ' ' + cap(parts[1]);
-
-                // Check available space in the search bar header
-                let containerWidth = 0;
-                try {
-                    const searchBox = document.getElementById('search-input-container') || document.getElementById('mainSearch');
-                    if (searchBox && searchBox.clientWidth > 0) {
-                        containerWidth = Math.max(0, searchBox.clientWidth - 40);
-                    }
-                } catch (e) {}
-
-                if (!containerWidth && typeof window !== 'undefined' && window.innerWidth) {
-                    containerWidth = Math.max(140, window.innerWidth - 170);
-                }
-
-                // Suffix: "'s ID Preview Edit" (19 chars) or "'s ID Preview" (14 chars)
-                const suffixLength = isEditMode ? 19 : 14;
-                const totalChars = firstAndMiddle.length + suffixLength;
-                // At 16px font-extrabold with tracking-tight, each character averages ~8.8px + icon & gap (~26px)
-                const estimatedNeededWidth = (totalChars * 8.8) + 26;
-
-                if (containerWidth >= estimatedNeededWidth) {
-                    return firstAndMiddle;
-                }
-
-                return firstName;
-            }
-            window.getPreviewDisplayName = getPreviewDisplayName;
-
             function setBlankRecordMode(mode = 'none') {
                 if (typeof fb_bootFromStorage === 'function') fb_bootFromStorage();
                 const filterRow = document.getElementById('class-filter-row');
@@ -5202,9 +5558,10 @@ Generated By    : IDentify° Admin Panel
                     const isStaff = currentClassVal === 'staff';
 
                     if (previewRecord) {
-                        const displayName = getPreviewDisplayName(previewRecord.studentName, isStaff ? 'Staff' : 'Student', true);
-                        headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600 mr-2.5"></i> ${displayName}'s ID Preview Edit`;
-                        labelText = `${displayName}'s ID Preview Edit`;
+                        const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
+                        const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
+                        headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600 mr-2.5"></i> ${firstName}'s ID Preview Edit`;
+                        labelText = `${firstName}'s ID Preview Edit`;
                         iconClass = `fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600`;
                     } else {
                         headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-lines'} text-emerald-600 mr-2.5"></i> ${isStaff ? 'Staff Information Form' : 'Student Information Form'}`;
@@ -5220,10 +5577,10 @@ Generated By    : IDentify° Admin Panel
                     labelText = 'Share Form Link';
                     iconClass = 'fa-solid fa-share-nodes text-emerald-600';
                 } else if (mode === 'preview' && previewRecord) {
-                    const isStaff = String(previewRecord.sclass || '').trim().toLowerCase() === 'staff';
-                    const displayName = getPreviewDisplayName(previewRecord.studentName, isStaff ? 'Staff' : 'Student', false);
-                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600 mr-2.5"></i> ${displayName}'s ID Preview`;
-                    labelText = `${displayName}'s ID Preview`;
+                    const firstNameRaw = (previewRecord.studentName || 'Student').trim().split(' ')[0];
+                    const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
+                    headerHtml = `<i class="fa-solid fa-file-invoice text-emerald-600 mr-2.5"></i> ${firstName}'s ID Preview`;
+                    labelText = `${firstName}'s ID Preview`;
                 } else if (mode === 'builder') {
                     const isStaffTab = typeof fb_active_form_tab !== 'undefined' && fb_active_form_tab === 'staff';
                     headerHtml = `<i class="fa-solid ${isStaffTab ? 'fa-id-badge' : 'fa-shapes'} text-emerald-600 mr-2.5"></i> ${isStaffTab ? 'Staff Form Builder' : 'Student Form Builder'}`;
@@ -5388,31 +5745,6 @@ Generated By    : IDentify° Admin Panel
                         altInfo.innerHTML = headerHtml;
                         altInfo.classList.remove('hidden');
                     }
-                } else if (currentMode === 'preview' && typeof previewRecord !== 'undefined' && previewRecord) {
-                    const isStaff = String(previewRecord.sclass || '').trim().toLowerCase() === 'staff';
-                    const displayName = getPreviewDisplayName(previewRecord.studentName, isStaff ? 'Staff' : 'Student', false);
-                    const labelText = `${displayName}'s ID Preview`;
-                    const iconClass = isStaff ? 'fa-solid fa-id-badge text-emerald-600' : 'fa-solid fa-file-invoice text-emerald-600';
-                    const headerHtml = `<i class="${iconClass} mr-2.5"></i> ${labelText}`;
-                    const search = document.getElementById('mainSearch');
-                    const searchIcon = document.getElementById('search-icon');
-                    const info = document.getElementById('records-page-info-db');
-                    const altInfo = document.getElementById('records-page-info-db');
-                    if (search) {
-                        search.value = labelText;
-                        search.placeholder = labelText;
-                    }
-                    if (searchIcon) {
-                        searchIcon.className = iconClass + ' ml-2';
-                    }
-                    if (info) {
-                        info.innerHTML = headerHtml;
-                        info.classList.remove('hidden');
-                    }
-                    if (altInfo) {
-                        altInfo.innerHTML = headerHtml;
-                        altInfo.classList.remove('hidden');
-                    }
                 } else if (currentMode === 'student' || currentMode === 'newEntry') {
                     if (typeof updateStudentFormHeaderForClass === 'function') {
                         updateStudentFormHeaderForClass();
@@ -5438,9 +5770,10 @@ Generated By    : IDentify° Admin Panel
                 const iconClass = isStaff ? 'fa-solid fa-id-badge text-emerald-600' : 'fa-solid fa-file-lines text-emerald-600';
                 
                 if (isEdit) {
-                    const displayName = getPreviewDisplayName(previewRecord.studentName, isStaff ? 'Staff' : 'Student', true);
-                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600 mr-2.5"></i> ${displayName}'s ID Preview Edit`;
-                    labelText = `${displayName}'s ID Preview Edit`;
+                    const firstNameRaw = (previewRecord.studentName || (isStaff ? 'Staff' : 'Student')).trim().split(' ')[0];
+                    const firstName = firstNameRaw.charAt(0).toUpperCase() + firstNameRaw.slice(1).toLowerCase();
+                    headerHtml = `<i class="fa-solid ${isStaff ? 'fa-id-badge' : 'fa-file-invoice'} text-emerald-600 mr-2.5"></i> ${firstName}'s ID Preview Edit`;
+                    labelText = `${firstName}'s ID Preview Edit`;
                 } else {
                     headerHtml = `<i class="${iconClass} mr-2.5"></i> ${isStaff ? 'Staff Information Form' : 'Student Information Form'}`;
                     labelText = isStaff ? 'Staff Information Form' : 'Student Information Form';
@@ -5914,7 +6247,7 @@ Generated By    : IDentify° Admin Panel
                     }));
                 } else if (type.startsWith('customField')) {
                     const rawClassVal = document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
-                    const isStaff = String(rawClassVal).trim().toLowerCase() === 'staff';
+                    const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
                     const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
                     const idx = parseInt(type.replace('customField', ''), 10) - 1;
                     const fieldId = (btn && btn.dataset && btn.dataset.fieldId) ? btn.dataset.fieldId : '';
@@ -5989,23 +6322,20 @@ Generated By    : IDentify° Admin Panel
 
             function selectFormDropdownOption(type, value) {
                 if (type === 'sclass') {
-                    const prevVal = document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
+                    const prevVal = document.getElementById('in-sclass')?.value || document.getElementById('blank-class')?.value || '';
                     const wasStaff = String(prevVal).trim().toLowerCase() === 'staff';
                     const isNowStaff = String(value).trim().toLowerCase() === 'staff';
+                    syncBlankSelect('in-sclass', value);
                     const textEl = document.getElementById('blank-class-text');
                     if (textEl) textEl.innerText = value;
                     const hiddenEl = document.getElementById('blank-class');
                     if (hiddenEl) hiddenEl.value = value;
-                    syncBlankSelect('in-sclass', value);
-                    closeFormDropdown();
                     if (typeof updateStudentFormHeaderForClass === 'function') {
                         updateStudentFormHeaderForClass(value);
                     }
                     if (wasStaff !== isNowStaff) {
-                        if (isNowStaff && typeof fb_staff_active !== 'undefined') fb_staff_active = true;
-                        if (typeof renderCurrentRecordsPage === 'function') {
-                            renderCurrentRecordsPage();
-                        }
+                        closeFormDropdown();
+                        renderCurrentRecordsPage();
                         return;
                     }
                 } else if (type === 'gender') {
@@ -6024,7 +6354,7 @@ Generated By    : IDentify° Admin Panel
                             textEl.classList.add('text-slate-700');
                         } else {
                             const rawClassVal = document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
-                            const isStaff = String(rawClassVal).trim().toLowerCase() === 'staff';
+                            const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
                             const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
                             const idx = parseInt(type.replace('customField', ''), 10) - 1;
                             const btnEl = document.getElementById(`blank-${type}-btn`);
@@ -6589,10 +6919,24 @@ Generated By    : IDentify° Admin Panel
                 const ids = Array.from(binSelectedRecords);
                 let count = 0;
                 ids.forEach(id => {
+                    const item = findRecordById(db, id) || findRecordById(bin, id);
+                    const copyToDelete = item ? { ...item } : { id };
                     db = db.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
                     try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
                     registerLocalDeletion(id);
-                    serverCallSilent('permanentDelete', [id]);
+
+                    if (window.db && window.firebaseAPI && window.firebaseAPI.deleteDoc && window.firebaseAPI.doc) {
+                        const recId = String(id);
+                        const sc = (typeof recordBelongsToSchool === 'function' ? (schoolsList || []).find(s => recordBelongsToSchool(item, s)) : null) || schoolConfig;
+                        const scId = String(sc?.id || item?.schoolId || (sc?.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
+                        window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", recId)).catch(()=>{});
+                        window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", recId)).catch(()=>{});
+                        if (sc?.code) {
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", recId)).catch(()=>{});
+                        }
+                    }
+
+                    serverCallSilent('permanentDelete', [copyToDelete]);
                     count++;
                 });
                 showToast(count + ' records permanently deleted');
@@ -6880,11 +7224,25 @@ Generated By    : IDentify° Admin Panel
             function permDelete(id) {
                 showModal('confirm', 'Delete Permanently?', 'Are you sure you want to permanently delete this record? This cannot be undone.', () => {
                     const item = findRecordById(db, id) || findRecordById(bin, id);
+                    const copyToDelete = item ? { ...item } : { id };
                     registerLocalDeletion(id);
                     db = db.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
                     try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
                     if (item) addActivity('PERM_DELETE', item);
-                    serverCallSilent('permanentDelete', [id], ()=>{}, ()=>{});
+
+                    // Immediate direct Firestore deletion
+                    if (window.db && window.firebaseAPI && window.firebaseAPI.deleteDoc && window.firebaseAPI.doc) {
+                        const recId = String(id);
+                        const sc = (typeof recordBelongsToSchool === 'function' ? (schoolsList || []).find(s => recordBelongsToSchool(item, s)) : null) || schoolConfig;
+                        const scId = String(sc?.id || item?.schoolId || (sc?.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
+                        window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", recId)).catch(()=>{});
+                        window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", recId)).catch(()=>{});
+                        if (sc?.code) {
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", recId)).catch(()=>{});
+                        }
+                    }
+
+                    serverCallSilent('permanentDelete', [copyToDelete], ()=>{}, ()=>{});
                     showToast('Record Permanently Deleted');
                     syncSelectedRecordsSection();
                     selectedRecords.delete(String(id));
@@ -7153,7 +7511,7 @@ Generated By    : IDentify° Admin Panel
 
                 // Populate custom fields (dropdowns, dates, text, numbers)
                 const rawClassVal = r.sclass || document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || '';
-                const isStaff = String(rawClassVal).trim().toLowerCase() === 'staff';
+                const isStaff = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClassVal).trim().toLowerCase() === 'staff';
                 const activeCustomList = isStaff ? (typeof fb_staff_fields !== 'undefined' && Array.isArray(fb_staff_fields) ? fb_staff_fields : []) : (typeof fb_fields !== 'undefined' && Array.isArray(fb_fields) ? fb_fields : []);
 
                 for (let i = 1; i <= 5; i++) {
@@ -7458,7 +7816,7 @@ Generated By    : IDentify° Admin Panel
                     originalFileName = compFile.name;
                     currentFileType = compFile.type;
 
-                    setUploadFieldProgress('', 100, false);
+                    setUploadFieldProgress('Saved Locally', 100, false);
                     resetUploadFieldLabel('Saved');
                     pendingUploadedDocument = null;
                     queueServerDraftSync();
@@ -7493,18 +7851,7 @@ Generated By    : IDentify° Admin Panel
             }
             function syncBlankSelect(fieldId, value) {
                 const target = document.getElementById(fieldId);
-                if (target) {
-                    if (target.tagName === 'SELECT' && value) {
-                        let hasOpt = Array.from(target.options).some(o => o.value === value);
-                        if (!hasOpt) {
-                            const opt = document.createElement('option');
-                            opt.value = value;
-                            opt.textContent = value;
-                            target.appendChild(opt);
-                        }
-                    }
-                    target.value = value;
-                }
+                if (target) target.value = value;
                 if (fieldId === 'in-sclass' && typeof updateStudentFormHeaderForClass === 'function') {
                     updateStudentFormHeaderForClass(value);
                 }
@@ -7668,7 +8015,7 @@ Generated By    : IDentify° Admin Panel
                     };
 
                     const rawClass = getVal('sclass') || 'General';
-                    const isStaffRec = String(rawClass).trim().toLowerCase() === 'staff';
+                    const isStaffRec = (typeof fb_staff_active !== 'undefined' && fb_staff_active) && String(rawClass).trim().toLowerCase() === 'staff';
                     const activeStdConfig = isStaffRec ? (typeof fb_staff_standard_config !== 'undefined' ? fb_staff_standard_config : fb_standard_config) : fb_standard_config;
                     const activeCustomFields = isStaffRec ? (typeof fb_staff_fields !== 'undefined' ? fb_staff_fields : fb_fields) : fb_fields;
                     const getCfg = (id) => (id === 'sclass' && isStaffRec) ? { enabled: true, required: true } : (activeStdConfig[id] || { enabled: true, required: false });
@@ -8329,15 +8676,28 @@ Generated By    : IDentify° Admin Panel
                 syncSelectedRecordsSection();
                 if (selectedRecords.size === 0) return;
 
-                showModal('confirm', 'Delete Permanently?', `Permanently delete ${selectedRecords.size} records from Recycle Bin? This cannot be undone.`, () => {
+                                showModal('confirm', 'Delete Permanently?', `Permanently delete ${selectedRecords.size} records from Recycle Bin? This cannot be undone.`, () => {
                     const idsToDelete = Array.from(selectedRecords);
                     idsToDelete.forEach(id => {
-                        const item = findRecordById(db, id);
+                        const item = findRecordById(db, id) || findRecordById(bin, id);
+                        const copyToDelete = item ? { ...item } : { id };
                         if (item) addActivity('PERM_DELETE', item);
                         registerLocalDeletion(id);
                         db = db.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
                         try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
-                        serverCallSilent('permanentDelete', [id], ()=>{}, ()=>{});
+
+                        if (window.db && window.firebaseAPI && window.firebaseAPI.deleteDoc && window.firebaseAPI.doc) {
+                            const recId = String(id);
+                            const sc = (typeof recordBelongsToSchool === 'function' ? (schoolsList || []).find(s => recordBelongsToSchool(item, s)) : null) || schoolConfig;
+                            const scId = String(sc?.id || item?.schoolId || (sc?.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", recId)).catch(()=>{});
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", recId)).catch(()=>{});
+                            if (sc?.code) {
+                                window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", recId)).catch(()=>{});
+                            }
+                        }
+
+                        serverCallSilent('permanentDelete', [copyToDelete], ()=>{}, ()=>{});
                     });
 
                     showToast(`${idsToDelete.length} records permanently deleted!`);
@@ -8865,13 +9225,11 @@ Generated By    : IDentify° Admin Panel
             }
             function syncRecordsHeaderAlignment() {
                 const scrollEl = document.querySelector('.records-table-scroll');
-                if (scrollEl) {
-                    const scrollbarWidth = Math.max(0, scrollEl.offsetWidth - scrollEl.clientWidth);
-                    document.documentElement.style.setProperty('--records-scrollbar-width', `${scrollbarWidth}px`);
+                if (!scrollEl) {
+                    return;
                 }
-                if (typeof showBlankRecordCard !== 'undefined' && showBlankRecordCard && typeof updateBlankRecordHeader === 'function') {
-                    updateBlankRecordHeader();
-                }
+                const scrollbarWidth = Math.max(0, scrollEl.offsetWidth - scrollEl.clientWidth);
+                document.documentElement.style.setProperty('--records-scrollbar-width', `${scrollbarWidth}px`);
             }
             function updateRecordsPageInfo() {
                 const info = document.getElementById('footer-page-info');
@@ -9056,156 +9414,20 @@ Generated By    : IDentify° Admin Panel
                 const listEl = document.getElementById('school-activity-list');
                 if (!listEl) return;
 
-                try {
-                    const { collection, getDocs, query, orderBy, limit } = window.firebaseAPI;
-                    let snapshot;
-                    try {
-                        const q = query(collection(window.db, "activityLogs"), orderBy("timestamp", "desc"), limit(150));
-                        snapshot = await getDocs(q);
-                    } catch (errOrder) {
-                        console.warn("Ordered activityLogs query failed, falling back to unordered query:", errOrder);
-                        const q = query(collection(window.db, "activityLogs"), limit(150));
-                        snapshot = await getDocs(q);
-                    }
-
-                    const rawLogs = [];
-                    if (snapshot && !snapshot.empty) {
-                        snapshot.forEach(doc => {
-                            const data = doc.data();
-                            if (data && !isDummyActivityLog(data)) {
-                                rawLogs.push({ id: doc.id, ...data });
-                            }
-                        });
-                    }
-
-                    // Sort descending by timestamp
-                    rawLogs.sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
-
-                    // Match with schoolsList and records db to resolve real school details
-                    window._cachedActivityLogs = rawLogs.map(log => {
-                        const emailLower = (log.email || '').toLowerCase().trim();
-                        
-                        // 1. Match with schoolsList
-                        let matchedSchool = (Array.isArray(schoolsList) ? schoolsList : []).find(s => s && (
-                            (log.schoolId && String(s.id) === String(log.schoolId)) ||
-                            (s.email && s.email.toLowerCase().trim() === emailLower) ||
-                            (log.schoolCode && s.code && s.code.toLowerCase().trim() === String(log.schoolCode).toLowerCase().trim())
-                        ));
-
-                        // 2. Match from records in db
-                        let matchedRecord = null;
-                        if (!matchedSchool && Array.isArray(db) && db.length > 0) {
-                            matchedRecord = db.find(r => r && (
-                                (log.email && (r.createdBy === log.email || r.userId === log.email)) ||
-                                (log.schoolId && String(r.schoolId) === String(log.schoolId)) ||
-                                (log.schoolCode && r.schoolCode && String(r.schoolCode).toLowerCase().trim() === String(log.schoolCode).toLowerCase().trim())
-                            ));
-                            if (matchedRecord) {
-                                matchedSchool = (Array.isArray(schoolsList) ? schoolsList : []).find(s => s && (
-                                    (matchedRecord.schoolId && String(s.id) === String(matchedRecord.schoolId)) ||
-                                    (matchedRecord.schoolCode && s.code && String(s.code).toLowerCase().trim() === String(matchedRecord.schoolCode).toLowerCase().trim())
-                                ));
-                            }
-                        }
-
-                        // 3. Fallback if single school exists
-                        if (!matchedSchool && Array.isArray(schoolsList) && schoolsList.length === 1 && log.role !== 'admin') {
-                            matchedSchool = schoolsList[0];
-                        }
-
-                        const isSysAdmin = (log.role === 'admin' || (log.email && log.email.toLowerCase().includes('identify.jvd@gmail.com')) || log.schoolCode === 'ADMIN');
-                        
-                        let schoolName = '';
-                        if (isSysAdmin) {
-                            schoolName = 'System Admin';
-                        } else if (matchedSchool && (matchedSchool.name || matchedSchool.schoolName)) {
-                            schoolName = matchedSchool.name || matchedSchool.schoolName;
-                        } else if (matchedRecord && (matchedRecord.schoolName || matchedRecord._schoolName)) {
-                            schoolName = matchedRecord.schoolName || matchedRecord._schoolName;
-                        } else if (log.schoolName && !isRawActivityUid(log.schoolName) && log.schoolName !== 'School') {
-                            schoolName = log.schoolName;
-                        } else if (log.email && log.email.includes('@')) {
-                            schoolName = log.email.split('@')[0];
-                        } else {
-                            schoolName = 'School User';
-                        }
-
-                        let schoolCode = '';
-                        if (isSysAdmin) {
-                            schoolCode = 'ADMIN';
-                        } else if (matchedSchool && (matchedSchool.code || matchedSchool.schoolCode)) {
-                            schoolCode = (matchedSchool.code || matchedSchool.schoolCode).toUpperCase();
-                        } else if (matchedRecord && matchedRecord.schoolCode) {
-                            schoolCode = matchedRecord.schoolCode.toUpperCase();
-                        } else if (log.schoolCode && log.schoolCode !== 'LOGIN') {
-                            schoolCode = log.schoolCode.toUpperCase();
-                        } else {
-                            schoolCode = (matchedSchool && matchedSchool.name ? matchedSchool.name.slice(0, 4).toUpperCase() : 'SCH');
-                        }
-
-                        const schoolLogo = log.schoolLogo || (matchedSchool ? (matchedSchool.logo || matchedSchool.logoUrl) : '');
-                        const role = isSysAdmin ? 'admin' : (log.role || 'school');
-
-                        return {
-                            ...log,
-                            schoolName,
-                            schoolCode,
-                            schoolLogo,
-                            role,
-                            matchedSchool
-                        };
-                    });
-
-                    // Calculate session entries count for each log (if not already set e.g. for link_share)
-                    window._cachedActivityLogs.forEach((log, i) => {
-                        if (log.activityType === 'link_share' || log.role === 'public_link') {
-                            if (!log.sessionEntryCount) log.sessionEntryCount = 1;
-                            return;
-                        }
-
-                        const logTime = Number(log.timestamp) || 0;
-                        const maxWindow = logTime + (4 * 3600 * 1000);
-                        let sessionEndTime = maxWindow;
-                        
-                        if (i > 0 && window._cachedActivityLogs[i - 1]) {
-                            sessionEndTime = Number(window._cachedActivityLogs[i - 1].timestamp) || maxWindow;
-                        } else {
-                            sessionEndTime = Math.min(Date.now(), maxWindow);
-                        }
-                        if (sessionEndTime > maxWindow) sessionEndTime = maxWindow;
-
-                        const sessionStartTime = logTime;
-                        let entryCount = 0;
-
-                        if (Array.isArray(db) && db.length > 0) {
-                            const sessionRecords = db.filter(r => {
-                                if (!r) return false;
-                                const rTime = Number(r.createdAt || r.updatedAt || 0);
-                                if (rTime < sessionStartTime || rTime > sessionEndTime) return false;
-
-                                if (log.role === 'admin') {
-                                    return (r.createdBy === 'Admin' || r.createdBy === 'System Admin' || !r.schoolId);
-                                }
-                                if (log.schoolId && r.schoolId && String(r.schoolId) === String(log.schoolId)) return true;
-                                if (log.matchedSchool && log.matchedSchool.id && r.schoolId && String(r.schoolId) === String(log.matchedSchool.id)) return true;
-                                if (log.schoolCode && r.schoolCode && String(r.schoolCode).toUpperCase() === String(log.schoolCode).toUpperCase()) return true;
-                                if (log.email && (r.createdBy === log.email || r.userId === log.email)) return true;
-                                if (log.matchedSchool && typeof recordBelongsToSchool === 'function' && recordBelongsToSchool(r, log.matchedSchool)) return true;
-                                return false;
-                            });
-                            entryCount = sessionRecords.length;
-                        }
-                        log.sessionEntryCount = entryCount;
-                    });
-
-                    renderActivityLogsList();
-
-                } catch(err) {
-                    console.error("Failed to fetch activity logs", err);
-                    if (listEl) {
-                        listEl.innerHTML = `<div class="p-8 text-center text-rose-500 text-xs font-bold"><i class="fa-solid fa-triangle-exclamation text-lg mb-1"></i><p>Failed to load logs: ${sanitizeHTML(err.message || 'Network error')}</p></div>`;
-                    }
-                }
+                // Activity logs disabled to save Firestore read/write quota
+                listEl.innerHTML = `
+                    <div class="p-10 text-center bg-white rounded-3xl">
+                        <div class="w-14 h-14 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-inner">
+                            <i class="fa-solid fa-pause text-2xl"></i>
+                        </div>
+                        <h4 class="font-black text-slate-800 text-base">Activity Logs Temporarily Disabled</h4>
+                        <p class="text-xs text-slate-500 mt-2 max-w-sm mx-auto leading-relaxed">
+                            Firestore read/write limits save karne ke liye activity logging ko abhi disable kiya gaya hai.
+                        </p>
+                    </div>
+                `;
+                const badge = document.getElementById('activity-log-count-badge');
+                if (badge) badge.innerText = 'Disabled';
             }
 
             function renderActivityLogsList() {
@@ -9434,7 +9656,7 @@ Generated By    : IDentify° Admin Panel
                 t.innerHTML = '';
                 if (showBlankRecordCard) {
                     const genderValue = (document.getElementById('in-gender')?.value || (previewRecord ? previewRecord.gender : '') || 'Male');
-                    const classValue = (document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || (previewRecord ? previewRecord.sclass : '') || 'Class 1');
+                    const classValue = (document.getElementById('in-sclass')?.value || document.getElementById('blank-class')?.value || (previewRecord ? previewRecord.sclass : '') || 'Class 1');
                     if (typeof updateStudentFormHeaderForClass === 'function') {
                         updateStudentFormHeaderForClass(classValue);
                     }
@@ -9947,6 +10169,22 @@ Generated By    : IDentify° Admin Panel
                         </div>
 
                         ${(currentUser && currentUser.userId === 'admin') ? `
+                        <!-- Deep Cloud Database Cleanup -->
+                        <div onclick="window.triggerDeepCloudCleanup()" class="system-card p-5 rounded-2xl flex items-center gap-4 clickable-card hover:border-rose-400 group border border-rose-100 bg-rose-50/20">
+                            <div class="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 group-hover:bg-rose-600 group-hover:text-white transition-all shadow-sm">
+                                <i class="fa-solid fa-broom text-xl"></i>
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center justify-between">
+                                    <h4 class="text-sm font-black text-rose-900">Clean Firebase Cloud</h4>
+                                    <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+                                        Firestore Sync
+                                    </span>
+                                </div>
+                                <p class="text-[10px] font-bold text-rose-500 uppercase tracking-widest">Purge ghost schools & orphan student data</p>
+                            </div>
+                        </div>
+
                         <div onclick="confirmDeleteAllSystemData()" class="system-card p-5 rounded-2xl flex items-center gap-4 clickable-card hover:border-red-300 group">
                             <div class="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-red-600 group-hover:bg-red-600 group-hover:text-white transition-all shadow-sm">
                                 <i class="fa-solid fa-triangle-exclamation text-xl"></i>
@@ -9988,33 +10226,7 @@ Generated By    : IDentify° Admin Panel
                         if (infoEl) infoEl.innerText = 'Page 1 of 1';
                         const updateSettingsActivityBadge = () => {
                             const b = document.getElementById('activity-log-count-badge');
-                            if (!b) return;
-                            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : loadSchoolConfig();
-                            if (Array.isArray(window._cachedActivityLogs) && window._cachedActivityLogs.length > 0) {
-                                const validLogs = window._cachedActivityLogs.filter(log => !isDummyActivityLog(log) && logMatchesTargetSchool(log, sc));
-                                window._activityLogCount = validLogs.length;
-                                b.innerText = `${validLogs.length} ${validLogs.length === 1 ? 'Log' : 'Logs'}`;
-                                return;
-                            }
-                            if (window.firebaseAPI && window.db) {
-                                try {
-                                    const { collection, getDocs, query, limit } = window.firebaseAPI;
-                                    getDocs(query(collection(window.db, "activityLogs"), limit(150))).then(snap => {
-                                        let schoolLogsCount = 0;
-                                        if (snap && !snap.empty) {
-                                            snap.forEach(doc => {
-                                                const d = doc.data();
-                                                if (d && !isDummyActivityLog(d) && logMatchesTargetSchool(d, sc)) {
-                                                    schoolLogsCount++;
-                                                }
-                                            });
-                                        }
-                                        window._activityLogCount = schoolLogsCount;
-                                        const badge = document.getElementById('activity-log-count-badge');
-                                        if (badge) badge.innerText = `${schoolLogsCount} ${schoolLogsCount === 1 ? 'Log' : 'Logs'}`;
-                                    }).catch(() => {});
-                                } catch(e) {}
-                            }
+                            if (b) b.innerText = 'Disabled';
                         };
                         updateSettingsActivityBadge();
                         lucide.createIcons();
@@ -10061,6 +10273,17 @@ Generated By    : IDentify° Admin Panel
 
                             t.innerHTML = `
                                 <div class="p-4 bg-white rounded-3xl system-card flex flex-col items-start w-full max-w-xl mx-auto space-y-3 animate-in fade-in duration-200 relative pb-20">
+                                    <!-- Action & Cloud Sync Bar -->
+                                    <div class="w-full flex items-center justify-between px-1 py-0.5">
+                                        <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>Registered Schools (${schoolsList.length})</span>
+                                        </div>
+                                        <button type="button" onclick="window.triggerDeepCloudCleanup()" class="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200/80 rounded-xl text-[11px] font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95" title="Purge orphan schools and student records from Firebase">
+                                            <i class="fa-solid fa-broom text-xs text-rose-500"></i>
+                                            <span>Clean Cloud Data</span>
+                                        </button>
+                                    </div>
+
                                     <!-- School List (Compact tiles, reduced gaps, enlarged school name) -->
                                     <div class="w-full space-y-2.5 max-h-[500px] overflow-y-auto pr-0.5">
                                         ${schoolsList.length === 0 ? `
@@ -10635,9 +10858,22 @@ Generated By    : IDentify° Admin Panel
                     const genderCfg = getCfg('gender');
                     const isEditMode = !!(document.getElementById('edit-id')?.value || '').trim();
                     const escapeAttr = (val) => String(val || '').replace(/"/g, '&quot;');
+                    const isStaffActive = (typeof fb_staff_active !== 'undefined') ? !!fb_staff_active : false;
+                    if (!isStaffActive && String(classValue).trim().toLowerCase() === 'staff') {
+                        classValue = 'Class 1';
+                        const blankClassEl = document.getElementById('blank-class');
+                        if (blankClassEl) blankClassEl.value = 'Class 1';
+                        const blankClassTextEl = document.getElementById('blank-class-text');
+                        if (blankClassTextEl) blankClassTextEl.innerText = 'Class 1';
+                        const inSclassEl = document.getElementById('in-sclass');
+                        if (inSclassEl) inSclassEl.value = 'Class 1';
+                    }
                     const classOptions = fb_getStandardSelectOptions('sclass');
                     const genderOptions = fb_getStandardSelectOptions('gender');
-                    const classOptionsWithCurrent = classOptions.includes(classValue) || !classValue ? classOptions : [...classOptions, classValue];
+                    let classOptionsWithCurrent = classOptions.includes(classValue) || !classValue ? classOptions : [...classOptions, classValue];
+                    if (!isStaffActive) {
+                        classOptionsWithCurrent = classOptionsWithCurrent.filter(v => String(v).trim().toLowerCase() !== 'staff');
+                    }
                     const genderOptionsWithCurrent = genderOptions.includes(genderValue) || !genderValue ? genderOptions : [...genderOptions, genderValue];
 
                     const standardFieldRenderers = {
@@ -11574,7 +11810,7 @@ Generated By    : IDentify° Admin Panel
                     let finalRec = { ...localRec, ...vPatch };
                     
                     if (!finalRec.sn) {
-                        const nextSn = getHighestVerifiedSn() + 1;
+                        const nextSn = await fetchAtomicNextSn();
                         finalRec.sn = nextSn;
                         try { localStorage.setItem(SN_KEY, nextSn); } catch(e){}
                     }
@@ -11680,7 +11916,7 @@ Generated By    : IDentify° Admin Panel
                     let finalRec = { ...localRec, ...vPatch };
                     
                     if (!finalRec.sn) {
-                        const nextSn = getHighestVerifiedSn() + 1;
+                        const nextSn = await fetchAtomicNextSn();
                         finalRec.sn = nextSn;
                         try { localStorage.setItem(SN_KEY, nextSn); } catch(e){}
                     }
@@ -11818,46 +12054,31 @@ Generated By    : IDentify° Admin Panel
 
             function deleteFromPreview() {
                 if (!previewRecord || !previewRecord.id) return;
-                showModal('confirm', 'Delete Record?', 'Move this previewed record to Recycle Bin?', () => {
-                    const id = previewRecord.id;
-                    const deleted = findRecordById(db, id) || previewRecord;
-                    addActivity('DELETE', deleted);
-
-                    let nextRecord = null;
-                    if (currentRenderedRecords && currentRenderedRecords.length > 0) {
-                        const idx = currentRenderedRecords.findIndex(r => r.id === id);
-                        if (idx !== -1) {
-                            if (idx + 1 < currentRenderedRecords.length) {
-                                nextRecord = currentRenderedRecords[idx + 1];
-                            } else if (idx > 0) {
-                                nextRecord = currentRenderedRecords[idx - 1];
-                            }
+                const id = previewRecord.id;
+                showModal('confirm', 'Delete Record?', 'Are you sure you want to permanently delete this record from system and cloud?', () => {
+                    const deleted = findRecordById(db, id);
+                    if (deleted) {
+                        addActivity('DELETE', deleted);
+                        db = db.filter(r => r && String(r.id) !== String(id));
+                        currentRenderedRecords = currentRenderedRecords.filter(r => r && String(r.id) !== String(id));
+                        try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
+                        if (typeof persistLocalUnverified === 'function') persistLocalUnverified();
+                        serverCallSilent('permanentDelete', [id], ()=>{}, ()=>{});
+                        syncMaxSnAfterDeletion();
+                        showToast('Record deleted permanently from system and cloud ✓');
+                        
+                        const nextRec = (currentRenderedRecords && currentRenderedRecords.length > 0) ? currentRenderedRecords[0] : null;
+                        if (nextRec) {
+                            openStudentDetailPopup(nextRec);
+                        } else {
+                            closeStudentForm();
                         }
-                    }
-
-                    deleted.isDeleted = true;
-                    deleted.deletedAt = new Date().toISOString();
-                    storeRecordInDb(deleted);
-                    if (typeof window.queueServerDraftSync === 'function') window.queueServerDraftSync();
-                    try { if (window.idbPut) idbPut(IDB_STORE_RECORDS, deleted).catch(()=>{}); } catch(e){}
-                    serverCallSilent('deleteRecord', [id], ()=>{}, ()=>{});
-                    showToast('Record moved to Recycle Bin');
-
-                    renderHomeAnalysis();
-                    filterRecords();
-
-                    if (nextRecord) {
-                        previewRecord = nextRecord;
-                        blankRecordMode = 'preview';
-                        // Keep form open
+                        renderHomeAnalysis();
+                        filterRecords();
                     } else {
-                        previewRecord = null;
-                        blankRecordMode = 'none';
-                        setBlankRecordMode('none');
+                        showModal('error', 'Failed', 'Record not found.');
                     }
-                    
-                    renderCurrentRecordsPage();
-                }, 'Yes, Delete');
+                }, 'Delete Permanently');
             }
 
             function resetForm(stayInFormMode = false) {
@@ -11918,11 +12139,12 @@ Generated By    : IDentify° Admin Panel
             // --- STUDENT RECORD NAVIGATION ---
             function openNextPreview() {
                 if (!previewRecord) return;
-                const list = (currentRenderedRecords && currentRenderedRecords.length > 0 && currentRenderedRecords.findIndex(r => r.id === previewRecord.id) !== -1) 
+                const activeList = (currentRenderedRecords && currentRenderedRecords.length > 0 && currentRenderedRecords.findIndex(r => r && String(r.id) === String(previewRecord.id)) !== -1) 
                     ? currentRenderedRecords 
                     : db;
+                const list = (Array.isArray(activeList) ? activeList : []).filter(r => r && !r.isDeleted && r.studentName);
                 
-                const currentIndex = list.findIndex(r => r.id === previewRecord.id);
+                const currentIndex = list.findIndex(r => r && String(r.id) === String(previewRecord.id));
                 if (currentIndex >= 0 && currentIndex < list.length - 1) {
                     openStudentDetailPopup(list[currentIndex + 1], false, isPendingBatch);
                 } else {
@@ -11932,11 +12154,12 @@ Generated By    : IDentify° Admin Panel
 
             function openPrevPreview() {
                 if (!previewRecord) return;
-                const list = (currentRenderedRecords && currentRenderedRecords.length > 0 && currentRenderedRecords.findIndex(r => r.id === previewRecord.id) !== -1) 
+                const activeList = (currentRenderedRecords && currentRenderedRecords.length > 0 && currentRenderedRecords.findIndex(r => r && String(r.id) === String(previewRecord.id)) !== -1) 
                     ? currentRenderedRecords 
                     : db;
+                const list = (Array.isArray(activeList) ? activeList : []).filter(r => r && !r.isDeleted && r.studentName);
                 
-                const currentIndex = list.findIndex(r => r.id === previewRecord.id);
+                const currentIndex = list.findIndex(r => r && String(r.id) === String(previewRecord.id));
                 if (currentIndex > 0) {
                     openStudentDetailPopup(list[currentIndex - 1], false, isPendingBatch);
                 } else {
@@ -12758,7 +12981,7 @@ Generated By    : IDentify° Admin Panel
             if (sc.publicFormExpiry && Number(sc.publicFormExpiry) > 0) {
                 if (Date.now() >= Number(sc.publicFormExpiry)) return false;
             }
-            const limitEnabled = sc.publicFormEntryLimitEnabled !== false;
+            const limitEnabled = sc.publicFormEntryLimitEnabled === true;
             const maxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
             const currentEntries = Number(sc.publicFormEntryCount) || 0;
             if (limitEnabled && maxEntries > 0 && currentEntries >= maxEntries) {
@@ -12898,7 +13121,8 @@ Generated By    : IDentify° Admin Panel
 
             const maxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
             const currentEntries = Number(sc.publicFormEntryCount) || 0;
-            const isLimitReached = (sc.publicFormEntryLimitEnabled !== false && maxEntries > 0 && currentEntries >= maxEntries);
+            const isLimitEnabled = sc.publicFormEntryLimitEnabled === true;
+            const isLimitReached = (isLimitEnabled && maxEntries > 0 && currentEntries >= maxEntries);
             const progressPct = maxEntries > 0 ? Math.min(100, Math.round((currentEntries / maxEntries) * 100)) : 0;
 
             return `
@@ -12954,51 +13178,52 @@ Generated By    : IDentify° Admin Panel
                         <!-- Auto-Off Entry Limit Settings (Anti-Hack / Spam Protection) -->
                         <div id="page-share-limit-container" class="${isActive ? 'block' : 'hidden'} pt-3 border-t border-slate-200/80 space-y-2">
                             <div class="flex items-center justify-between gap-2">
-                                <div class="flex items-center gap-2">
+                                <label class="flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" id="page-share-limit-checkbox" onchange="toggleShareEntryLimit(this.checked)" class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer shrink-0" ${isLimitEnabled ? 'checked' : ''}>
                                     <div class="w-7 h-7 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xs border border-blue-200/70 shrink-0">
                                         <i class="fa-solid fa-shield-halved"></i>
                                     </div>
                                     <span class="text-[11px] font-black uppercase tracking-wider text-slate-700">Auto-Off Entry Limit:</span>
-                                </div>
-                                <span id="page-share-limit-badge" class="text-[10px] font-black px-2.5 py-0.5 rounded-full ${isLimitReached ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200'} shrink-0">
-                                    ${currentEntries} / ${maxEntries} Entries
+                                </label>
+                                <span id="page-share-limit-badge" class="text-[10px] font-black px-2.5 py-0.5 rounded-full ${isLimitEnabled ? (isLimitReached ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200') : 'bg-slate-100 text-slate-500 border border-slate-200'} shrink-0">
+                                    ${isLimitEnabled ? `${currentEntries} / ${maxEntries} Entries` : 'Off'}
                                 </span>
                             </div>
 
-                            <div class="w-full flex items-center justify-between gap-2 pt-0.5">
-                                <!-- Left side: Reset Counter button -->
-                                <button type="button" onclick="resetShareEntryCount()" class="px-3 py-2 text-[11px] font-black text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl active:scale-95 transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0" title="Reset submitted entries counter to 0">
-                                    <i class="fa-solid fa-rotate-left text-[11px]"></i>
-                                    <span>Reset</span>
-                                </button>
+                            <!-- Controls Wrapper: Shown only when checkbox is ticked -->
+                            <div id="page-share-limit-controls" class="${isLimitEnabled ? 'block' : 'hidden'} space-y-2 pt-0.5">
+                                <div class="w-full flex items-center justify-between gap-2">
+                                    <!-- Left side: Reset Counter button -->
+                                    <button type="button" onclick="resetShareEntryCount()" class="px-3 py-2 text-[11px] font-black text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl active:scale-95 transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0" title="Reset submitted entries counter to 0">
+                                        <i class="fa-solid fa-rotate-left text-[11px]"></i>
+                                        <span>Reset</span>
+                                    </button>
 
-                                <!-- Right side: Count adjustments (decrease, input, increase, +50) -->
-                                <div class="flex items-center gap-1.5 shrink-0">
-                                    <div class="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
-                                        <button type="button" onclick="adjustShareEntryLimit(-10)" class="px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-100 active:scale-95 transition cursor-pointer" title="-10 Entries"><i class="fa-solid fa-minus"></i></button>
-                                        <input type="number" id="page-share-entry-limit-input" min="1" max="99999" value="${maxEntries}" onchange="saveShareEntryLimitFromInput(this.value)" class="w-14 text-center text-xs font-black text-slate-800 outline-none border-x border-slate-200 py-1.5" title="Click to manually set limit">
-                                        <button type="button" onclick="adjustShareEntryLimit(10)" class="px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-100 active:scale-95 transition cursor-pointer" title="+10 Entries"><i class="fa-solid fa-plus"></i></button>
+                                    <!-- Right side: Count adjustments (decrease, input, increase, +50) -->
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                        <div class="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
+                                            <button type="button" onclick="adjustShareEntryLimit(-10)" class="px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-100 active:scale-95 transition cursor-pointer" title="-10 Entries"><i class="fa-solid fa-minus"></i></button>
+                                            <input type="number" id="page-share-entry-limit-input" min="1" max="99999" value="${maxEntries}" onchange="saveShareEntryLimitFromInput(this.value)" class="w-14 text-center text-xs font-black text-slate-800 outline-none border-x border-slate-200 py-1.5" title="Click to manually set limit">
+                                            <button type="button" onclick="adjustShareEntryLimit(10)" class="px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-100 active:scale-95 transition cursor-pointer" title="+10 Entries"><i class="fa-solid fa-plus"></i></button>
+                                        </div>
+                                        <button type="button" onclick="adjustShareEntryLimit(50)" class="px-3 py-2 text-[11px] font-black text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl active:scale-95 transition shadow-xs cursor-pointer shrink-0" title="Add 50 to entry limit">+50</button>
                                     </div>
-                                    <button type="button" onclick="adjustShareEntryLimit(50)" class="px-3 py-2 text-[11px] font-black text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl active:scale-95 transition shadow-xs cursor-pointer shrink-0" title="Add 50 to entry limit">+50</button>
                                 </div>
-                            </div>
 
-                            <!-- Progress Bar -->
-                            <div class="w-full bg-slate-200/70 rounded-full h-1.5 mt-1 overflow-hidden">
-                                <div id="page-share-limit-progress" class="h-full rounded-full transition-all duration-300 ${isLimitReached ? 'bg-rose-500' : 'bg-blue-500'}" style="width: ${progressPct}%;"></div>
+                                <!-- Progress Bar -->
+                                <div class="w-full bg-slate-200/70 rounded-full h-1.5 mt-1 overflow-hidden">
+                                    <div id="page-share-limit-progress" class="h-full rounded-full transition-all duration-300 ${isLimitReached ? 'bg-rose-500' : 'bg-blue-500'}" style="width: ${progressPct}%;"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Registration Link Input + Copy Button -->
                     <div class="w-full space-y-1.5">
-                        <div class="flex items-center justify-between">
+                        <div>
                             <label class="premium-label !text-[11px] !tracking-widest uppercase flex items-center gap-1.5 text-slate-600">
                                 <i class="fa-solid fa-link text-emerald-600"></i> Public Form Link
                             </label>
-                            <button type="button" onclick="promptSetPublicFormCustomUrl()" class="text-[11px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 active:scale-95 transition cursor-pointer" title="Change or Set GitHub / Live Link">
-                                <i class="fa-solid fa-pen-to-square"></i> <span>Set Live Link</span>
-                            </button>
                         </div>
                         <div class="flex items-center gap-2">
                             <input type="text" id="page-share-url-input" readonly value="${publicUrl}" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 text-xs font-mono text-slate-700 outline-none select-all focus:border-emerald-400 shadow-inner">
@@ -13113,18 +13338,33 @@ Generated By    : IDentify° Admin Panel
                 limitContainer.classList.toggle('block', isActive);
             }
 
+            const isLimitEnabled = sc.publicFormEntryLimitEnabled === true;
             const maxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
             const currentEntries = Number(sc.publicFormEntryCount) || 0;
-            const isLimitReached = (sc.publicFormEntryLimitEnabled !== false && maxEntries > 0 && currentEntries >= maxEntries);
+            const isLimitReached = (isLimitEnabled && maxEntries > 0 && currentEntries >= maxEntries);
             const progressPct = maxEntries > 0 ? Math.min(100, Math.round((currentEntries / maxEntries) * 100)) : 0;
+
+            const limitCheckbox = document.getElementById('page-share-limit-checkbox');
+            if (limitCheckbox) limitCheckbox.checked = isLimitEnabled;
+
+            const limitControls = document.getElementById('page-share-limit-controls');
+            if (limitControls) {
+                limitControls.classList.toggle('hidden', !isLimitEnabled);
+                limitControls.classList.toggle('block', isLimitEnabled);
+            }
 
             const limitInput = document.getElementById('page-share-entry-limit-input');
             if (limitInput) limitInput.value = maxEntries;
 
             const limitBadge = document.getElementById('page-share-limit-badge');
             if (limitBadge) {
-                limitBadge.className = `text-[10px] font-black px-2 py-0.5 rounded-full ${isLimitReached ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`;
-                limitBadge.innerText = `${currentEntries} / ${maxEntries} Entries`;
+                if (isLimitEnabled) {
+                    limitBadge.className = `text-[10px] font-black px-2.5 py-0.5 rounded-full ${isLimitReached ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200'} shrink-0`;
+                    limitBadge.innerText = `${currentEntries} / ${maxEntries} Entries`;
+                } else {
+                    limitBadge.className = 'text-[10px] font-black px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 shrink-0';
+                    limitBadge.innerText = 'Off';
+                }
             }
 
             const limitProgress = document.getElementById('page-share-limit-progress');
@@ -13134,6 +13374,35 @@ Generated By    : IDentify° Admin Panel
             }
 
             updateShareFormBadge();
+        }
+
+        async function toggleShareEntryLimit(isChecked) {
+            if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
+            schoolConfig.publicFormEntryLimitEnabled = !!isChecked;
+            if (isChecked) {
+                if (!schoolConfig.publicFormMaxEntries || Number(schoolConfig.publicFormMaxEntries) < 1) {
+                    schoolConfig.publicFormMaxEntries = 60;
+                }
+                const maxEntries = Number(schoolConfig.publicFormMaxEntries);
+                const currentEntries = Number(schoolConfig.publicFormEntryCount) || 0;
+                if (currentEntries >= maxEntries) {
+                    schoolConfig.publicFormMaxEntries = currentEntries + 60;
+                }
+                showToast(`Auto-Off Entry Limit enabled (${schoolConfig.publicFormMaxEntries} entries) ✓`);
+            } else {
+                showToast("Auto-Off Entry Limit disabled (Unlimited entries allowed) ✓");
+            }
+
+            try {
+                localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+            } catch(e){}
+
+            updateShareFormPageUI();
+            triggerHapticFeedback(5);
+
+            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormMaxEntries, schoolConfig.publicFormEntryCount).catch(err => {
+                console.warn("Background limit sync error:", err);
+            });
         }
 
         async function adjustShareEntryLimit(delta) {
@@ -13176,28 +13445,26 @@ Generated By    : IDentify° Admin Panel
         }
 
         async function resetShareEntryCount() {
-            showModal('confirm', 'Reset Entry Counter?', 'Are you sure you want to reset the submitted entries counter to 0?<br><br><span class="text-xs text-slate-500">This will reset submitted entries back to 0 and reopen the form if it was closed by the limit.</span>', async () => {
-                if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
-                schoolConfig.publicFormEntryCount = 0;
-                if (schoolConfig.publicFormActive === false) {
-                    schoolConfig.publicFormActive = true;
-                    schoolConfig.formActive = true;
-                    showToast("Counter reset to 0. Form Link Activated! ✓");
-                } else {
-                    showToast("Entry counter reset to 0 ✓");
-                }
+            if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
+            schoolConfig.publicFormEntryCount = 0;
+            if (schoolConfig.publicFormActive === false) {
+                schoolConfig.publicFormActive = true;
+                schoolConfig.formActive = true;
+                showToast("Counter reset to 0. Form Link Activated! ✓");
+            } else {
+                showToast("Entry counter reset to 0 ✓");
+            }
 
-                try {
-                    localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
-                } catch(e){}
+            try {
+                localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+            } catch(e){}
 
-                updateShareFormPageUI();
-                triggerHapticFeedback(5);
+            updateShareFormPageUI();
+            triggerHapticFeedback(5);
 
-                syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormMaxEntries, 0).catch(err => {
-                    console.warn("Background reset sync error:", err);
-                });
-            }, 'Yes, Reset');
+            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormMaxEntries, 0).catch(err => {
+                console.warn("Background reset sync error:", err);
+            });
         }
 
         async function togglePublicFormActiveFromPage(isActive) {
@@ -13300,6 +13567,7 @@ Generated By    : IDentify° Admin Panel
                         publicFormExpiry: Number(expiry) || 0,
                         timerPreset: schoolConfig.timerPreset || 'none',
                         timerPresetLabel: schoolConfig.timerPresetLabel || 'No Timer (Open until off)',
+                        publicFormEntryLimitEnabled: !!schoolConfig.publicFormEntryLimitEnabled,
                         publicFormMaxEntries: schoolConfig.publicFormMaxEntries !== undefined ? Number(schoolConfig.publicFormMaxEntries) : 60,
                         publicFormEntryCount: Number(schoolConfig.publicFormEntryCount) || 0
                     }, { merge: true }).catch(()=>{});
@@ -13321,6 +13589,7 @@ Generated By    : IDentify° Admin Panel
                             list[idx].publicFormExpiry = Number(expiry) || 0;
                             if (schoolConfig.timerPreset !== undefined) list[idx].timerPreset = schoolConfig.timerPreset;
                             if (schoolConfig.timerPresetLabel !== undefined) list[idx].timerPresetLabel = schoolConfig.timerPresetLabel;
+                            list[idx].publicFormEntryLimitEnabled = !!schoolConfig.publicFormEntryLimitEnabled;
                             list[idx].publicFormMaxEntries = schoolConfig.publicFormMaxEntries !== undefined ? Number(schoolConfig.publicFormMaxEntries) : 60;
                             list[idx].publicFormEntryCount = Number(schoolConfig.publicFormEntryCount) || 0;
                             await window.firebaseAPI.setDoc(schoolsDocRef, { list: list, updatedAt: Date.now() }, { merge: true });
@@ -13339,6 +13608,7 @@ Generated By    : IDentify° Admin Panel
                         publicFormExpiry: Number(expiry) || 0,
                         timerPreset: schoolConfig.timerPreset || 'none',
                         timerPresetLabel: schoolConfig.timerPresetLabel || 'No Timer (Open until off)',
+                        publicFormEntryLimitEnabled: !!schoolConfig.publicFormEntryLimitEnabled,
                         publicFormMaxEntries: schoolConfig.publicFormMaxEntries !== undefined ? Number(schoolConfig.publicFormMaxEntries) : 60,
                         publicFormEntryCount: Number(schoolConfig.publicFormEntryCount) || 0,
                         updatedAt: Date.now()
@@ -13495,7 +13765,7 @@ Generated By    : IDentify° Admin Panel
                 customFieldsConfig['customField' + i].label = document.getElementById('cfg-label-' + i).value || `Custom ${i}`;
             }
             localStorage.setItem('identifyCustomFields', JSON.stringify(customFieldsConfig));
-            document.getElementById('settings-modal').remove();
+            document.getElementById('settings-modal')?.remove();
             showToast('Settings Saved');
         }
 
@@ -13800,7 +14070,11 @@ Generated By    : IDentify° Admin Panel
             }
             fb_updateFormTabUI();
             fb_renderForm();
-            showToast(checked ? 'Staff Form Enabled (Class -> Staff added)' : 'Staff Form Disabled');
+            fb_applySelectOptionsToHiddenInputs();
+            if (typeof renderCurrentRecordsPage === 'function' && typeof blankRecordMode !== 'undefined' && blankRecordMode === 'student') {
+                renderCurrentRecordsPage();
+            }
+            showToast(checked ? 'Staff Form Enabled (Class -> Staff added)' : 'Staff Form Disabled (Class -> Staff removed)');
         }
 
         function fb_resetBuilderView(silent = false) {
@@ -14007,7 +14281,7 @@ Generated By    : IDentify° Admin Panel
             return 'fa-circle-info';
         }
 
-        function fb_getStandardSelectOptions(fieldId, includeStaff = true) {
+        function fb_getStandardSelectOptions(fieldId, includeStaff = null) {
             const defaults = Array.isArray(FB_DEFAULT_SELECT_OPTIONS[fieldId]) ? FB_DEFAULT_SELECT_OPTIONS[fieldId] : [];
             const meta = (fb_standard_meta && Array.isArray(fb_standard_meta[fieldId]?.options)) ? fb_standard_meta[fieldId].options : [];
             const source = meta.length ? meta : defaults;
@@ -14015,7 +14289,9 @@ Generated By    : IDentify° Admin Panel
             let result = clean.length ? clean : defaults.slice();
             if (fieldId === 'sclass') {
                 result = result.filter(v => v.toLowerCase() !== 'staff');
-                if (includeStaff) {
+                const isStaffActive = (typeof fb_staff_active !== 'undefined') ? !!fb_staff_active : false;
+                const shouldInclude = (includeStaff === null) ? isStaffActive : (!!includeStaff && isStaffActive);
+                if (shouldInclude) {
                     result.push('Staff');
                 }
             }
@@ -14023,20 +14299,29 @@ Generated By    : IDentify° Admin Panel
         }
 
         function fb_applySelectOptionsToHiddenInputs() {
-            const applyOptions = (selectEl, options, fallbackValue) => {
+            const isStaffActive = (typeof fb_staff_active !== 'undefined') ? !!fb_staff_active : false;
+            const applyOptions = (selectEl, options, fallbackValue, isClassField = false) => {
                 if (!selectEl) return;
-                const currentValue = String(selectEl.value || '').trim();
-                const clean = (Array.isArray(options) ? options : []).map(v => String(v || '').trim()).filter(Boolean);
+                let currentValue = String(selectEl.value || '').trim();
+                if (isClassField && !isStaffActive && currentValue.toLowerCase() === 'staff') {
+                    currentValue = fallbackValue;
+                }
+                let clean = (Array.isArray(options) ? options : []).map(v => String(v || '').trim()).filter(Boolean);
+                if (isClassField && !isStaffActive) {
+                    clean = clean.filter(v => v.toLowerCase() !== 'staff');
+                }
                 const merged = clean.length ? clean.slice() : [fallbackValue];
-                if (currentValue && !merged.includes(currentValue)) merged.push(currentValue);
+                if (currentValue && !merged.includes(currentValue) && (!isClassField || isStaffActive || currentValue.toLowerCase() !== 'staff')) {
+                    merged.push(currentValue);
+                }
                 if (!merged.length) merged.push(fallbackValue);
                 const previous = currentValue || fallbackValue;
                 selectEl.innerHTML = merged.map(opt => `<option value="${String(opt).replace(/"/g, '&quot;')}">${opt}</option>`).join('');
                 selectEl.value = merged.includes(previous) ? previous : merged[0];
             };
 
-            applyOptions(document.getElementById('in-sclass'), fb_getStandardSelectOptions('sclass'), 'General');
-            applyOptions(document.getElementById('in-gender'), fb_getStandardSelectOptions('gender'), 'Other');
+            applyOptions(document.getElementById('in-sclass'), fb_getStandardSelectOptions('sclass'), 'General', true);
+            applyOptions(document.getElementById('in-gender'), fb_getStandardSelectOptions('gender'), 'Other', false);
         }
 
         function fb_renderForm() {
@@ -14970,6 +15255,33 @@ Generated By    : IDentify° Admin Panel
                 staffStandardMeta: typeof fb_staff_standard_meta !== 'undefined' ? fb_staff_standard_meta : {}
             };
 
+            // Direct instant Firestore sync
+            if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.setDoc) {
+                try {
+                    const fbDocRef = window.firebaseAPI.doc(window.db, "system", "formBuilderConfig");
+                    window.firebaseAPI.setDoc(fbDocRef, { ...fbDataToSave, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+
+                    const activeSchoolId = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.id)
+                        ? schoolConfig.id
+                        : (window._selectedActivitySchoolId || null);
+                    if (activeSchoolId) {
+                        const sDocRef = window.firebaseAPI.doc(window.db, "schools", String(activeSchoolId));
+                        window.firebaseAPI.setDoc(sDocRef, { formBuilderConfig: fbDataToSave, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+
+                        if (Array.isArray(window.schoolsList)) {
+                            const idx = window.schoolsList.findIndex(s => s && String(s.id) === String(activeSchoolId));
+                            if (idx !== -1) {
+                                window.schoolsList[idx].formBuilderConfig = fbDataToSave;
+                                const sColRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                                window.firebaseAPI.setDoc(sColRef, { list: window.schoolsList, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+                            }
+                        }
+                    }
+                } catch(e) {
+                    console.warn("Direct firestore fb save error:", e);
+                }
+            }
+
             const finalizeSaveUi = () => {
                 if (btn) {
                     btn.innerHTML = origText;
@@ -15034,11 +15346,6 @@ Generated By    : IDentify° Admin Panel
                 }
             }
         });
-    </script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js');
-        }
     </script>
     <script>
     function buildImportExportHtml() {
@@ -15933,7 +16240,7 @@ Generated By    : IDentify° Admin Panel
             return `${desig}_${staffFirstName}`;
         }
 
-        const cleanClass = sanitizePart(rec.sclass || 'Class').replace(/\s+/g, ' ');
+        const cleanClass = sanitizePart(rec.sclass || 'General').replace(/\s+/g, ' ');
         const fullStudentName = sanitizePart(rec.studentName || rec.name || 'Student');
         const studentFirstName = fullStudentName.split(/\s+/)[0] || 'Student';
         const fullFatherName = sanitizePart(rec.fatherName || '');
@@ -16109,7 +16416,7 @@ Generated By    : IDentify° Admin Panel
                     (rec.fileName && String(rec.fileName).length > 3)
                 );
                 const photoFileName = hasAppPhoto ? `${photoBaseName}.${photoExt}` : '';
-                const qrFileName = `${photoBaseName}.${photoExt}`;
+                const qrFileName = `QR_${photoBaseName}.png`;
 
                 if (isStaffRec) {
                     // Populate Staff Columns based on user's ticked staff fields
@@ -16293,7 +16600,7 @@ Generated By    : IDentify° Admin Panel
                     const qrVal = lines.length > 0 ? lines.join('\n') : String(rec.id || 'NID');
 
                     try {
-                        const qrDataUrl = generateStandardQRCodeDataURL(qrVal, 450, 'M', photoExt);
+                        const qrDataUrl = generateStandardQRCodeDataURL(qrVal, 450, 'M', 'png');
                         const qrBase64 = qrDataUrl ? qrDataUrl.split(',')[1] : '';
                         if (qrBase64 && targetQrFolder) {
                             targetQrFolder.file(qrFileName, qrBase64, {base64: true});
@@ -16511,7 +16818,7 @@ Generated By    : IDentify° Admin Panel
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./idapplogo.png" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
+                <img src="./idapplogo.png?v=231026_4" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png?v=231026_4'">
             </div>
             <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">
@@ -16617,8 +16924,20 @@ Generated By    : IDentify° Admin Panel
 
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                    navigator.serviceWorker.register('./sw.js').catch(err => {
+                    navigator.serviceWorker.register('./sw.js').then(reg => {
+                        // Check for sw.js updates immediately on every page visit
+                        try { reg.update(); } catch(e){}
+                    }).catch(err => {
                         console.log('Service Worker registration failed:', err);
+                    });
+
+                    // Auto-reload page once if a new service worker took over
+                    let refreshing = false;
+                    navigator.serviceWorker.addEventListener('controllerchange', () => {
+                        if (!refreshing) {
+                            refreshing = true;
+                            window.location.reload();
+                        }
                     });
                 });
             }

@@ -3,16 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Browser Cache Invalidation Meta Tags -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>IDentify&deg; Portal</title>
-    <link rel="icon" type="image/x-icon" href="./favicon.ico">
-    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png">
-    <link rel="apple-touch-icon" href="./idapplogo.png">
+    <link rel="icon" type="image/x-icon" href="./favicon.ico?v=231026_4">
+    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png?v=231026_4">
+    <link rel="apple-touch-icon" href="./idapplogo.png?v=231026_4">
     <!-- Instant Redirect Handler -->
     <script>
         (function() {
             try {
                 const p = new URLSearchParams(window.location.search);
-                const formCode = p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' ? (p.get('school') || p.get('code')) : null);
+                const formCode = p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' ? (p.get('school') || p.get('code')) : null) || p.get('school') || p.get('code');
                 if (formCode) {
                     window.location.replace('School_Panel.html?form=' + encodeURIComponent(formCode));
                     return;

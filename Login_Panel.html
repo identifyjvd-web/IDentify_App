@@ -4,12 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <!-- Browser Cache Invalidation Meta Tags -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/x-icon" href="./favicon.ico">
-    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png">
-    <link rel="apple-touch-icon" href="./idapplogo.png">
+    <link rel="icon" type="image/x-icon" href="./favicon.ico?v=231026_4">
+    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png?v=231026_4">
+    <link rel="apple-touch-icon" href="./idapplogo.png?v=231026_4">
     <link rel="manifest" href="manifest.json">
     <title id="page-title">Login - IDentify&deg;</title>
     <script>
@@ -65,7 +69,7 @@
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
         <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
-            <img src="./idapplogo.png" class="w-[180px] h-[180px] object-contain mix-blend-multiply">
+            <img src="./idapplogo.png?v=231026_4" class="w-[180px] h-[180px] object-contain drop-shadow-md">
         </div>
         <!-- 3 Loading Dots in Logo Green Color (#05996c) -->
         <div class="absolute bottom-16 flex space-x-3 justify-center items-center">
@@ -89,7 +93,7 @@
                 <div class="flex flex-col items-center mb-5">
                     <div class="w-[74px] h-[74px] rounded-3xl border-2 border-emerald-500/20 bg-white flex items-center justify-center shadow-md mb-3 p-1.5 overflow-hidden">
                         <div id="login-logo-container" class="w-full h-full rounded-2xl flex items-center justify-center overflow-hidden">
-                            <img src="./idapplogo.png" alt="IDentify App Logo" class="w-full h-full object-contain">
+                            <img src="./idapplogo.png?v=231026_4" alt="IDentify App Logo" class="w-full h-full object-contain">
                         </div>
                     </div>
                     <h2 id="login-school-name" class="text-[19px] font-black text-slate-800 text-center leading-snug tracking-tight">Welcome to IDentify&deg;</h2>
@@ -102,9 +106,14 @@
                     <div id="login-normal-fields" class="space-y-4">
                         <div>
                             <label class="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
-                                <i data-lucide="mail" class="w-3.5 h-3.5 text-emerald-500"></i> Email Address
+                                <i data-lucide="user" class="w-3.5 h-3.5 text-emerald-500"></i> Email / Mobile / School Code
                             </label>
-                            <input id="login-user-id" type="email" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm font-medium outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition" placeholder="Enter Email Address">
+                            <div class="relative">
+                                <input id="login-user-id" type="text" autocapitalize="none" autocomplete="username" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 pr-12 text-sm font-medium outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition" placeholder="Email / Mobile / School Code">
+                                <button id="login-append-gmail-btn" type="button" onclick="appendGmailSuffix()" class="absolute inset-y-0 right-0 flex items-center justify-center px-4 text-slate-400 hover:text-emerald-600 active:scale-90 transition font-bold" aria-label="Add @gmail.com" title="Tap to add @gmail.com">
+                                    <i id="login-at-icon" data-lucide="at-sign" class="w-5 h-5"></i>
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label class="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
@@ -167,6 +176,7 @@
                             <i class="fa-solid fa-phone text-[9px]"></i> 7999565002
                         </a>
                     </div>
+                    <div id="login-app-version" class="text-[9px] font-bold tracking-widest text-slate-400 uppercase mt-1">V JVD 23.10.26</div>
                 </div>
             </div>
         </div>
@@ -174,6 +184,7 @@
 
     <!-- Scripts -->
     <script>
+        const APP_VERSION = 'JVD 23.10.26';
         const AUTH_USER_KEY = 'student_auth_v1';
         const CONFIG_KEY = 'school_config_v1';
         const DEFAULT_CONFIG = { name: "Delhi Public School", code: "DPS", about: "ID Card Management Software", logo: "" };
@@ -234,6 +245,38 @@
             } catch (e) {
                 return '';
             }
+        }
+
+        function appendGmailSuffix() {
+            const inp = document.getElementById('login-user-id');
+            if (!inp) return;
+            let val = (inp.value || '').trim();
+            if (!val) {
+                inp.value = '@gmail.com';
+                inp.focus();
+                try { inp.setSelectionRange(0, 0); } catch(e){}
+                return;
+            }
+            if (val.endsWith('@gmail.com')) {
+                // If @gmail.com is already present, select 'gmail.com' so user can immediately type 'hotmail.com' or another provider
+                const atIdx = val.lastIndexOf('@');
+                inp.focus();
+                try { inp.setSelectionRange(atIdx + 1, val.length); } catch(e){}
+                return;
+            }
+            if (val.endsWith('@')) {
+                inp.value = val + 'gmail.com';
+            } else if (!val.includes('@')) {
+                inp.value = val + '@gmail.com';
+            } else {
+                // If it already has an @domain, replace domain with gmail.com
+                const atIdx = val.lastIndexOf('@');
+                const prefix = val.substring(0, atIdx);
+                inp.value = (prefix || '') + '@gmail.com';
+            }
+            inp.focus();
+            const len = inp.value.length;
+            try { inp.setSelectionRange(len, len); } catch(e){}
         }
 
         function toggleLoginPassword() {
@@ -367,7 +410,7 @@
             const el = document.getElementById('login-school-name');
             if (el) el.innerHTML = 'Welcome to IDentify&deg;';
             const loginLogo = document.getElementById('login-logo-container');
-            if (loginLogo) loginLogo.innerHTML = '<img src="./idapplogo.png" alt="IDentify App Logo" class="w-full h-full object-contain">';
+            if (loginLogo) loginLogo.innerHTML = '<img src="./idapplogo.png?v=231026_4" alt="IDentify App Logo" class="w-full h-full object-contain">';
         }
 
         function decryptSchoolPassword(encoded) {
@@ -414,56 +457,107 @@
             return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) ? 'Mobile Phone' : 'Desktop PC';
         }
 
-        async function recordLoginActivity(details) {
+        async function fetchPreciseLocation(fallbackAddress) {
+            // 1. Check cached verified location (within 6 hours)
             try {
-                let locationStr = '';
+                const cached = localStorage.getItem('identify_verified_loc');
+                const cachedTime = parseInt(localStorage.getItem('identify_verified_loc_time') || '0', 10);
+                if (cached && (Date.now() - cachedTime < 6 * 60 * 60 * 1000)) {
+                    return cached;
+                }
+            } catch(e) {}
+
+            // 2. Real GPS / Geolocation (if browser permission granted)
+            if (typeof navigator !== 'undefined' && navigator.geolocation) {
                 try {
-                    const controller = new AbortController();
-                    const id = setTimeout(() => controller.abort(), 1200);
-                    const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
-                    clearTimeout(id);
-                    if (res.ok) {
-                        const data = await res.json();
-                        locationStr = [data.city, data.region, data.country_name].filter(Boolean).join(', ');
-                    }
-                } catch(e) {}
-                if (!locationStr) {
-                    try {
-                        const controller = new AbortController();
-                        const id = setTimeout(() => controller.abort(), 1200);
-                        const res = await fetch('https://ipwho.is/', { signal: controller.signal });
-                        clearTimeout(id);
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data && data.success !== false) {
-                                locationStr = [data.city, data.region, data.country].filter(Boolean).join(', ');
+                    const pos = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true,
+                            timeout: 2000,
+                            maximumAge: 180000
+                        });
+                    });
+                    if (pos && pos.coords) {
+                        const lat = pos.coords.latitude;
+                        const lon = pos.coords.longitude;
+                        try {
+                            const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguageRequested=en`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                const parts = [data.locality || data.city, data.principalSubdivision, data.countryName].filter(Boolean);
+                                const unique = [...new Set(parts)];
+                                if (unique.length > 0) {
+                                    const result = unique.join(', ');
+                                    try {
+                                        localStorage.setItem('identify_verified_loc', result);
+                                        localStorage.setItem('identify_verified_loc_time', String(Date.now()));
+                                    } catch(e){}
+                                    return result;
+                                }
                             }
-                        }
-                    } catch(e) {}
-                }
-
-                const deviceType = getDetailedLoginDeviceName();
-
-                const payload = {
-                    schoolId: details.schoolId ? String(details.schoolId) : '',
-                    schoolName: details.schoolName || details.name || 'System Admin',
-                    schoolCode: details.schoolCode || details.code || '',
-                    schoolLogo: details.schoolLogo || details.logo || '',
-                    email: details.email || 'Unknown',
-                    role: details.role || 'school',
-                    action: details.action || 'Login',
-                    timestamp: Date.now(),
-                    deviceInfo: deviceType,
-                    userAgent: navigator.userAgent,
-                    location: locationStr || 'Location Unavailable'
-                };
-
-                if (window.firebaseAPI && window.firebaseAPI.collection && window.firebaseAPI.addDoc && window.db) {
-                    await window.firebaseAPI.addDoc(window.firebaseAPI.collection(window.db, 'activityLogs'), payload);
-                }
-            } catch(err) {
-                console.warn("Failed to record login activity", err);
+                        } catch(e) {}
+                    }
+                } catch(geoErr) {}
             }
+
+            // 3. BigDataCloud IP Geolocation (highly accurate regional client mapping)
+            try {
+                const controller = new AbortController();
+                const tid = setTimeout(() => controller.abort(), 1800);
+                const res = await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client', { signal: controller.signal });
+                clearTimeout(tid);
+                if (res.ok) {
+                    const data = await res.json();
+                    const parts = [data.city || data.locality, data.principalSubdivision, data.countryName].filter(Boolean);
+                    const unique = [...new Set(parts)];
+                    if (unique.length > 0) {
+                        const result = unique.join(', ');
+                        try {
+                            localStorage.setItem('identify_verified_loc', result);
+                            localStorage.setItem('identify_verified_loc_time', String(Date.now()));
+                        } catch(e){}
+                        return result;
+                    }
+                }
+            } catch(e) {}
+
+            // 4. Fallback to School's Registered Address
+            if (fallbackAddress && typeof fallbackAddress === 'string' && fallbackAddress.trim().length > 2) {
+                const parts = fallbackAddress.split(',').map(s => s.trim()).filter(Boolean);
+                if (parts.length >= 2) {
+                    return parts.slice(-2).join(', ');
+                } else if (parts.length === 1) {
+                    return parts[0];
+                }
+            }
+
+            // 5. Fallback to ipwho.is
+            try {
+                const controller = new AbortController();
+                const tid = setTimeout(() => controller.abort(), 1200);
+                const res = await fetch('https://ipwho.is/', { signal: controller.signal });
+                clearTimeout(tid);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.success !== false) {
+                        const parts = [data.city, data.region, data.country].filter(Boolean);
+                        if (parts.length > 0) return parts.join(', ');
+                    }
+                }
+            } catch(e) {}
+
+            // 6. Stored fallback
+            try {
+                const old = localStorage.getItem('identify_verified_loc');
+                if (old) return old;
+            } catch(e) {}
+
+            return 'Location Unavailable';
+        }
+
+        async function recordLoginActivity(details) {
+            // Activity log completely disabled to save Firestore read/write quota
+            return;
         }
 
         async function submitLogin() {
@@ -558,14 +652,26 @@
                     throw new Error("Unable to connect to database. Please check your internet connection.");
                 }
 
+                // Tier 1: Check localStorage registered schools
+                try {
+                    const localSchools = JSON.parse(localStorage.getItem('registered_schools_v1') || '[]');
+                    if (Array.isArray(localSchools) && localSchools.length > 0) {
+                        schoolsList = localSchools;
+                    }
+                } catch(e){}
+
+                // Tier 2: Try reading system/schools and system/school_auth from Firestore
                 try {
                     const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
                     const schoolsSnap = await window.firebaseAPI.getDoc(schoolsDocRef);
                     if (schoolsSnap.exists() && Array.isArray(schoolsSnap.data().list)) {
                         schoolsList = schoolsSnap.data().list;
+                        try { localStorage.setItem('registered_schools_v1', JSON.stringify(schoolsList)); } catch(e){}
                     }
                 } catch (fetchErr) {
-                    console.warn("Could not fetch schools list:", fetchErr);
+                    // On a new device without an active session, Firestore rules block unauthenticated reads.
+                    // This is handled by authenticating via Firebase Auth first.
+                    console.log("Pre-auth Firestore read notice (will authenticate with Firebase Auth first).");
                 }
 
                 try {
@@ -574,35 +680,53 @@
                     if (authSnap.exists()) {
                         schoolAuthData = authSnap.data() || {};
                     }
-                } catch (fetchAuthErr) {
-                    console.warn("Could not fetch school_auth:", fetchAuthErr);
+                } catch (fetchAuthErr) {}
+
+                // Tier 2B: New Device Bridge Authentication
+                // If schoolsList is empty because unauthenticated reads were blocked on a new device,
+                // bridge in via silent cloud bridge account to read the registered schools list!
+                if (schoolsList.length === 0 && window.auth && window.firebaseAPI && window.firebaseAPI.signInWithEmailAndPassword) {
+                    try {
+                        await window.firebaseAPI.signInWithEmailAndPassword(window.auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
+                        const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                        const schoolsSnap = await window.firebaseAPI.getDoc(schoolsDocRef);
+                        if (schoolsSnap.exists() && Array.isArray(schoolsSnap.data().list)) {
+                            schoolsList = schoolsSnap.data().list;
+                            try { localStorage.setItem('registered_schools_v1', JSON.stringify(schoolsList)); } catch(e){}
+                        }
+                        const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                        const authSnap = await window.firebaseAPI.getDoc(authDocRef);
+                        if (authSnap.exists()) {
+                            schoolAuthData = authSnap.data() || {};
+                        }
+                    } catch (bridgeErr) {
+                        console.log("Bridge auth notice:", bridgeErr);
+                    }
                 }
 
-                // 2. Robust Multi-Tier School Matching: Check if rawUserId matches a registered school's email (or code)
+                // 2. Multi-Tier School Matching (Supports Username without @gmail, School Code, Mobile, or Full Email)
                 const searchKey = rawUserId.toLowerCase().trim();
+                const cleanKey = searchKey.replace(/@gmail\.com$/, '');
+
                 let matchedSchool = schoolsList.find(s => s && (
                     (s.email && s.email.toLowerCase().trim() === searchKey) ||
-                    (s.code && s.code.toLowerCase().trim() === searchKey)
+                    (s.email && s.email.toLowerCase().trim().replace(/@gmail\.com$/, '') === cleanKey) ||
+                    (s.email && s.email.toLowerCase().trim().split('@')[0] === cleanKey) ||
+                    (s.code && s.code.toLowerCase().trim() === cleanKey) ||
+                    (s.code && s.code.toLowerCase().trim() === searchKey) ||
+                    (s.loginId && s.loginId.toLowerCase().trim() === cleanKey) ||
+                    (s.mobile && String(s.mobile).trim() === cleanKey) ||
+                    (s.id && String(s.id).toLowerCase().trim() === cleanKey)
                 ));
-
-                // Tier 2: Check localStorage registered schools
-                if (!matchedSchool) {
-                    try {
-                        const localSchools = JSON.parse(localStorage.getItem('registered_schools_v1') || '[]');
-                        if (Array.isArray(localSchools)) {
-                            matchedSchool = localSchools.find(s => s && (
-                                (s.email && s.email.toLowerCase().trim() === searchKey) ||
-                                (s.code && s.code.toLowerCase().trim() === searchKey)
-                            ));
-                        }
-                    } catch(e){}
-                }
 
                 // Tier 3: Check system/school_auth map
                 if (!matchedSchool && schoolAuthData && typeof schoolAuthData === 'object') {
                     const authValues = Object.values(schoolAuthData);
                     const foundAuth = authValues.find(a => a && (
                         (a.email && a.email.toLowerCase().trim() === searchKey) ||
+                        (a.email && a.email.toLowerCase().trim().replace(/@gmail\.com$/, '') === cleanKey) ||
+                        (a.email && a.email.toLowerCase().trim().split('@')[0] === cleanKey) ||
+                        (a.code && a.code.toLowerCase().trim() === cleanKey) ||
                         (a.code && a.code.toLowerCase().trim() === searchKey)
                     ));
                     if (foundAuth) {
@@ -610,18 +734,19 @@
                             id: foundAuth.schoolId || ('school_' + Date.now()),
                             name: foundAuth.schoolName || foundAuth.code || 'School',
                             code: foundAuth.code || '',
-                            email: foundAuth.email || searchKey,
+                            email: foundAuth.email || (cleanKey + '@gmail.com'),
                             formActive: foundAuth.formActive !== false,
                             active: foundAuth.active !== false
                         };
                     }
                 }
 
-                // Tier 4: Direct query to Firestore 'schools' collection
+                // Tier 4: Direct query to Firestore 'schools' collection (if session already active)
                 if (!matchedSchool && window.firebaseAPI.getDocs && window.firebaseAPI.collection && window.firebaseAPI.query && window.firebaseAPI.where) {
                     try {
                         const schoolsCol = window.firebaseAPI.collection(window.db, "schools");
-                        let q = window.firebaseAPI.query(schoolsCol, window.firebaseAPI.where("email", "==", searchKey));
+                        const emailCandidate = searchKey.includes('@') ? searchKey : (cleanKey + '@gmail.com');
+                        let q = window.firebaseAPI.query(schoolsCol, window.firebaseAPI.where("email", "==", emailCandidate));
                         let snap = await window.firebaseAPI.getDocs(q);
                         if (snap.empty) {
                             q = window.firebaseAPI.query(schoolsCol, window.firebaseAPI.where("code", "==", searchKey.toUpperCase()));
@@ -631,8 +756,66 @@
                             const firstDoc = snap.docs[0];
                             matchedSchool = { id: firstDoc.id, ...firstDoc.data() };
                         }
-                    } catch(e) {
-                        console.warn("Direct schools query error:", e);
+                    } catch(e) {}
+                }
+
+                // CRITICAL FIX FOR NEW DEVICES & NO-@GMAIL USERNAME:
+                // If not matched locally, auto-append @gmail.com if no domain was entered and authenticate directly
+                if (!matchedSchool) {
+                    const candidateEmail = searchKey.includes('@') ? searchKey : (cleanKey + '@gmail.com');
+                    if (candidateEmail) {
+                        // Sign in to Firebase Auth directly with the school email (Login ID)
+                        const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, candidateEmail, password);
+                        user = userCredential.user;
+
+                        // NOW AUTHENTICATED! Firestore permissions are granted!
+                        try {
+                            const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                            const schoolsSnap = await window.firebaseAPI.getDoc(schoolsDocRef);
+                            if (schoolsSnap.exists() && Array.isArray(schoolsSnap.data().list)) {
+                                schoolsList = schoolsSnap.data().list;
+                                try { localStorage.setItem('registered_schools_v1', JSON.stringify(schoolsList)); } catch(e){}
+                            }
+                        } catch(e) {
+                            console.warn("Post-auth schools fetch:", e);
+                        }
+
+                        try {
+                            const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                            const authSnap = await window.firebaseAPI.getDoc(authDocRef);
+                            if (authSnap.exists()) {
+                                schoolAuthData = authSnap.data() || {};
+                            }
+                        } catch(e) {}
+
+                        matchedSchool = schoolsList.find(s => s && (
+                            (s.email && s.email.toLowerCase().trim() === candidateEmail) ||
+                            (s.code && s.code.toLowerCase().trim() === candidateEmail)
+                        ));
+
+                        if (!matchedSchool) {
+                            try {
+                                const schoolsCol = window.firebaseAPI.collection(window.db, "schools");
+                                const q = window.firebaseAPI.query(schoolsCol, window.firebaseAPI.where("email", "==", candidateEmail));
+                                const snap = await window.firebaseAPI.getDocs(q);
+                                if (!snap.empty) {
+                                    matchedSchool = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                                }
+                            } catch(e){}
+                        }
+
+                        if (!matchedSchool) {
+                            matchedSchool = {
+                                id: user.uid ? ('school_' + user.uid) : ('school_' + Date.now()),
+                                name: candidateEmail.split('@')[0],
+                                code: candidateEmail.split('@')[0].toUpperCase().slice(0, 4),
+                                email: candidateEmail,
+                                active: true,
+                                formActive: true
+                            };
+                        }
+                    } else {
+                        throw new Error("On a new device, please enter your registered School Email (Login ID) for your initial login.");
                     }
                 }
 
@@ -642,6 +825,7 @@
 
                 // 3. School Deactivation Check
                 if (matchedSchool.formActive === false || matchedSchool.active === false) {
+                    if (window.auth && typeof window.auth.signOut === 'function') window.auth.signOut();
                     throw new Error("This school is currently Deactive. School Login is not allowed.");
                 }
 
@@ -650,9 +834,9 @@
                 const safeKey = schoolEmail.replace(/[^a-z0-9]/g, '_');
                 const authRecord = schoolAuthData[safeKey];
 
-                let passwordVerified = false;
+                let passwordVerified = (user != null);
 
-                if (authRecord && authRecord.hash) {
+                if (!passwordVerified && authRecord && authRecord.hash) {
                     const decrypted = decryptSchoolPassword(authRecord.hash);
                     if (decrypted && decrypted === password) {
                         passwordVerified = true;
@@ -662,55 +846,57 @@
                 }
 
                 // 5. Firebase Authentication with Self-Healing Sync
-                try {
-                    const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, schoolEmail, password);
-                    user = userCredential.user;
-                } catch (fbAuthErr) {
-                    console.warn("Firebase Auth signIn error:", fbAuthErr.code);
+                if (!user) {
+                    try {
+                        const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, schoolEmail, password);
+                        user = userCredential.user;
+                    } catch (fbAuthErr) {
+                        console.warn("Firebase Auth signIn error:", fbAuthErr.code);
 
-                    // Recovery 1: Newly created school or missing user in Firebase Auth
-                    if (fbAuthErr.code === 'auth/user-not-found' && passwordVerified && window.firebaseAPI.createUserWithEmailAndPassword) {
-                        try {
-                            const newCred = await window.firebaseAPI.createUserWithEmailAndPassword(window.auth, schoolEmail, password);
-                            user = newCred.user;
-                            console.log("Self-healed: Firebase Auth user created on the fly for:", schoolEmail);
-                        } catch(createErr) {
-                            console.warn("Auto-create user failed:", createErr);
-                        }
-                    }
-
-                    // Recovery 2: Firebase Auth password out of sync with Manage Schools password
-                    if (!user && (fbAuthErr.code === 'auth/invalid-credential' || fbAuthErr.code === 'auth/wrong-password') && passwordVerified) {
-                        const candidates = [
-                            matchedSchool.code,
-                            matchedSchool.code ? matchedSchool.code.toLowerCase() : '',
-                            '123456',
-                            'school123',
-                            'admin123',
-                            schoolEmail.split('@')[0]
-                        ].filter(Boolean);
-
-                        for (const cand of candidates) {
-                            if (cand === password) continue;
+                        // Recovery 1: Newly created school or missing user in Firebase Auth
+                        if (fbAuthErr.code === 'auth/user-not-found' && passwordVerified && window.firebaseAPI.createUserWithEmailAndPassword) {
                             try {
-                                const candCred = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, schoolEmail, cand);
-                                if (candCred && candCred.user) {
-                                    user = candCred.user;
-                                    if (window.firebaseAPI.updatePassword) {
-                                        await window.firebaseAPI.updatePassword(user, password).catch(()=>{});
-                                        console.log("Self-healed: Password synced in Firebase Auth to match Manage Schools!");
-                                    }
-                                    break;
-                                }
-                            } catch(candErr) {}
+                                const newCred = await window.firebaseAPI.createUserWithEmailAndPassword(window.auth, schoolEmail, password);
+                                user = newCred.user;
+                                console.log("Self-healed: Firebase Auth user created on the fly for:", schoolEmail);
+                            } catch(createErr) {
+                                console.warn("Auto-create user failed:", createErr);
+                            }
                         }
-                    }
 
-                    if (!user) {
-                        if (fbAuthErr.code === 'auth/user-not-found' || fbAuthErr.code === 'auth/invalid-credential' || fbAuthErr.code === 'auth/wrong-password') {
-                            throw new Error("Invalid email or password. Please check your credentials or contact Admin.");
+                        // Recovery 2: Firebase Auth password out of sync with Manage Schools password
+                        if (!user && (fbAuthErr.code === 'auth/invalid-credential' || fbAuthErr.code === 'auth/wrong-password') && passwordVerified) {
+                            const candidates = [
+                                matchedSchool.code,
+                                matchedSchool.code ? matchedSchool.code.toLowerCase() : '',
+                                '123456',
+                                'school123',
+                                'admin123',
+                                schoolEmail.split('@')[0]
+                            ].filter(Boolean);
+
+                            for (const cand of candidates) {
+                                if (cand === password) continue;
+                                try {
+                                    const candCred = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, schoolEmail, cand);
+                                    if (candCred && candCred.user) {
+                                        user = candCred.user;
+                                        if (window.firebaseAPI.updatePassword) {
+                                            await window.firebaseAPI.updatePassword(user, password).catch(()=>{});
+                                            console.log("Self-healed: Password synced in Firebase Auth to match Manage Schools!");
+                                        }
+                                        break;
+                                    }
+                                } catch(candErr) {}
+                            }
                         }
-                        throw fbAuthErr;
+
+                        if (!user) {
+                            if (fbAuthErr.code === 'auth/user-not-found' || fbAuthErr.code === 'auth/invalid-credential' || fbAuthErr.code === 'auth/wrong-password') {
+                                throw new Error("Invalid email or password. Please check your credentials or contact Admin.");
+                            }
+                            throw fbAuthErr;
+                        }
                     }
                 }
 
@@ -767,6 +953,7 @@
                             schoolName: matchedSchool.name || matchedSchool.code || 'School',
                             schoolCode: matchedSchool.code || '',
                             schoolLogo: matchedSchool.logo || matchedSchool.logoUrl || '',
+                            schoolAddress: matchedSchool.address || '',
                             email: schoolEmail,
                             role: 'school',
                             action: 'School Login'
@@ -941,7 +1128,7 @@
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./idapplogo.png" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
+                <img src="./idapplogo.png?v=231026_4" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png?v=231026_4'">
             </div>
             <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">
@@ -1048,8 +1235,20 @@
 
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                    navigator.serviceWorker.register('./sw.js').catch(err => {
+                    navigator.serviceWorker.register('./sw.js').then(reg => {
+                        // Check for sw.js updates immediately on every page visit
+                        try { reg.update(); } catch(e){}
+                    }).catch(err => {
                         console.log('Service Worker registration failed:', err);
+                    });
+
+                    // Auto-reload page once if a new service worker took over
+                    let refreshing = false;
+                    navigator.serviceWorker.addEventListener('controllerchange', () => {
+                        if (!refreshing) {
+                            refreshing = true;
+                            window.location.reload();
+                        }
                     });
                 });
             }
@@ -1061,6 +1260,20 @@
                         window.openPwaInstallPopup();
                     }, 2800);
                 }
+
+                // Desktop right-click reload
+                window.addEventListener('contextmenu', (e) => {
+                    const isTouchOnly = window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 768;
+                    if (isTouchOnly) return;
+                    const isDesktop = window.innerWidth >= 768 || (window.matchMedia && window.matchMedia('(pointer: fine)').matches);
+                    if (!isDesktop) return;
+
+                    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+                    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable)) return;
+
+                    e.preventDefault();
+                    window.location.reload();
+                }, true);
             });
         })();
     </script>

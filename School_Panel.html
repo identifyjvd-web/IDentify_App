@@ -4,12 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <!-- Browser Cache Invalidation Meta Tags -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/x-icon" href="./favicon.ico">
-    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png">
-    <link rel="apple-touch-icon" href="./idapplogo.png">
+    <link rel="icon" type="image/x-icon" href="./favicon.ico?v=231026_4">
+    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png?v=231026_4">
+    <link rel="apple-touch-icon" href="./idapplogo.png?v=231026_4">
     <link rel="manifest" href="manifest.json">
     <title id="page-title">IDentify&deg;</title>
     <script>
@@ -26,6 +30,7 @@
     <!-- External Libraries -->
     <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
@@ -176,7 +181,7 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, enableMultiTabIndexedDbPersistence, deleteField } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, setDoc, onSnapshot, getDoc, runTransaction, enableMultiTabIndexedDbPersistence, deleteField, writeBatch, collectionGroup } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword, signInAnonymously, onAuthStateChanged, updatePassword } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
         import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-storage.js";
 
@@ -269,16 +274,16 @@
             console.error("Firebase initialization error:", e);
         }
     </script>
-    <script src="db-helper.js"></script>
-    <script src="cropper-helper.js"></script>
-    <script src="card-generator.js"></script>
+    <script src="db-helper.js?v=231026_4"></script>
+    <script src="cropper-helper.js?v=231026_4"></script>
+    <script src="card-generator.js?v=231026_4"></script>
 </head>
 
 <body class="flex flex-col h-screen items-center bg-slate-100">
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
         <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
-            <img src="./idapplogo.png" class="w-[180px] h-[180px] object-contain mix-blend-multiply">
+            <img src="./idapplogo.png?v=231026_4" class="w-[180px] h-[180px] object-contain drop-shadow-md">
         </div>
         <!-- 3 Loading Dots -->
         <div class="absolute bottom-16 flex space-x-3 justify-center items-center">
@@ -320,11 +325,18 @@
                         <div>
                             <label for="login-user-id"
                                 class="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
-                                <i data-lucide="mail" class="w-3.5 h-3.5 text-emerald-500"></i> School Email
+                                <i data-lucide="mail" class="w-3.5 h-3.5 text-emerald-500"></i> Email / Mobile / School Code
                             </label>
-                            <input id="login-user-id" type="email"
-                                class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm font-medium outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition"
-                                placeholder="Enter School Email">
+                            <div class="relative">
+                                <input id="login-user-id" type="text" autocapitalize="none" autocomplete="username"
+                                    class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 pr-12 text-sm font-medium outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition"
+                                    placeholder="Email / Mobile / School Code">
+                                <button id="login-append-gmail-btn" type="button" onclick="appendGmailSuffix()"
+                                    class="absolute inset-y-0 right-0 flex items-center justify-center px-4 text-slate-400 hover:text-emerald-600 active:scale-90 transition font-bold"
+                                    aria-label="Add @gmail.com" title="Tap to add @gmail.com">
+                                    <i id="login-at-icon" data-lucide="at-sign" class="w-5 h-5"></i>
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label
@@ -398,6 +410,7 @@
                         <span class="text-[12px] font-black tracking-widest text-emerald-600">IDentify&deg;</span>
                     </div>
                     <div class="text-[10px] font-bold tracking-widest text-emerald-500 uppercase mt-0.5">By: Javed Ansari</div>
+                    <div id="login-app-version" class="text-[9px] font-bold tracking-widest text-slate-400 uppercase mt-1">V JVD 23.10.26</div>
                     
                 </div>
             </div>
@@ -778,7 +791,7 @@
                 }
             }
             let currentUser = null;
-            const APP_VERSION = 'JVD 1.04.26';
+            const APP_VERSION = 'JVD 23.10.26';
             const MENU_AUTO_HIDE_MS = 4000;
             const ACTIVITY_KEY = 'student_activity_v1';
             const SN_KEY = 'fb_form_sn_v1';
@@ -1187,8 +1200,8 @@
                     }
 
                     let authUser = null;
-                    
-                    const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, userId, password);
+                    const effectiveUserId = (userId.includes('@') ? userId : (userId.trim() + '@gmail.com')).trim();
+                    const userCredential = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, effectiveUserId, password);
                     const user = userCredential.user;
                     
                     if (isSystemAdmin(user.email)) {
@@ -1564,6 +1577,35 @@
                     }
                 }
             }
+            function appendGmailSuffix() {
+                const inp = document.getElementById("login-user-id");
+                if (!inp) return;
+                let val = (inp.value || "").trim();
+                if (!val) {
+                    inp.value = "@gmail.com";
+                    inp.focus();
+                    try { inp.setSelectionRange(0, 0); } catch(e){}
+                    return;
+                }
+                if (val.endsWith("@gmail.com")) {
+                    const atIdx = val.lastIndexOf("@");
+                    inp.focus();
+                    try { inp.setSelectionRange(atIdx + 1, val.length); } catch(e){}
+                    return;
+                }
+                if (val.endsWith("@")) {
+                    inp.value = val + "gmail.com";
+                } else if (!val.includes("@")) {
+                    inp.value = val + "@gmail.com";
+                } else {
+                    const atIdx = val.lastIndexOf("@");
+                    const prefix = val.substring(0, atIdx);
+                    inp.value = (prefix || "") + "@gmail.com";
+                }
+                inp.focus();
+                const len = inp.value.length;
+                try { inp.setSelectionRange(len, len); } catch(e){}
+            }
             function toggleLoginPassword() {
                 const passwordInput = document.getElementById('login-password');
                 const toggleBtn = document.getElementById('login-password-toggle');
@@ -1584,107 +1626,117 @@
                 if (pwdEl) pwdEl.focus();
             }
 
-            async function logSchoolActivity(userEmail) {
+            async function fetchPreciseLocation(fallbackAddress) {
+                // 1. Check cached verified location (within 6 hours)
                 try {
-                    let locationStr = '';
-                    try {
-                        const controller = new AbortController();
-                        const id = setTimeout(() => controller.abort(), 1500);
-                        const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
-                        clearTimeout(id);
-                        if (res.ok) {
-                            const data = await res.json();
-                            locationStr = [data.city, data.region, data.country_name].filter(Boolean).join(', ');
-                        }
-                    } catch(e) {}
-                    
-                    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                    
-                    let sc = {};
-                    try {
-                        if (typeof loadSchoolConfig === 'function') sc = loadSchoolConfig() || {};
-                    } catch(e) {}
-                    if (!sc || !sc.name || sc.name === 'Delhi Public School') {
-                        try {
-                            const raw = localStorage.getItem('school_config_v1');
-                            if (raw) {
-                                const parsed = JSON.parse(raw);
-                                if (parsed && parsed.name) sc = parsed;
-                            }
-                        } catch(e){}
+                    const cached = localStorage.getItem('identify_verified_loc');
+                    const cachedTime = parseInt(localStorage.getItem('identify_verified_loc_time') || '0', 10);
+                    if (cached && (Date.now() - cachedTime < 6 * 60 * 60 * 1000)) {
+                        return cached;
                     }
+                } catch(e) {}
 
-                    const isUidString = (s) => (s && typeof s === 'string' && s.length >= 20 && s.length <= 36 && !s.includes('@') && !s.includes(' '));
-
-                    const effectiveSchoolName = (sc && (sc.name || sc.schoolName)) || (currentUser && currentUser.name && !isUidString(currentUser.name) ? currentUser.name : '') || 'School';
-                    const effectiveSchoolCode = (sc && (sc.code || sc.schoolCode)) || (currentUser && currentUser.code ? currentUser.code : '');
-                    const effectiveSchoolId = (sc && sc.id) ? String(sc.id) : (currentUser && currentUser.schoolId ? String(currentUser.schoolId) : '');
-                    const effectiveSchoolLogo = (sc && (sc.logo || sc.logoUrl)) || '';
-                    const effectiveEmail = (currentUser && currentUser.email && currentUser.email.includes('@')) 
-                        ? currentUser.email 
-                        : ((userEmail && typeof userEmail === 'string' && userEmail.includes('@')) 
-                            ? userEmail 
-                            : (sc && sc.email ? sc.email : ''));
-
-                    const payload = {
-                        schoolId: effectiveSchoolId,
-                        schoolName: effectiveSchoolName,
-                        schoolCode: effectiveSchoolCode,
-                        schoolLogo: effectiveSchoolLogo,
-                        email: effectiveEmail || (currentUser && currentUser.userId ? currentUser.userId : (userEmail || 'School User')),
-                        userId: (currentUser && currentUser.userId) ? currentUser.userId : '',
-                        role: 'school',
-                        action: 'School Login',
-                        timestamp: Date.now(),
-                        deviceInfo: isMobile ? 'Mobile' : 'Desktop',
-                        userAgent: navigator.userAgent,
-                        location: locationStr || 'Location Unavailable'
-                    };
-                    
-                    if (window.firebaseAPI && window.db) {
-                        const { collection, addDoc } = window.firebaseAPI;
-                        const docRef = await addDoc(collection(window.db, 'activityLogs'), payload);
-                        if (docRef && docRef.id) {
-                            window._currentActivityLogDocId = docRef.id;
-                            window._currentActivityStartTime = payload.timestamp;
+                // 2. Real GPS / Geolocation (if browser permission granted)
+                if (typeof navigator !== 'undefined' && navigator.geolocation) {
+                    try {
+                        const pos = await new Promise((resolve, reject) => {
+                            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                                enableHighAccuracy: true,
+                                timeout: 2000,
+                                maximumAge: 180000
+                            });
+                        });
+                        if (pos && pos.coords) {
+                            const lat = pos.coords.latitude;
+                            const lon = pos.coords.longitude;
                             try {
-                                sessionStorage.setItem('identify_activity_log_id', docRef.id);
-                                sessionStorage.setItem('identify_activity_start_time', String(payload.timestamp));
+                                const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguageRequested=en`);
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    const parts = [data.locality || data.city, data.principalSubdivision, data.countryName].filter(Boolean);
+                                    const unique = [...new Set(parts)];
+                                    if (unique.length > 0) {
+                                        const result = unique.join(', ');
+                                        try {
+                                            localStorage.setItem('identify_verified_loc', result);
+                                            localStorage.setItem('identify_verified_loc_time', String(Date.now()));
+                                        } catch(e){}
+                                        return result;
+                                    }
+                                }
                             } catch(e) {}
                         }
-                    }
-                } catch(err) {
-                    console.warn("Failed to log school activity", err);
+                    } catch(geoErr) {}
                 }
+
+                // 3. BigDataCloud IP Geolocation (highly accurate regional client mapping)
+                try {
+                    const controller = new AbortController();
+                    const tid = setTimeout(() => controller.abort(), 1800);
+                    const res = await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client', { signal: controller.signal });
+                    clearTimeout(tid);
+                    if (res.ok) {
+                        const data = await res.json();
+                        const parts = [data.city || data.locality, data.principalSubdivision, data.countryName].filter(Boolean);
+                        const unique = [...new Set(parts)];
+                        if (unique.length > 0) {
+                            const result = unique.join(', ');
+                            try {
+                                localStorage.setItem('identify_verified_loc', result);
+                                localStorage.setItem('identify_verified_loc_time', String(Date.now()));
+                            } catch(e){}
+                            return result;
+                        }
+                    }
+                } catch(e) {}
+
+                // 4. Fallback to School's Registered Address
+                if (fallbackAddress && typeof fallbackAddress === 'string' && fallbackAddress.trim().length > 2) {
+                    const parts = fallbackAddress.split(',').map(s => s.trim()).filter(Boolean);
+                    if (parts.length >= 2) {
+                        return parts.slice(-2).join(', ');
+                    } else if (parts.length === 1) {
+                        return parts[0];
+                    }
+                }
+
+                // 5. Fallback to ipwho.is
+                try {
+                    const controller = new AbortController();
+                    const tid = setTimeout(() => controller.abort(), 1200);
+                    const res = await fetch('https://ipwho.is/', { signal: controller.signal });
+                    clearTimeout(tid);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.success !== false) {
+                            const parts = [data.city, data.region, data.country].filter(Boolean);
+                            if (parts.length > 0) return parts.join(', ');
+                        }
+                    }
+                } catch(e) {}
+
+                // 6. Stored fallback
+                try {
+                    const old = localStorage.getItem('identify_verified_loc');
+                    if (old) return old;
+                } catch(e) {}
+
+                return 'Location Unavailable';
+            }
+
+            async function logSchoolActivity(userEmail) {
+                // Activity logging disabled to save Firestore read/write quota
+                return;
             }
 
             async function updateActivitySessionDuration(isLogout = false) {
-                try {
-                    const logId = window._currentActivityLogDocId || sessionStorage.getItem('identify_activity_log_id');
-                    const startTs = window._currentActivityStartTime || Number(sessionStorage.getItem('identify_activity_start_time'));
-                    if (!logId || !startTs || !window.firebaseAPI || !window.db) return;
-                    const now = Date.now();
-                    const mins = Math.max(1, Math.round((now - startTs) / 60000));
-                    const { doc, updateDoc } = window.firebaseAPI;
-                    const patch = {
-                        lastActive: now,
-                        durationMinutes: mins
-                    };
-                    if (isLogout) patch.logoutTime = now;
-                    await updateDoc(doc(window.db, 'activityLogs', logId), patch);
-                } catch(e) {}
+                // Activity logging disabled to save Firestore read/write quota
+                return;
             }
             window.updateActivitySessionDuration = updateActivitySessionDuration;
 
-            // Periodic heartbeat every 2 minutes to update session duration
-            setInterval(() => {
-                if (typeof updateActivitySessionDuration === 'function') updateActivitySessionDuration(false);
-            }, 2 * 60 * 1000);
-
-            // On unload update duration and mark logout
-            window.addEventListener('beforeunload', () => {
-                if (typeof updateActivitySessionDuration === 'function') updateActivitySessionDuration(true);
-            });
+            // Periodic heartbeat disabled to save Firestore read/write quota
+            // (setInterval and beforeunload listeners removed)
 
             async function loginWithEmail() {
                 const errorEl = document.getElementById('login-error');
@@ -1811,6 +1863,28 @@
                 const param = (schoolParam || '').trim();
                 console.log("Booting Public Form Mode for school:", param);
 
+                // 1. Silent Cloud Bridge: Authenticate seamlessly if unauthenticated
+                if (!window.auth || !window.firebaseAPI) {
+                    await new Promise(resolve => {
+                        if (window.auth && window.firebaseAPI) return resolve();
+                        const handler = () => {
+                            window.removeEventListener('firebase-initialized', handler);
+                            resolve();
+                        };
+                        window.addEventListener('firebase-initialized', handler);
+                        setTimeout(resolve, 2000);
+                    });
+                }
+                if (window.auth && (!window.auth.currentUser || !window.auth.currentUser.email) && window.firebaseAPI && window.firebaseAPI.signInWithEmailAndPassword) {
+                    try {
+                        await window.firebaseAPI.signInWithEmailAndPassword(window.auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
+                        console.log("Public form cloud bridge authenticated successfully.");
+                    } catch (authErr) {
+                        console.warn("Public form cloud bridge notice:", authErr);
+                    }
+                }
+
+                // 2. Fetch matched school metadata
                 let matchedSchool = null;
                 if (window.db && window.firebaseAPI && window.firebaseAPI.getDoc && window.firebaseAPI.doc) {
                     try {
@@ -1829,6 +1903,23 @@
                         }
                     } catch (e) {
                         console.warn("Could not fetch schools list from Firestore:", e);
+                    }
+
+                    // Direct document fetch fallback: schools/{param} or schools/school_{param}
+                    if (!matchedSchool && param) {
+                        try {
+                            const directDocRef = window.firebaseAPI.doc(window.db, "schools", param);
+                            const directSnap = await window.firebaseAPI.getDoc(directDocRef);
+                            if (directSnap.exists()) {
+                                matchedSchool = { id: directSnap.id, ...directSnap.data() };
+                            } else {
+                                const prefixedDocRef = window.firebaseAPI.doc(window.db, "schools", "school_" + param.toLowerCase());
+                                const prefixedSnap = await window.firebaseAPI.getDoc(prefixedDocRef);
+                                if (prefixedSnap.exists()) {
+                                    matchedSchool = { id: prefixedSnap.id, ...prefixedSnap.data() };
+                                }
+                            }
+                        } catch(e){}
                     }
                 }
 
@@ -1862,8 +1953,80 @@
                 window.schoolConfig = schoolConfig;
                 document.title = (schoolConfig.name || "School") + " - Student Registration";
 
-                // Listen for real-time status updates from Firestore
+                // 3. Helper to apply Form Builder configuration dynamically in real time
+                function applyPublicFormBuilderData(fbData) {
+                    if (!fbData || typeof fbData !== 'object') return;
+                    if (typeof fbData.formActive !== 'undefined') {
+                        fb_form_active = !!fbData.formActive;
+                        localStorage.setItem('identify_fb_form_active', String(fbData.formActive));
+                    }
+                    if (fbData.fields && Array.isArray(fbData.fields)) {
+                        fb_fields = fbData.fields;
+                        localStorage.setItem('identify_fb_fields', JSON.stringify(fbData.fields));
+                    }
+                    if (fbData.standardConfig && typeof fbData.standardConfig === 'object') {
+                        fb_standard_config = fbData.standardConfig;
+                        localStorage.setItem('identify_fb_std_config', JSON.stringify(fbData.standardConfig));
+                    }
+                    if (fbData.removed && Array.isArray(fbData.removed)) {
+                        fb_removed = fbData.removed;
+                        localStorage.setItem('identify_fb_removed', JSON.stringify(fbData.removed));
+                    }
+                    if (fbData.formOrder && Array.isArray(fbData.formOrder)) {
+                        fb_form_order = fbData.formOrder;
+                        localStorage.setItem('identify_fb_form_order', JSON.stringify(fbData.formOrder));
+                    }
+                    if (fbData.standardLabels && typeof fbData.standardLabels === 'object') {
+                        fb_standard_labels = fbData.standardLabels;
+                        localStorage.setItem('identify_fb_std_labels', JSON.stringify(fbData.standardLabels));
+                    }
+                    if (fbData.standardMeta && typeof fbData.standardMeta === 'object') {
+                        fb_standard_meta = fbData.standardMeta;
+                        localStorage.setItem('identify_fb_std_meta', JSON.stringify(fbData.standardMeta));
+                    }
+                    if (typeof fbData.staffActive !== 'undefined') {
+                        fb_staff_active = !!fbData.staffActive;
+                        localStorage.setItem('identify_fb_staff_active', String(!!fbData.staffActive));
+                    }
+                    if (fbData.staffFields && Array.isArray(fbData.staffFields)) {
+                        fb_staff_fields = fbData.staffFields;
+                        localStorage.setItem('identify_fb_staff_fields', JSON.stringify(fbData.staffFields));
+                    }
+                    if (fbData.staffStandardConfig && typeof fbData.staffStandardConfig === 'object') {
+                        fb_staff_standard_config = fbData.staffStandardConfig;
+                        localStorage.setItem('identify_fb_staff_std_config', JSON.stringify(fbData.staffStandardConfig));
+                    }
+                    if (fbData.staffRemoved && Array.isArray(fbData.staffRemoved)) {
+                        fb_staff_removed = fbData.staffRemoved;
+                        localStorage.setItem('identify_fb_staff_removed', JSON.stringify(fbData.staffRemoved));
+                    }
+                    if (fbData.staffFormOrder && Array.isArray(fbData.staffFormOrder)) {
+                        fb_staff_form_order = fbData.staffFormOrder;
+                        localStorage.setItem('identify_fb_staff_form_order', JSON.stringify(fbData.staffFormOrder));
+                    }
+                    if (fbData.staffStandardLabels && typeof fbData.staffStandardLabels === 'object') {
+                        fb_staff_standard_labels = fbData.staffStandardLabels;
+                        localStorage.setItem('identify_fb_staff_std_labels', JSON.stringify(fbData.staffStandardLabels));
+                    }
+                    if (fbData.staffStandardMeta && typeof fbData.staffStandardMeta === 'object') {
+                        fb_staff_standard_meta = fbData.staffStandardMeta;
+                        localStorage.setItem('identify_fb_staff_std_meta', JSON.stringify(fbData.staffStandardMeta));
+                    }
+
+                    if (typeof blankRecordMode !== 'undefined' && blankRecordMode === 'student' && typeof renderCurrentBlankRecordPage === 'function') {
+                        renderCurrentBlankRecordPage();
+                    }
+                    applyPublicFormState();
+                }
+
+                // If matchedSchool already contains formBuilderConfig, apply it immediately
+                if (matchedSchool && matchedSchool.formBuilderConfig) {
+                    applyPublicFormBuilderData(matchedSchool.formBuilderConfig);
+                }
+
+                // 4. Real-time Listeners for School Status & Form Builder Updates
                 if (window.db && window.firebaseAPI && window.firebaseAPI.onSnapshot && window.firebaseAPI.doc) {
+                    // Listen to system/schools list for status, expiry, and entry counts
                     try {
                         const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
                         window.firebaseAPI.onSnapshot(schoolsDocRef, (snap) => {
@@ -1876,53 +2039,44 @@
                                 if (updated) {
                                     schoolConfig = { ...schoolConfig, ...updated };
                                     window.schoolConfig = schoolConfig;
+                                    if (updated.formBuilderConfig) {
+                                        applyPublicFormBuilderData(updated.formBuilderConfig);
+                                    }
                                     applyPublicFormState();
                                     updatePublicFormHeaderCounter(schoolConfig.publicFormEntryCount);
                                 }
                             }
                         });
                     } catch(e){}
-                }
 
-                // Load Form Builder config so custom fields match & check fb_form_active
-                if (window.db && window.firebaseAPI && window.firebaseAPI.getDoc && window.firebaseAPI.doc) {
-                    try {
-                        const fbDocRef = window.firebaseAPI.doc(window.db, "system", "formBuilderConfig");
-                        if (window.firebaseAPI.onSnapshot) {
-                            window.firebaseAPI.onSnapshot(fbDocRef, (snap) => {
-                                if (snap.exists()) {
-                                    const fbData = snap.data();
-                                    if (typeof fbData.formActive !== 'undefined') {
-                                        fb_form_active = !!fbData.formActive;
+                    // Listen to school-specific document for formBuilderConfig updates
+                    if (schoolConfig && schoolConfig.id) {
+                        try {
+                            const schoolDocRef = window.firebaseAPI.doc(window.db, "schools", String(schoolConfig.id));
+                            window.firebaseAPI.onSnapshot(schoolDocRef, (sSnap) => {
+                                if (sSnap.exists()) {
+                                    const sData = sSnap.data();
+                                    if (sData.formBuilderConfig) {
+                                        applyPublicFormBuilderData(sData.formBuilderConfig);
                                     }
-                                    if (fbData.fields) {
-                                        localStorage.setItem('identify_fb_fields', JSON.stringify(fbData.fields));
-                                        if (typeof fb_fields !== 'undefined') fb_fields = fbData.fields;
+                                    if (typeof sData.publicFormActive !== 'undefined') {
+                                        schoolConfig.publicFormActive = sData.publicFormActive;
+                                        schoolConfig.publicFormExpiry = sData.publicFormExpiry;
+                                        applyPublicFormState();
                                     }
-                                    if (fbData.standardConfig) {
-                                        localStorage.setItem('identify_fb_std_config', JSON.stringify(fbData.standardConfig));
-                                        if (typeof fb_standard_config !== 'undefined') fb_standard_config = fbData.standardConfig;
-                                    }
-                                    applyPublicFormState();
                                 }
                             });
-                        } else {
-                            const fbSnap = await window.firebaseAPI.getDoc(fbDocRef);
-                            if (fbSnap.exists()) {
-                                const fbData = fbSnap.data();
-                                if (typeof fbData.formActive !== 'undefined') {
-                                    fb_form_active = !!fbData.formActive;
-                                }
-                                if (fbData.fields) {
-                                    localStorage.setItem('identify_fb_fields', JSON.stringify(fbData.fields));
-                                    if (typeof fb_fields !== 'undefined') fb_fields = fbData.fields;
-                                }
-                                if (fbData.standardConfig) {
-                                    localStorage.setItem('identify_fb_std_config', JSON.stringify(fbData.standardConfig));
-                                    if (typeof fb_standard_config !== 'undefined') fb_standard_config = fbData.standardConfig;
-                                }
+                        } catch(e){}
+                    }
+
+                    // Listen to global system/formBuilderConfig for live updates
+                    try {
+                        const fbDocRef = window.firebaseAPI.doc(window.db, "system", "formBuilderConfig");
+                        window.firebaseAPI.onSnapshot(fbDocRef, (snap) => {
+                            if (snap.exists()) {
+                                applyPublicFormBuilderData(snap.data());
                             }
-                        }
+                        });
                     } catch(e){}
                 }
 
@@ -1938,6 +2092,12 @@
                 if (typeof fb_form_active !== 'undefined' && fb_form_active === false) return false;
                 if (schoolConfig.publicFormExpiry && Number(schoolConfig.publicFormExpiry) > 0) {
                     if (Date.now() >= Number(schoolConfig.publicFormExpiry)) return false;
+                }
+                const limitEnabled = schoolConfig.publicFormEntryLimitEnabled === true;
+                const maxEntries = schoolConfig.publicFormMaxEntries !== undefined ? Number(schoolConfig.publicFormMaxEntries) : 60;
+                const currentEntries = Number(schoolConfig.publicFormEntryCount) || 0;
+                if (limitEnabled && maxEntries > 0 && currentEntries >= maxEntries) {
+                    return false;
                 }
                 return true;
             }
@@ -2299,18 +2459,33 @@
                     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Submitting...';
                 }
 
+                // Ensure authenticated via bridge account if unauthenticated
+                if (window.auth && (!window.auth.currentUser || !window.auth.currentUser.email) && window.firebaseAPI && window.firebaseAPI.signInWithEmailAndPassword) {
+                    try {
+                        await window.firebaseAPI.signInWithEmailAndPassword(window.auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
+                    } catch(e) {}
+                }
+
+                const targetSchoolId = String(rec.schoolId || (schoolConfig ? schoolConfig.id : '') || 'school_dps');
+                const targetSchoolCode = String(rec.schoolCode || (schoolConfig ? schoolConfig.code : '') || 'DPS');
+
+                rec.schoolId = targetSchoolId;
+                rec.schoolCode = targetSchoolCode;
                 rec.createdBy = 'Public Online Form';
                 rec.verified = false;
+                rec.returned = false;
                 rec.status = (photoData || pendingUploadedDocument || rec.photoData || rec.docUrl) ? 'unverified' : 'pending';
                 rec.isPublicSubmission = true;
                 rec.submittedAt = Date.now();
+                rec.updatedAt = Date.now();
 
-                // Save directly to Firebase
+                // Save directly to Firebase Firestore
                 if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.setDoc) {
                     try {
-                        const schoolDocRef = window.firebaseAPI.doc(window.db, "schools", String(rec.schoolId || (schoolConfig ? schoolConfig.id : '')), "records", String(rec.id));
+                        const schoolDocRef = window.firebaseAPI.doc(window.db, "schools", targetSchoolId, "records", String(rec.id));
                         await window.firebaseAPI.setDoc(schoolDocRef, rec);
-                        
+                        console.log("Public submission saved to schools/" + targetSchoolId + "/records/" + rec.id);
+
                         const globalDocRef = window.firebaseAPI.doc(window.db, "records", String(rec.id));
                         window.firebaseAPI.setDoc(globalDocRef, rec).catch(() => {});
                     } catch(e) {
@@ -2595,6 +2770,121 @@
                 });
             }
 
+            function setupDesktopRightClickReload() {
+                let isDesktopSyncing = false;
+                let desktopIndicator = null;
+
+                function showIndicator() {
+                    if (!desktopIndicator) {
+                        desktopIndicator = document.createElement('div');
+                        desktopIndicator.id = 'desktop-refresh-hud';
+                        desktopIndicator.className = 'fixed top-5 left-1/2 -translate-x-1/2 z-[999999] bg-slate-900/90 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-xs sm:text-sm font-semibold tracking-wide backdrop-blur-md border border-slate-700/60 transition-all duration-300 transform -translate-y-6 opacity-0 pointer-events-none select-none';
+                        desktopIndicator.innerHTML = '<i class="fa-solid fa-rotate animate-spin text-emerald-400 text-sm"></i><span>Syncing & Refreshing Data...</span>';
+                        document.body.appendChild(desktopIndicator);
+                    }
+                    const runAnim = window.requestAnimationFrame || setTimeout;
+                    runAnim(() => {
+                        if (desktopIndicator) {
+                            desktopIndicator.classList.remove('-translate-y-6', 'opacity-0');
+                            desktopIndicator.classList.add('translate-y-0', 'opacity-100');
+                        }
+                    });
+                }
+
+                function hideIndicator() {
+                    if (desktopIndicator) {
+                        desktopIndicator.classList.remove('translate-y-0', 'opacity-100');
+                        desktopIndicator.classList.add('-translate-y-6', 'opacity-0');
+                        setTimeout(() => {
+                            if (desktopIndicator && desktopIndicator.parentNode) {
+                                desktopIndicator.remove();
+                                desktopIndicator = null;
+                            }
+                        }, 350);
+                    }
+                }
+
+                window.addEventListener('contextmenu', (e) => {
+                    // Only active on desktop (fine pointer or screen width >= 768px, not mobile touch)
+                    const isTouchOnly = window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 768;
+                    if (isTouchOnly) return;
+
+                    const isDesktop = window.innerWidth >= 768 || (window.matchMedia && window.matchMedia('(pointer: fine)').matches);
+                    if (!isDesktop) return;
+
+                    // Allow native context menu on input, textarea, select, or contenteditable fields
+                    const target = e.target;
+                    const tag = (target && target.tagName) ? target.tagName.toLowerCase() : '';
+                    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (target && target.isContentEditable)) {
+                        return;
+                    }
+
+                    // Allow custom contextmenu on recycle bin items
+                    if (target && target.closest && target.closest('.bin-selection-zone')) {
+                        return;
+                    }
+
+                    // Prevent browser's default context menu
+                    e.preventDefault();
+
+                    // Shortcut: Ctrl + Right Click or Shift + Right Click triggers full page reload
+                    if (e.ctrlKey || e.shiftKey) {
+                        showToast('<i class="fa-solid fa-rotate animate-spin mr-2"></i> Reloading Page...');
+                        setTimeout(() => { window.location.reload(); }, 250);
+                        return;
+                    }
+
+                    // If public form mode is open, reload form
+                    if (window.isPublicFormMode) {
+                        showToast('<i class="fa-solid fa-rotate animate-spin mr-2"></i> Reloading Form...');
+                        setTimeout(() => { window.location.reload(); }, 350);
+                        return;
+                    }
+
+                    // Prevent concurrent syncs
+                    if (isDesktopSyncing) {
+                        showToast('<i class="fa-solid fa-rotate animate-spin mr-2"></i> Sync already in progress...');
+                        return;
+                    }
+
+                    isDesktopSyncing = true;
+                    showIndicator();
+
+                    // Safety timeout to prevent getting stuck
+                    const safetyTimer = setTimeout(() => {
+                        if (isDesktopSyncing) {
+                            isDesktopSyncing = false;
+                            hideIndicator();
+                            showToast('Data Synced & Updated!');
+                        }
+                    }, 7000);
+
+                    // Re-trigger live system config if needed
+                    try {
+                        if (typeof fetchSystemConfigFromFirebase === 'function') {
+                            fetchSystemConfigFromFirebase();
+                        }
+                    } catch (err) {}
+
+                    // Trigger data sync just like mobile pull-to-refresh
+                    if (typeof loadAllData === 'function') {
+                        loadAllData(() => {
+                            clearTimeout(safetyTimer);
+                            isDesktopSyncing = false;
+                            hideIndicator();
+                            showToast('Data Synced & Updated!');
+                        });
+                    } else {
+                        clearTimeout(safetyTimer);
+                        setTimeout(() => {
+                            isDesktopSyncing = false;
+                            hideIndicator();
+                            window.location.reload();
+                        }, 500);
+                    }
+                }, true);
+            }
+
             let isLongPressProcessing = false;
             let lastHapticFeedbackAt = 0;
             function triggerHapticFeedback(pattern = 3) {
@@ -2799,6 +3089,7 @@
                     setupAutoLogoutTracking();
                     setupLoginUi();
                     setupPullToRefresh();
+                    setupDesktopRightClickReload();
                     setupEventDelegation();
 
                     // Splash screen will be hidden by requireLoginAndBoot after auth state check
@@ -3656,7 +3947,7 @@
                     const admYt = schoolConfig.adminYoutube || '';
                     
                     const p = document.getElementById('settings-admin-phone');
-                    if (p && admPhone) { p.href = 'tel:' + admPhone; document.getElementById('settings-admin-phone-txt').innerText = admPhone; p.classList.remove('hidden'); hasInfo = true; } else if(p) p.classList.add('hidden');
+                    if (p && admPhone) { p.href = 'tel:' + admPhone; const pTxt = document.getElementById('settings-admin-phone-txt'); if (pTxt) pTxt.innerText = admPhone; p.classList.remove('hidden'); hasInfo = true; } else if(p) p.classList.add('hidden');
                     
                     const e = document.getElementById('settings-admin-email');
                     if (e && admEmail) { e.href = 'mailto:' + admEmail; e.classList.remove('hidden'); hasInfo = true; } else if(e) e.classList.add('hidden');
@@ -3665,7 +3956,7 @@
                     if (wa && admWhatsapp) { wa.href = 'https://wa.me/' + admWhatsapp.replace(/[^0-9]/g, ''); wa.classList.remove('hidden'); hasInfo = true; } else if(wa) wa.classList.add('hidden');
                     
                     const addr = document.getElementById('settings-admin-address');
-                    if (addr && admAddress) { document.getElementById('settings-admin-address-txt').innerText = admAddress; addr.classList.remove('hidden'); hasInfo = true; } else if(addr) addr.classList.add('hidden');
+                    if (addr && admAddress) { const addrTxt = document.getElementById('settings-admin-address-txt'); if (addrTxt) addrTxt.innerText = admAddress; addr.classList.remove('hidden'); hasInfo = true; } else if(addr) addr.classList.add('hidden');
                     
                     const fb = document.getElementById('settings-admin-fb');
                     if (fb && admFb) { fb.href = admFb; fb.classList.remove('hidden'); hasInfo = true; } else if(fb) fb.classList.add('hidden');
@@ -4860,9 +5151,9 @@
                     labelText = 'System Settings';
                     iconClass = 'fa-solid fa-gear text-emerald-600';
                 } else if (mode === 'share_form') {
-                    headerHtml = `<i class="fa-solid fa-link text-[#059669] mr-2.5"></i> Share Form Link`;
+                    headerHtml = `<i class="fa-solid fa-share-nodes text-emerald-600 mr-2.5"></i> Share Form Link`;
                     labelText = 'Share Form Link';
-                    iconClass = 'fa-solid fa-link text-emerald-600';
+                    iconClass = 'fa-solid fa-share-nodes text-emerald-600';
                 } else if (mode === 'preview' && previewRecord) {
                     const isStaff = String(previewRecord.sclass || '').trim().toLowerCase() === 'staff';
                     const displayName = getPreviewDisplayName(previewRecord.studentName, isStaff ? 'Staff' : 'Student', false);
@@ -5452,9 +5743,22 @@
                 let currentVal = '';
 
                 if (type === 'sclass') {
+                    const isStaffActive = (typeof fb_staff_active !== 'undefined') ? !!fb_staff_active : false;
                     const classOptions = fb_getStandardSelectOptions('sclass');
                     currentVal = document.getElementById('in-sclass')?.value || document.getElementById('blank-class')?.value || 'Class 1';
-                    const classOptionsWithCurrent = classOptions.includes(currentVal) || !currentVal ? classOptions : [...classOptions, currentVal];
+                    if (!isStaffActive && String(currentVal).trim().toLowerCase() === 'staff') {
+                        currentVal = classOptions[0] || 'Class 1';
+                        const hiddenEl = document.getElementById('blank-class');
+                        if (hiddenEl) hiddenEl.value = currentVal;
+                        const textEl = document.getElementById('blank-class-text');
+                        if (textEl) textEl.innerText = currentVal;
+                        const inEl = document.getElementById('in-sclass');
+                        if (inEl) inEl.value = currentVal;
+                    }
+                    let classOptionsWithCurrent = classOptions.includes(currentVal) || !currentVal ? classOptions : [...classOptions, currentVal];
+                    if (!isStaffActive) {
+                        classOptionsWithCurrent = classOptionsWithCurrent.filter(v => String(v).trim().toLowerCase() !== 'staff');
+                    }
 
                     const counts = {};
                     if (Array.isArray(db)) {
@@ -5583,7 +5887,6 @@
                     const wasStaff = prevClass.toLowerCase() === 'staff';
                     const isNowStaff = String(value || '').trim().toLowerCase() === 'staff';
                     if (wasStaff !== isNowStaff) {
-                        if (isNowStaff && typeof fb_staff_active !== 'undefined') fb_staff_active = true;
                         if (typeof renderCurrentRecordsPage === 'function') {
                             renderCurrentRecordsPage();
                         }
@@ -6204,11 +6507,24 @@
                 const ids = Array.from(selectedRecords);
                 let count = 0;
                 ids.forEach(id => {
-                    const item = findRecordById(db, id);
+                    const item = findRecordById(db, id) || findRecordById(bin, id);
+                    const copyToDelete = item ? { ...item } : { id };
                     db = db.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
+                    bin = bin.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
                     try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
                     registerLocalDeletion(id);
-                    serverCallSilent('permanentDelete', [id]);
+
+                    if (window.db && window.firebaseAPI && typeof window.firebaseAPI.deleteDoc === 'function') {
+                        const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {};
+                        const scId = String(sc.id || copyToDelete.schoolId || (sc.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
+                        window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", id)).catch(()=>{});
+                        window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", id)).catch(()=>{});
+                        if (sc.code) {
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", id)).catch(()=>{});
+                        }
+                    }
+
+                    serverCallSilent('permanentDelete', [copyToDelete]);
                     if (item) addActivity('PERM_DELETE', item);
                     count++;
                 });
@@ -6368,52 +6684,93 @@
                 return normalizeRecordId(id).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             }
 
+            function syncMaxSnAfterDeletion() {
+                let maxSn = 0;
+                (Array.isArray(db) ? db : []).forEach(r => {
+                    if (!r || r.isDeleted) return;
+                    const val = parseInt(r.sn, 10);
+                    if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
+                });
+                try {
+                    localStorage.setItem(SN_KEY, maxSn);
+                } catch(e){}
+                lastFetchedSn = maxSn;
+                try {
+                    if (window.db && window.firebaseAPI && schoolConfig && schoolConfig.id) {
+                        const counterRef = window.firebaseAPI.doc(window.db, "schools", String(schoolConfig.id), "config", "snCounter");
+                        window.firebaseAPI.setDoc(counterRef, { value: maxSn }, { merge: true }).catch(()=>{});
+                    }
+                } catch(e){}
+            }
+
             function deleteRow(id) {
-                showModal('confirm', 'Delete Record?', 'Move this record to Recycle Bin?', () => {
+                showModal('confirm', 'Delete Record?', 'Are you sure you want to permanently delete this record from system and cloud?', () => {
                     const deleted = findRecordById(db, id);
                     if (deleted) {
+                        const copyToDelete = { ...deleted };
                         addActivity('DELETE', deleted);
-                        deleted.isDeleted = true;
-                        deleted.deletedAt = new Date().toISOString();
-                        storeRecordInDb(deleted);
-                        try { if (window.idbPut) idbPut(IDB_STORE_RECORDS, deleted).catch(()=>{}); } catch(e){}
+                        db = db.filter(r => r && String(r.id) !== String(id));
+                        currentRenderedRecords = currentRenderedRecords.filter(r => r && String(r.id) !== String(id));
+                        try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
                         persistLocalUnverified();
-                        if (deleted.verified === true || String(deleted.verified).toLowerCase() === 'true' || deleted._serverSaved) {
-                            serverCallSilent('deleteRecord', [id], ()=>{}, ()=>{});
+
+                        // Immediate direct Firestore cloud deletion
+                        if (window.db && window.firebaseAPI && window.firebaseAPI.deleteDoc && window.firebaseAPI.doc) {
+                            const recId = String(id);
+                            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {};
+                            const scId = String(sc.id || deleted.schoolId || (sc.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", recId)).catch(()=>{});
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", recId)).catch(()=>{});
+                            if (sc.code) {
+                                window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", recId)).catch(()=>{});
+                            }
                         }
-                        showToast('Record moved to Recycle Bin');
+
+                        serverCallSilent('permanentDelete', [copyToDelete], ()=>{}, ()=>{});
+                        syncMaxSnAfterDeletion();
+                        showToast('Record permanently deleted from system and cloud ✓');
                         renderCurrentRecordsPage();
                         filterRecords();
                     } else {
                         showModal('error', 'Failed', 'Record not found.');
                     }
-                });
+                }, 'Delete Permanently');
             }
 
             function confirmDeleteAllSystemData() {
-                showModal('delete-all', 'DELETE ALL SYSTEM DATA?', 'Are you absolutely sure you want to permanently erase ALL records from the admin panel and school panel? This action CANNOT be undone.', () => {
+                showModal('delete-all', 'DELETE ALL SYSTEM DATA?', 'Are you absolutely sure you want to permanently erase ALL records from the admin panel, school panel, and Firebase cloud? This action CANNOT be undone.', () => {
                     const overlay = document.createElement('div');
                     overlay.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-white/80 backdrop-blur-sm';
                     overlay.innerHTML = `
                         <div class="flex flex-col items-center justify-center space-y-4">
                             <div class="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
-                            <div class="text-red-700 font-black text-lg">Erasing All Records...</div>
+                            <div class="text-red-700 font-black text-lg">Permanently Erasing All Records from Cloud...</div>
                         </div>
                     `;
                     document.body.appendChild(overlay);
 
                     serverCallSilent('deleteAllRecords', [], async () => {
                         db = [];
+                        bin = [];
+                        currentRenderedRecords = [];
                         try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
                         lastFetchedSn = null;
-                        try { localStorage.removeItem(SN_KEY); } catch(e){}
+                        try { localStorage.setItem(SN_KEY, '0'); } catch(e){}
                         try { localStorage.removeItem(ACTIVITY_KEY); } catch(e){}
                         try { if (window.SchoolLocalDB && SchoolLocalDB.clearQueue) SchoolLocalDB.clearQueue(); } catch(e){}
                         persistLocalUnverified();
                         
                         try { if (window.idbClear) await idbClear(IDB_STORE_RECORDS).catch(()=>{}); } catch(e){}
+
+                        try {
+                            if (window.db && window.firebaseAPI && schoolConfig && schoolConfig.id) {
+                                const counterRef = window.firebaseAPI.doc(window.db, "schools", String(schoolConfig.id), "config", "snCounter");
+                                window.firebaseAPI.setDoc(counterRef, { value: 0 }, { merge: true }).catch(()=>{});
+                            }
+                        } catch(e){}
+
                         if (overlay && overlay.parentNode) overlay.remove();
-                        showToast('All System Data Deleted Successfully');
+                        showToast('All System & Cloud Records Permanently Erased ✓');
                         renderHomeAnalysis();
                         filterRecords();
                         setBlankRecordMode('none');
@@ -6456,17 +6813,29 @@
             }
 
             function permDeleteRecordFromBin(id) {
-                const item = findRecordById(db, id);
+                const item = findRecordById(db, id) || findRecordById(bin, id);
                 if (!item) {
                     showModal('error', 'Failed', 'Record not found in bin.');
                     return;
                 }
-                
+                const copyToDelete = { ...item };
                 db = db.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
+                bin = bin.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
                 persistLocalUnverified();
                 if (typeof window.queueServerDraftSync === 'function') window.queueServerDraftSync();
                 try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
-                serverCallSilent('permanentDelete', [id], ()=>{}, ()=>{});
+
+                if (window.db && window.firebaseAPI && typeof window.firebaseAPI.deleteDoc === 'function') {
+                    const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {};
+                    const scId = String(sc.id || copyToDelete.schoolId || (sc.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
+                    window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", id)).catch(()=>{});
+                    window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", id)).catch(()=>{});
+                    if (sc.code) {
+                        window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", id)).catch(()=>{});
+                    }
+                }
+
+                serverCallSilent('permanentDelete', [copyToDelete], ()=>{}, ()=>{});
                 
                 addActivity('PERM_DELETE', item);
                 showToast('Record Permanently Deleted');
@@ -6515,14 +6884,27 @@
             }
 
             function permDelete(id) {
-                const item = findRecordById(bin, id);
+                const item = findRecordById(bin, id) || findRecordById(db, id);
+                const copyToDelete = item ? { ...item } : { id };
                 if (item) {
                     db = db.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
+                    bin = bin.filter(r => normalizeRecordId(r.id) !== normalizeRecordId(id));
                     try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
                     addActivity('PERM_DELETE', item);
                 }
                 persistLocalUnverified();
-                serverCallSilent('permanentDelete', [id], ()=>{}, ()=>{});
+
+                if (window.db && window.firebaseAPI && typeof window.firebaseAPI.deleteDoc === 'function') {
+                    const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {};
+                    const scId = String(sc.id || copyToDelete.schoolId || (sc.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
+                    window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", id)).catch(()=>{});
+                    window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", id)).catch(()=>{});
+                    if (sc.code) {
+                        window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", id)).catch(()=>{});
+                    }
+                }
+
+                serverCallSilent('permanentDelete', [copyToDelete], ()=>{}, ()=>{});
                 showToast('Permanently Deleted');
                 syncSelectedRecordsSection().delete(String(id));
                 bin = db.filter(r => r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true');
@@ -7360,15 +7742,12 @@
                     if (!nextSn || Number(nextSn) >= 1000000000 || Number(nextSn) <= 0) {
                         let maxSn = 0;
                         db.forEach(r => {
-                            const val = parseInt(r.sn, 10);
-                            if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
-                        });
-                        (Array.isArray(bin) ? bin : []).forEach(r => {
+                            if (!r || r.isDeleted) return;
                             const val = parseInt(r.sn, 10);
                             if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
                         });
                         const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
-                        if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
+                        if (!isNaN(savedSn) && savedSn <= maxSn && savedSn < 1000000000) maxSn = Math.max(maxSn, savedSn);
                         nextSn = maxSn + 1;
                         try { localStorage.setItem(SN_KEY, nextSn); } catch(e){}
                     }
@@ -7871,28 +8250,39 @@
                 syncSelectedRecordsSection();
                 if (selectedRecords.size === 0) return;
                 
-                showModal('confirm', 'Delete Selected?', `Are you sure you want to delete ${selectedRecords.size} records?`, () => {
+                showModal('confirm', 'Delete Selected?', `Are you sure you want to permanently delete ${selectedRecords.size} records from system and cloud?`, () => {
                     const idsToDelete = Array.from(selectedRecords);
                     idsToDelete.forEach(id => {
-                        const rec = findRecordById(db, id);
+                        const rec = findRecordById(db, id) || findRecordById(bin, id);
+                        const copyToDelete = rec ? { ...rec } : { id };
                         if(rec) {
-                            rec.isDeleted = true;
-                            rec.deletedAt = new Date().toISOString();
-                            storeRecordInDb(rec);
-                            try { if (window.idbPut) idbPut(IDB_STORE_RECORDS, rec).catch(()=>{}); } catch(e){}
-                            if (rec.verified === true || String(rec.verified).toLowerCase() === 'true' || rec._serverSaved) {
-                                serverCallSilent('deleteRecord', [id], ()=>{}, ()=>{});
+                            addActivity('DELETE', rec);
+                        }
+                        db = db.filter(r => r && String(r.id) !== String(id));
+                        currentRenderedRecords = currentRenderedRecords.filter(r => r && String(r.id) !== String(id));
+                        try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
+
+                        if (window.db && window.firebaseAPI && typeof window.firebaseAPI.deleteDoc === 'function') {
+                            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {};
+                            const scId = String(sc.id || copyToDelete.schoolId || (sc.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", id)).catch(()=>{});
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", id)).catch(()=>{});
+                            if (sc.code) {
+                                window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", id)).catch(()=>{});
                             }
                         }
+
+                        serverCallSilent('permanentDelete', [copyToDelete], ()=>{}, ()=>{});
                     });
                     persistLocalUnverified();
+                    syncMaxSnAfterDeletion();
 
-                    showToast(`${idsToDelete.length} records deleted!`);
+                    showToast(`${idsToDelete.length} records permanently deleted ✓`);
                     selectedRecords.clear();
                     filterRecords();
                     renderHomeAnalysis();
                     updateBulkHeader();
-                }, 'Yes, Delete');
+                }, 'Delete Permanently');
             }
 
             function sendToIdentifyFromPreview() {
@@ -7947,7 +8337,7 @@
                     for (let i = 0; i < recordsToExport.length; i++) {
                         const rec = recordsToExport[i];
                         
-                        const safeClass = (rec.sclass || 'Unknown_Class').replace(/[^a-zA-Z0-9\s]/g, '_').trim();
+                        const safeClass = (rec.sclass || 'General').replace(/[^a-zA-Z0-9\s]/g, '_').trim();
                         const safeName = (rec.studentName || 'Unknown_Name').replace(/[^a-zA-Z0-9\s]/g, '_').trim();
                         const baseFilename = `${safeClass}_${safeName}`;
                         
@@ -7986,7 +8376,7 @@
                                     }
                                 });
                                 let qrVal = qrLines.length > 0 ? qrLines.join('\n') : String(rec.id || 'NID');
-                                const qrDataUrl = generateStandardQRCodeDataURL(qrVal, 400, 'M');
+                                const qrDataUrl = generateStandardQRCodeDataURL(qrVal, 400, 'M', 'png');
                                 const qrBase64 = qrDataUrl ? qrDataUrl.split(',')[1] : '';
                                 if (qrBase64) {
                                     qrFileName = `QR_${baseFilename}.png`;
@@ -9457,9 +9847,22 @@
                     const genderCfg = getCfg('gender');
                     const isEditMode = !!(document.getElementById('edit-id')?.value || '').trim();
                     const escapeAttr = (val) => String(val || '').replace(/"/g, '&quot;');
+                    const isStaffActive = (typeof fb_staff_active !== 'undefined') ? !!fb_staff_active : false;
+                    if (!isStaffActive && String(classValue).trim().toLowerCase() === 'staff') {
+                        classValue = 'Class 1';
+                        const blankClassEl = document.getElementById('blank-class');
+                        if (blankClassEl) blankClassEl.value = 'Class 1';
+                        const blankClassTextEl = document.getElementById('blank-class-text');
+                        if (blankClassTextEl) blankClassTextEl.innerText = 'Class 1';
+                        const inSclassEl = document.getElementById('in-sclass');
+                        if (inSclassEl) inSclassEl.value = 'Class 1';
+                    }
                     const classOptions = fb_getStandardSelectOptions('sclass');
                     const genderOptions = fb_getStandardSelectOptions('gender');
-                    const classOptionsWithCurrent = classOptions.includes(classValue) || !classValue ? classOptions : [...classOptions, classValue];
+                    let classOptionsWithCurrent = classOptions.includes(classValue) || !classValue ? classOptions : [...classOptions, classValue];
+                    if (!isStaffActive) {
+                        classOptionsWithCurrent = classOptionsWithCurrent.filter(v => String(v).trim().toLowerCase() !== 'staff');
+                    }
                     const genderOptionsWithCurrent = genderOptions.includes(genderValue) || !genderValue ? genderOptions : [...genderOptions, genderValue];
 
                     const standardFieldRenderers = {
@@ -10507,33 +10910,44 @@
             function deleteFromPreview() {
                 if (!previewRecord || !previewRecord.id) return;
                 const id = previewRecord.id;
-                showModal('confirm', 'Delete Record?', 'Move this record to Recycle Bin?', () => {
+                showModal('confirm', 'Delete Record?', 'Are you sure you want to permanently delete this record from system and cloud?', () => {
                     const deleted = findRecordById(db, id);
                     if (deleted) {
+                        const copyToDelete = { ...deleted };
                         addActivity('DELETE', deleted);
-                        deleted.isDeleted = true;
-                        deleted.deletedAt = new Date().toISOString();
-                        storeRecordInDb(deleted);
-                        try { if (window.idbPut) idbPut(IDB_STORE_RECORDS, deleted).catch(()=>{}); } catch(e){}
+                        db = db.filter(r => r && String(r.id) !== String(id));
+                        currentRenderedRecords = currentRenderedRecords.filter(r => r && String(r.id) !== String(id));
+                        try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
                         persistLocalUnverified();
-                        if (deleted.verified === true || String(deleted.verified).toLowerCase() === 'true' || deleted._serverSaved) {
-                            serverCallSilent('deleteRecord', [id], ()=>{}, ()=>{});
+
+                        // Immediate direct Firestore cloud deletion
+                        if (window.db && window.firebaseAPI && window.firebaseAPI.deleteDoc && window.firebaseAPI.doc) {
+                            const recId = String(id);
+                            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {};
+                            const scId = String(sc.id || deleted.schoolId || (sc.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", recId)).catch(()=>{});
+                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", recId)).catch(()=>{});
+                            if (sc.code) {
+                                window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", recId)).catch(()=>{});
+                            }
                         }
-                        showToast('Record moved to Recycle Bin');
+
+                        serverCallSilent('permanentDelete', [copyToDelete], ()=>{}, ()=>{});
+                        syncMaxSnAfterDeletion();
+                        showToast('Record deleted permanently from system and cloud ✓');
                         
-                        const curIdx = currentRenderedRecords ? currentRenderedRecords.findIndex(r => r && String(r.id) === String(id)) : -1;
-                        const nextRec = (typeof getNextRecordAfterPreviewRemoval === 'function') ? getNextRecordAfterPreviewRemoval(id, curIdx) : null;
+                        const nextRec = (currentRenderedRecords && currentRenderedRecords.length > 0) ? currentRenderedRecords[0] : null;
                         if (nextRec) {
                             openStudentDetailPopup(nextRec);
                         } else {
-                            setBlankRecordMode('none');
+                            closeStudentForm();
                         }
                         renderCurrentRecordsPage();
                         filterRecords();
                     } else {
                         showModal('error', 'Failed', 'Record not found.');
                     }
-                });
+                }, 'Delete Permanently');
             }
 
             function isRecordVerifiedForList(rec) {
@@ -10755,11 +11169,12 @@
             // --- STUDENT RECORD NAVIGATION ---
             function openNextPreview() {
                 if (!previewRecord) return;
-                const list = (currentRenderedRecords && currentRenderedRecords.length > 0 && currentRenderedRecords.findIndex(r => r.id === previewRecord.id) !== -1) 
+                const activeList = (currentRenderedRecords && currentRenderedRecords.length > 0 && currentRenderedRecords.findIndex(r => r && String(r.id) === String(previewRecord.id)) !== -1) 
                     ? currentRenderedRecords 
                     : db;
+                const list = (Array.isArray(activeList) ? activeList : []).filter(r => r && !r.isDeleted && r.studentName);
                 
-                const currentIndex = list.findIndex(r => r.id === previewRecord.id);
+                const currentIndex = list.findIndex(r => r && String(r.id) === String(previewRecord.id));
                 if (currentIndex >= 0 && currentIndex < list.length - 1) {
                     openStudentDetailPopup(list[currentIndex + 1], false, isPendingBatch);
                 } else {
@@ -10769,11 +11184,12 @@
 
             function openPrevPreview() {
                 if (!previewRecord) return;
-                const list = (currentRenderedRecords && currentRenderedRecords.length > 0 && currentRenderedRecords.findIndex(r => r.id === previewRecord.id) !== -1) 
+                const activeList = (currentRenderedRecords && currentRenderedRecords.length > 0 && currentRenderedRecords.findIndex(r => r && String(r.id) === String(previewRecord.id)) !== -1) 
                     ? currentRenderedRecords 
                     : db;
+                const list = (Array.isArray(activeList) ? activeList : []).filter(r => r && !r.isDeleted && r.studentName);
                 
-                const currentIndex = list.findIndex(r => r.id === previewRecord.id);
+                const currentIndex = list.findIndex(r => r && String(r.id) === String(previewRecord.id));
                 if (currentIndex > 0) {
                     openStudentDetailPopup(list[currentIndex - 1], false, isPendingBatch);
                 } else {
@@ -11648,7 +12064,8 @@
             }).join('');
 
             menu.classList.add('show');
-            positionFloatingMenu(menu, btn, { align: 'right', gap: 6, minWidth: Math.max(btn.offsetWidth || 190, 220), fixed: true });
+            positionFloatingMenu(menu, btn, { align: 'center', gap: 6, minWidth: btn.offsetWidth, fixed: true });
+            if (btn.offsetWidth) menu.style.width = btn.offsetWidth + 'px';
         }
 
         function selectShareTimerOption(val, label) {
@@ -11674,9 +12091,15 @@
             const qrDataUrl = generateStandardQRCodeDataURL(publicUrl, 260, 'M') || `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(publicUrl)}`;
             const timerLabel = hasTimer && sc.timerPresetLabel ? sc.timerPresetLabel : (hasTimer ? 'Timer Active' : 'No Timer (Open until off)');
 
+            const maxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
+            const currentEntries = Number(sc.publicFormEntryCount) || 0;
+            const isLimitEnabled = sc.publicFormEntryLimitEnabled === true;
+            const isLimitReached = (isLimitEnabled && maxEntries > 0 && currentEntries >= maxEntries);
+            const progressPct = maxEntries > 0 ? Math.min(100, Math.round((currentEntries / maxEntries) * 100)) : 0;
+
             return `
                 <div class="p-5 md:p-6 bg-white rounded-3xl system-card flex flex-col items-start w-full max-w-xl mx-auto space-y-5 animate-in fade-in duration-200">
-                    <!-- Form Link Active / Deactivate Badge + Timer Row -->
+                    <!-- Form Link Active / Deactivate Badge + Timer + Limit Row -->
                     <div class="w-full bg-slate-50/90 border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-xs">
                         <div class="flex items-center justify-between gap-3">
                             <div class="flex items-center gap-3">
@@ -11697,26 +12120,71 @@
                         </div>
 
                         <!-- Timer Settings (Only visible when Form Link is Active) -->
-                        <div id="page-share-timer-container" class="${isActive ? 'block' : 'hidden'} pt-3 border-t border-slate-200/80">
-                            <div class="flex items-center justify-between gap-2 flex-wrap">
+                        <div id="page-share-timer-container" class="${isActive ? 'block' : 'hidden'} pt-3 border-t border-slate-200/80 space-y-2">
+                            <div class="flex items-center justify-between gap-2">
                                 <div class="flex items-center gap-2">
-                                    <div class="w-7 h-7 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xs border border-amber-200/70">
+                                    <div class="w-7 h-7 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xs border border-amber-200/70 shrink-0">
                                         <i class="fa-solid fa-stopwatch"></i>
                                     </div>
                                     <span class="text-[11px] font-black uppercase tracking-wider text-slate-700">Auto-Off Timer:</span>
-                                    <span id="page-share-timer-countdown" class="text-xs font-bold text-amber-700 font-mono bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
-                                        ${hasTimer ? getTimerCountdownString(expiry) : 'No timer (Always Open)'}
-                                    </span>
                                 </div>
-                                <div class="flex items-center gap-2 relative">
-                                    <button type="button" id="share-timer-btn" onclick="toggleShareTimerMenu(this, event)" class="premium-input flex items-center justify-between text-left cursor-pointer active:scale-[0.99] transition-all bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700 min-w-[185px] shadow-xs hover:border-emerald-500">
+                                <span id="page-share-timer-countdown" class="text-xs font-bold text-amber-700 font-mono bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200 shrink-0">
+                                    ${hasTimer ? getTimerCountdownString(expiry) : 'No timer (Always Open)'}
+                                </span>
+                            </div>
+                            <div class="w-full flex items-center gap-2 relative">
+                                <button type="button" id="share-timer-btn" onclick="toggleShareTimerMenu(this, event)" class="w-full premium-input flex items-center justify-between text-left cursor-pointer active:scale-[0.99] transition-all bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-700 shadow-xs hover:border-emerald-500">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <i class="fa-regular fa-clock text-amber-600 text-xs shrink-0"></i>
                                         <span id="share-timer-btn-text" class="font-bold text-slate-700 text-xs truncate">${timerLabel}</span>
-                                        <i class="fa-solid fa-chevron-down text-slate-400 text-[10px] shrink-0 ml-2"></i>
-                                    </button>
-                                    <input type="hidden" id="page-share-timer-select" value="${hasTimer && sc.timerPreset ? sc.timerPreset : (hasTimer ? 'active' : 'none')}">
-                                    <div id="share-timer-clear-btn-wrap">
-                                        ${hasTimer ? `<button type="button" onclick="clearPublicFormTimer()" class="text-xs text-red-600 font-black px-2.5 py-1.5 rounded-xl hover:bg-red-50 border border-red-200 transition cursor-pointer" title="Clear Timer"><i class="fa-solid fa-xmark"></i></button>` : ''}
                                     </div>
+                                    <i class="fa-solid fa-chevron-down text-slate-400 text-[10px] shrink-0 ml-2"></i>
+                                </button>
+                                <input type="hidden" id="page-share-timer-select" value="${hasTimer && sc.timerPreset ? sc.timerPreset : (hasTimer ? 'active' : 'none')}">
+                                <div id="share-timer-clear-btn-wrap" class="shrink-0">
+                                    ${hasTimer ? `<button type="button" onclick="clearPublicFormTimer()" class="text-xs text-red-600 font-black px-3 py-2.5 rounded-xl hover:bg-red-50 border border-red-200 transition cursor-pointer" title="Clear Timer"><i class="fa-solid fa-xmark"></i></button>` : ''}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Auto-Off Entry Limit Settings (Anti-Hack / Spam Protection) -->
+                        <div id="page-share-limit-container" class="${isActive ? 'block' : 'hidden'} pt-3 border-t border-slate-200/80 space-y-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <label class="flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" id="page-share-limit-checkbox" onchange="toggleShareEntryLimit(this.checked)" class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer shrink-0" ${isLimitEnabled ? 'checked' : ''}>
+                                    <div class="w-7 h-7 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xs border border-blue-200/70 shrink-0">
+                                        <i class="fa-solid fa-shield-halved"></i>
+                                    </div>
+                                    <span class="text-[11px] font-black uppercase tracking-wider text-slate-700">Auto-Off Entry Limit:</span>
+                                </label>
+                                <span id="page-share-limit-badge" class="text-[10px] font-black px-2.5 py-0.5 rounded-full ${isLimitEnabled ? (isLimitReached ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200') : 'bg-slate-100 text-slate-500 border border-slate-200'} shrink-0">
+                                    ${isLimitEnabled ? `${currentEntries} / ${maxEntries} Entries` : 'Off'}
+                                </span>
+                            </div>
+
+                            <!-- Controls Wrapper: Shown only when checkbox is ticked -->
+                            <div id="page-share-limit-controls" class="${isLimitEnabled ? 'block' : 'hidden'} space-y-2 pt-0.5">
+                                <div class="w-full flex items-center justify-between gap-2">
+                                    <!-- Left side: Reset Counter button -->
+                                    <button type="button" onclick="resetShareEntryCount()" class="px-3 py-2 text-[11px] font-black text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl active:scale-95 transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0" title="Reset submitted entries counter to 0">
+                                        <i class="fa-solid fa-rotate-left text-[11px]"></i>
+                                        <span>Reset</span>
+                                    </button>
+
+                                    <!-- Right side: Count adjustments (decrease, input, increase, +50) -->
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                        <div class="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
+                                            <button type="button" onclick="adjustShareEntryLimit(-10)" class="px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-100 active:scale-95 transition cursor-pointer" title="-10 Entries"><i class="fa-solid fa-minus"></i></button>
+                                            <input type="number" id="page-share-entry-limit-input" min="1" max="99999" value="${maxEntries}" onchange="saveShareEntryLimitFromInput(this.value)" class="w-14 text-center text-xs font-black text-slate-800 outline-none border-x border-slate-200 py-1.5" title="Click to manually set limit">
+                                            <button type="button" onclick="adjustShareEntryLimit(10)" class="px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-100 active:scale-95 transition cursor-pointer" title="+10 Entries"><i class="fa-solid fa-plus"></i></button>
+                                        </div>
+                                        <button type="button" onclick="adjustShareEntryLimit(50)" class="px-3 py-2 text-[11px] font-black text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl active:scale-95 transition shadow-xs cursor-pointer shrink-0" title="Add 50 to entry limit">+50</button>
+                                    </div>
+                                </div>
+
+                                <!-- Progress Bar -->
+                                <div class="w-full bg-slate-200/70 rounded-full h-1.5 mt-1 overflow-hidden">
+                                    <div id="page-share-limit-progress" class="h-full rounded-full transition-all duration-300 ${isLimitReached ? 'bg-rose-500' : 'bg-blue-500'}" style="width: ${progressPct}%;"></div>
                                 </div>
                             </div>
                         </div>
@@ -11724,13 +12192,10 @@
 
                     <!-- Registration Link Input + Copy Button -->
                     <div class="w-full space-y-1.5">
-                        <div class="flex items-center justify-between">
+                        <div>
                             <label class="premium-label !text-[11px] !tracking-widest uppercase flex items-center gap-1.5 text-slate-600">
                                 <i class="fa-solid fa-link text-emerald-600"></i> Public Form Link
                             </label>
-                            <button type="button" onclick="promptSetPublicFormCustomUrl()" class="text-[11px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 active:scale-95 transition cursor-pointer" title="Change or Set GitHub / Live Link">
-                                <i class="fa-solid fa-pen-to-square"></i> <span>Set Live Link</span>
-                            </button>
                         </div>
                         <div class="flex items-center gap-2">
                             <input type="text" id="page-share-url-input" readonly value="${publicUrl}" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 text-xs font-mono text-slate-700 outline-none select-all focus:border-emerald-400 shadow-inner">
@@ -11838,7 +12303,140 @@
                 clearBtnWrap.innerHTML = hasTimer ? `<button type="button" onclick="clearPublicFormTimer()" class="text-xs text-red-600 font-black px-2.5 py-1.5 rounded-xl hover:bg-red-50 border border-red-200 transition cursor-pointer" title="Clear Timer"><i class="fa-solid fa-xmark"></i></button>` : '';
             }
 
+            // Entry Limit UI Updates
+            const limitContainer = document.getElementById('page-share-limit-container');
+            if (limitContainer) {
+                limitContainer.classList.toggle('hidden', !isActive);
+                limitContainer.classList.toggle('block', isActive);
+            }
+
+            const isLimitEnabled = sc.publicFormEntryLimitEnabled === true;
+            const maxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
+            const currentEntries = Number(sc.publicFormEntryCount) || 0;
+            const isLimitReached = (isLimitEnabled && maxEntries > 0 && currentEntries >= maxEntries);
+            const progressPct = maxEntries > 0 ? Math.min(100, Math.round((currentEntries / maxEntries) * 100)) : 0;
+
+            const limitCheckbox = document.getElementById('page-share-limit-checkbox');
+            if (limitCheckbox) limitCheckbox.checked = isLimitEnabled;
+
+            const limitControls = document.getElementById('page-share-limit-controls');
+            if (limitControls) {
+                limitControls.classList.toggle('hidden', !isLimitEnabled);
+                limitControls.classList.toggle('block', isLimitEnabled);
+            }
+
+            const limitInput = document.getElementById('page-share-entry-limit-input');
+            if (limitInput) limitInput.value = maxEntries;
+
+            const limitBadge = document.getElementById('page-share-limit-badge');
+            if (limitBadge) {
+                if (isLimitEnabled) {
+                    limitBadge.className = `text-[10px] font-black px-2.5 py-0.5 rounded-full ${isLimitReached ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200'} shrink-0`;
+                    limitBadge.innerText = `${currentEntries} / ${maxEntries} Entries`;
+                } else {
+                    limitBadge.className = 'text-[10px] font-black px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 shrink-0';
+                    limitBadge.innerText = 'Off';
+                }
+            }
+
+            const limitProgress = document.getElementById('page-share-limit-progress');
+            if (limitProgress) {
+                limitProgress.style.width = `${progressPct}%`;
+                limitProgress.className = `h-full rounded-full transition-all duration-300 ${isLimitReached ? 'bg-rose-500' : 'bg-blue-500'}`;
+            }
+
             updateShareFormBadge();
+        }
+
+        async function toggleShareEntryLimit(isChecked) {
+            if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
+            schoolConfig.publicFormEntryLimitEnabled = !!isChecked;
+            if (isChecked) {
+                if (!schoolConfig.publicFormMaxEntries || Number(schoolConfig.publicFormMaxEntries) < 1) {
+                    schoolConfig.publicFormMaxEntries = 60;
+                }
+                const maxEntries = Number(schoolConfig.publicFormMaxEntries);
+                const currentEntries = Number(schoolConfig.publicFormEntryCount) || 0;
+                if (currentEntries >= maxEntries) {
+                    schoolConfig.publicFormMaxEntries = currentEntries + 60;
+                }
+                showToast(`Auto-Off Entry Limit enabled (${schoolConfig.publicFormMaxEntries} entries) ✓`);
+            } else {
+                showToast("Auto-Off Entry Limit disabled (Unlimited entries allowed) ✓");
+            }
+
+            try {
+                localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+            } catch(e){}
+
+            updateShareFormPageUI();
+            triggerHapticFeedback(5);
+
+            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormMaxEntries, schoolConfig.publicFormEntryCount).catch(err => {
+                console.warn("Background limit sync error:", err);
+            });
+        }
+
+        async function adjustShareEntryLimit(delta) {
+            if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
+            let currentMax = schoolConfig.publicFormMaxEntries !== undefined ? Number(schoolConfig.publicFormMaxEntries) : 60;
+            let newMax = Math.max(1, currentMax + delta);
+            await saveShareEntryLimit(newMax);
+        }
+
+        async function saveShareEntryLimitFromInput(val) {
+            let parsed = parseInt(val, 10);
+            if (isNaN(parsed) || parsed < 1) parsed = 60;
+            await saveShareEntryLimit(parsed);
+        }
+
+        async function saveShareEntryLimit(newMax) {
+            if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
+            schoolConfig.publicFormMaxEntries = newMax;
+            schoolConfig.publicFormEntryLimitEnabled = true;
+
+            const currentEntries = Number(schoolConfig.publicFormEntryCount) || 0;
+            if (newMax > currentEntries && schoolConfig.publicFormActive === false) {
+                schoolConfig.publicFormActive = true;
+                schoolConfig.formActive = true;
+                showToast(`Entry limit updated to ${newMax}. Form Link Activated! ✓`);
+            } else {
+                showToast(`Entry limit set to ${newMax} entries ✓`);
+            }
+
+            try {
+                localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+            } catch(e){}
+
+            updateShareFormPageUI();
+            triggerHapticFeedback(5);
+
+            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormMaxEntries, schoolConfig.publicFormEntryCount).catch(err => {
+                console.warn("Background limit sync error:", err);
+            });
+        }
+
+        async function resetShareEntryCount() {
+            if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
+            schoolConfig.publicFormEntryCount = 0;
+            if (schoolConfig.publicFormActive === false) {
+                schoolConfig.publicFormActive = true;
+                schoolConfig.formActive = true;
+                showToast("Counter reset to 0. Form Link Activated! ✓");
+            } else {
+                showToast("Entry counter reset to 0 ✓");
+            }
+
+            try {
+                localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+            } catch(e){}
+
+            updateShareFormPageUI();
+            triggerHapticFeedback(5);
+
+            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormMaxEntries, 0).catch(err => {
+                console.warn("Background reset sync error:", err);
+            });
         }
 
         async function togglePublicFormActiveFromPage(isActive) {
@@ -11849,6 +12447,13 @@
                 schoolConfig.timerPreset = 'none';
                 schoolConfig.timerPresetLabel = 'No Timer (Open until off)';
                 schoolConfig.publicFormEntryCount = 0;
+            } else {
+                const maxEntries = schoolConfig.publicFormMaxEntries !== undefined ? Number(schoolConfig.publicFormMaxEntries) : 60;
+                const currentEntries = Number(schoolConfig.publicFormEntryCount) || 0;
+                if (currentEntries >= maxEntries) {
+                    schoolConfig.publicFormMaxEntries = currentEntries + 60;
+                    showToast(`Form activated! Entry limit auto-expanded to ${schoolConfig.publicFormMaxEntries} (+60) ✓`);
+                }
             }
             try {
                 localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
@@ -11857,10 +12462,10 @@
             // Instant zero-lag UI feedback
             updateShareFormPageUI();
             triggerHapticFeedback(5);
-            showToast(isActive ? 'Public form link activated ✓' : 'Public form link deactivated (counter reset to 0)');
+            showToast(isActive ? 'Public form link activated ✓' : 'Public form link deactivated');
 
             // Non-blocking background sync to Firebase
-            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormEntryCount).catch(err => {
+            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormMaxEntries, schoolConfig.publicFormEntryCount).catch(err => {
                 console.warn("Background sync error:", err);
             });
         }
@@ -11904,7 +12509,7 @@
             triggerHapticFeedback(5);
 
             // Non-blocking background sync
-            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormEntryCount).catch(err => {
+            syncPublicFormConfigToFirebase(schoolConfig.publicFormActive, schoolConfig.publicFormExpiry, schoolConfig.timerPreset, schoolConfig.timerPresetLabel, schoolConfig.publicFormMaxEntries, schoolConfig.publicFormEntryCount).catch(err => {
                 console.warn("Background timer sync error:", err);
             });
         }
@@ -11913,12 +12518,13 @@
             await applyPublicFormTimer('none', 'No Timer (Open until off)');
         }
 
-        async function syncPublicFormConfigToFirebase(isActive, expiry, timerPreset, timerPresetLabel, entryCount) {
+        async function syncPublicFormConfigToFirebase(isActive, expiry, timerPreset, timerPresetLabel, maxEntries, entryCount) {
             if (!schoolConfig) schoolConfig = loadSchoolConfig() || {};
             schoolConfig.publicFormActive = !!isActive;
             schoolConfig.publicFormExpiry = Number(expiry) || 0;
             if (timerPreset !== undefined) schoolConfig.timerPreset = timerPreset;
             if (timerPresetLabel !== undefined) schoolConfig.timerPresetLabel = timerPresetLabel;
+            if (maxEntries !== undefined) schoolConfig.publicFormMaxEntries = Number(maxEntries);
             if (entryCount !== undefined) schoolConfig.publicFormEntryCount = Number(entryCount);
 
             try {
@@ -11933,6 +12539,8 @@
                         publicFormExpiry: Number(expiry) || 0,
                         timerPreset: schoolConfig.timerPreset || 'none',
                         timerPresetLabel: schoolConfig.timerPresetLabel || 'No Timer (Open until off)',
+                        publicFormEntryLimitEnabled: !!schoolConfig.publicFormEntryLimitEnabled,
+                        publicFormMaxEntries: schoolConfig.publicFormMaxEntries !== undefined ? Number(schoolConfig.publicFormMaxEntries) : 60,
                         publicFormEntryCount: Number(schoolConfig.publicFormEntryCount) || 0
                     }, { merge: true }).catch(()=>{});
                 }
@@ -11953,6 +12561,8 @@
                             list[idx].publicFormExpiry = Number(expiry) || 0;
                             if (schoolConfig.timerPreset !== undefined) list[idx].timerPreset = schoolConfig.timerPreset;
                             if (schoolConfig.timerPresetLabel !== undefined) list[idx].timerPresetLabel = schoolConfig.timerPresetLabel;
+                            list[idx].publicFormEntryLimitEnabled = !!schoolConfig.publicFormEntryLimitEnabled;
+                            list[idx].publicFormMaxEntries = schoolConfig.publicFormMaxEntries !== undefined ? Number(schoolConfig.publicFormMaxEntries) : 60;
                             list[idx].publicFormEntryCount = Number(schoolConfig.publicFormEntryCount) || 0;
                             await window.firebaseAPI.setDoc(schoolsDocRef, { list: list, updatedAt: Date.now() }, { merge: true });
                         }
@@ -11970,6 +12580,8 @@
                         publicFormExpiry: Number(expiry) || 0,
                         timerPreset: schoolConfig.timerPreset || 'none',
                         timerPresetLabel: schoolConfig.timerPresetLabel || 'No Timer (Open until off)',
+                        publicFormEntryLimitEnabled: !!schoolConfig.publicFormEntryLimitEnabled,
+                        publicFormMaxEntries: schoolConfig.publicFormMaxEntries !== undefined ? Number(schoolConfig.publicFormMaxEntries) : 60,
                         publicFormEntryCount: Number(schoolConfig.publicFormEntryCount) || 0,
                         updatedAt: Date.now()
                     }, { merge: true }).catch(()=>{});
@@ -12125,7 +12737,7 @@
                 customFieldsConfig['customField' + i].label = document.getElementById('cfg-label-' + i).value || `Custom ${i}`;
             }
             localStorage.setItem('identifyCustomFields', JSON.stringify(customFieldsConfig));
-            document.getElementById('settings-modal').remove();
+            document.getElementById('settings-modal')?.remove();
             showToast('Settings Saved');
         }
 
@@ -12419,7 +13031,11 @@
             }
             fb_updateFormTabUI();
             fb_renderForm();
-            showToast(checked ? 'Staff Form Enabled (Class -> Staff added)' : 'Staff Form Disabled');
+            fb_applySelectOptionsToHiddenInputs();
+            if (typeof renderCurrentRecordsPage === 'function' && typeof blankRecordMode !== 'undefined' && blankRecordMode === 'student') {
+                renderCurrentRecordsPage();
+            }
+            showToast(checked ? 'Staff Form Enabled (Class -> Staff added)' : 'Staff Form Disabled (Class -> Staff removed)');
         }
 
         function fb_resetBuilderView(silent = false) {
@@ -12626,7 +13242,7 @@
             return 'fa-circle-info';
         }
 
-        function fb_getStandardSelectOptions(fieldId, includeStaff = true) {
+        function fb_getStandardSelectOptions(fieldId, includeStaff = null) {
             const defaults = Array.isArray(FB_DEFAULT_SELECT_OPTIONS[fieldId]) ? FB_DEFAULT_SELECT_OPTIONS[fieldId] : [];
             const meta = (fb_standard_meta && Array.isArray(fb_standard_meta[fieldId]?.options)) ? fb_standard_meta[fieldId].options : [];
             const source = meta.length ? meta : defaults;
@@ -12634,7 +13250,9 @@
             let result = clean.length ? clean : defaults.slice();
             if (fieldId === 'sclass') {
                 result = result.filter(v => v.toLowerCase() !== 'staff');
-                if (includeStaff) {
+                const isStaffActive = (typeof fb_staff_active !== 'undefined') ? !!fb_staff_active : false;
+                const shouldInclude = (includeStaff === null) ? isStaffActive : (!!includeStaff && isStaffActive);
+                if (shouldInclude) {
                     result.push('Staff');
                 }
             }
@@ -12642,20 +13260,29 @@
         }
 
         function fb_applySelectOptionsToHiddenInputs() {
-            const applyOptions = (selectEl, options, fallbackValue) => {
+            const isStaffActive = (typeof fb_staff_active !== 'undefined') ? !!fb_staff_active : false;
+            const applyOptions = (selectEl, options, fallbackValue, isClassField = false) => {
                 if (!selectEl) return;
-                const currentValue = String(selectEl.value || '').trim();
-                const clean = (Array.isArray(options) ? options : []).map(v => String(v || '').trim()).filter(Boolean);
+                let currentValue = String(selectEl.value || '').trim();
+                if (isClassField && !isStaffActive && currentValue.toLowerCase() === 'staff') {
+                    currentValue = fallbackValue;
+                }
+                let clean = (Array.isArray(options) ? options : []).map(v => String(v || '').trim()).filter(Boolean);
+                if (isClassField && !isStaffActive) {
+                    clean = clean.filter(v => v.toLowerCase() !== 'staff');
+                }
                 const merged = clean.length ? clean.slice() : [fallbackValue];
-                if (currentValue && !merged.includes(currentValue)) merged.push(currentValue);
+                if (currentValue && !merged.includes(currentValue) && (!isClassField || isStaffActive || currentValue.toLowerCase() !== 'staff')) {
+                    merged.push(currentValue);
+                }
                 if (!merged.length) merged.push(fallbackValue);
                 const previous = currentValue || fallbackValue;
                 selectEl.innerHTML = merged.map(opt => `<option value="${String(opt).replace(/"/g, '&quot;')}">${opt}</option>`).join('');
                 selectEl.value = merged.includes(previous) ? previous : merged[0];
             };
 
-            applyOptions(document.getElementById('in-sclass'), fb_getStandardSelectOptions('sclass'), 'General');
-            applyOptions(document.getElementById('in-gender'), fb_getStandardSelectOptions('gender'), 'Other');
+            applyOptions(document.getElementById('in-sclass'), fb_getStandardSelectOptions('sclass'), 'General', true);
+            applyOptions(document.getElementById('in-gender'), fb_getStandardSelectOptions('gender'), 'Other', false);
         }
 
         function fb_renderForm() {
@@ -13587,6 +14214,32 @@
                 staffStandardLabels: typeof fb_staff_standard_labels !== 'undefined' ? fb_staff_standard_labels : {},
                 staffStandardMeta: typeof fb_staff_standard_meta !== 'undefined' ? fb_staff_standard_meta : {}
             };
+
+            // Direct instant Firestore sync for school & global
+            if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.setDoc) {
+                try {
+                    const fbDocRef = window.firebaseAPI.doc(window.db, "system", "formBuilderConfig");
+                    window.firebaseAPI.setDoc(fbDocRef, { ...fbDataToSave, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+
+                    const activeSchoolId = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.id) ? schoolConfig.id : null;
+                    if (activeSchoolId) {
+                        const sDocRef = window.firebaseAPI.doc(window.db, "schools", String(activeSchoolId));
+                        window.firebaseAPI.setDoc(sDocRef, { formBuilderConfig: fbDataToSave, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+
+                        if (Array.isArray(window.schoolsList)) {
+                            const idx = window.schoolsList.findIndex(s => s && String(s.id) === String(activeSchoolId));
+                            if (idx !== -1) {
+                                window.schoolsList[idx].formBuilderConfig = fbDataToSave;
+                                const sColRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                                window.firebaseAPI.setDoc(sColRef, { list: window.schoolsList, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+                            }
+                        }
+                    }
+                } catch(e) {
+                    console.warn("Direct firestore fb save error:", e);
+                }
+            }
+
             serverCallSilent('saveFormFields', [fbDataToSave], () => {
                 if (btn) btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Saved';
                 setTimeout(() => {
@@ -13650,11 +14303,6 @@
                 }
             }
         });
-    </script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js');
-        }
     </script>
     <script>
     let ie_importParsedData = [];
@@ -15096,7 +15744,7 @@
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./idapplogo.png" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png'">
+                <img src="./idapplogo.png?v=231026_4" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png?v=231026_4'">
             </div>
             <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">
@@ -15202,8 +15850,20 @@
 
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                    navigator.serviceWorker.register('./sw.js').catch(err => {
+                    navigator.serviceWorker.register('./sw.js').then(reg => {
+                        // Check for sw.js updates immediately on every page visit
+                        try { reg.update(); } catch(e){}
+                    }).catch(err => {
                         console.log('Service Worker registration failed:', err);
+                    });
+
+                    // Auto-reload page once if a new service worker took over
+                    let refreshing = false;
+                    navigator.serviceWorker.addEventListener('controllerchange', () => {
+                        if (!refreshing) {
+                            refreshing = true;
+                            window.location.reload();
+                        }
                     });
                 });
             }
