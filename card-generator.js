@@ -105,3 +105,6 @@ function downloadPreviewCardAsJpg() {
     return;
 }
 
+
+window.bulkDownloadSelectedJpg = bulkDownloadSelectedJpg;
+window.downloadPreviewCardAsJpg = downloadPreviewCardAsJpg;

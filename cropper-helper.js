@@ -151,3 +151,8 @@ function applyCrop() {
     }
     closeCropModal();
 }
+
+window.openCropModal = openCropModal;
+window.openCustomCropModal = openCustomCropModal;
+window.closeCropModal = closeCropModal;
+window.applyCrop = applyCrop;

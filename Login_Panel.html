@@ -612,14 +612,19 @@
                     try {
                         const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
                         const schoolsSnap = await window.firebaseAPI.getDoc(schoolsDocRef);
-                        if (schoolsSnap.exists() && Array.isArray(schoolsSnap.data().list) && schoolsSnap.data().list.length > 0) {
+                        if (schoolsSnap.exists() && Array.isArray(schoolsSnap.data().list)) {
                             const list = schoolsSnap.data().list;
                             localStorage.setItem('registered_schools_v1', JSON.stringify(list));
-                            const prevActiveId = localStorage.getItem('identify_active_school_id');
-                            const activeSchool = (prevActiveId && list.find(s => s && String(s.id) === String(prevActiveId))) || list[0];
-                            if (activeSchool) {
-                                localStorage.setItem('identify_active_school_id', String(activeSchool.id));
-                                localStorage.setItem(CONFIG_KEY, JSON.stringify(activeSchool));
+                            if (list.length > 0) {
+                                const prevActiveId = localStorage.getItem('identify_active_school_id');
+                                const activeSchool = (prevActiveId && list.find(s => s && String(s.id) === String(prevActiveId))) || list[0];
+                                if (activeSchool) {
+                                    localStorage.setItem('identify_active_school_id', String(activeSchool.id));
+                                    localStorage.setItem(CONFIG_KEY, JSON.stringify(activeSchool));
+                                }
+                            } else {
+                                localStorage.removeItem('identify_active_school_id');
+                                localStorage.setItem(CONFIG_KEY, JSON.stringify({ name: '', code: '', address: '', contactPerson: '', mobile: '', email: '', logo: '' }));
                             }
                         }
                     } catch(e){}
@@ -731,7 +736,7 @@
                     ));
                     if (foundAuth) {
                         matchedSchool = {
-                            id: foundAuth.schoolId || ('school_' + Date.now()),
+                            id: foundAuth.schoolId || ('school_' + (foundAuth.code || 'sch').toLowerCase()),
                             name: foundAuth.schoolName || foundAuth.code || 'School',
                             code: foundAuth.code || '',
                             email: foundAuth.email || (cleanKey + '@gmail.com'),
@@ -806,7 +811,7 @@
 
                         if (!matchedSchool) {
                             matchedSchool = {
-                                id: user.uid ? ('school_' + user.uid) : ('school_' + Date.now()),
+                                id: 'school_' + (candidateEmail.split('@')[0].toLowerCase().slice(0, 6) || 'sch'),
                                 name: candidateEmail.split('@')[0],
                                 code: candidateEmail.split('@')[0].toUpperCase().slice(0, 4),
                                 email: candidateEmail,

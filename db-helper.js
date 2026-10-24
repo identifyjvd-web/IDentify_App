@@ -129,10 +129,28 @@ function shouldSyncRecordToServer(fn, args) {
         return !!(firstArg && (typeof firstArg === 'string' || firstArg.id));
     }
 
+    const firstArg = args && args[0];
+    const recId = (firstArg && typeof firstArg === 'object') ? firstArg.id : firstArg;
+    if (!recId) return false;
+
+    // Never sync soft delete or restore if record does not exist or has no student details
+    if (fn === 'deleteRecord' || fn === 'restoreRecord') {
+        const localDb = getLocalRecordsArray();
+        const existing = (firstArg && typeof firstArg === 'object') ? firstArg : (localDb.find(r => r && String(r.id) === String(recId)) || null);
+        if (!existing || (!String(existing.studentName || '').trim() && !String(existing.fatherName || '').trim() && !String(existing.sclass || '').trim() && !existing.photoData && !existing.docUrl)) {
+            return false;
+        }
+        return true;
+    }
+
     const record = getRecordForSync(fn, args);
-    // Don't sync empty form drafts that have no studentName or class yet
+    // Never sync empty form drafts or ghost records with no student details
     if (record && typeof record === 'object') {
-        if (record.id && String(record.id).startsWith('draft_') && !record.studentName && !record.sclass) {
+        const hasName = String(record.studentName || '').trim().length > 0;
+        const hasFather = String(record.fatherName || '').trim().length > 0;
+        const hasClass = String(record.sclass || '').trim().length > 0;
+        const hasDoc = !!(record.photoData || record.docUrl || record.docFileId);
+        if (!hasName && !hasFather && !hasClass && !hasDoc) {
             return false;
         }
     }
@@ -360,26 +378,54 @@ function serverCallSilent(fn, args, onSuccess, onFailure) {
     }
 }
 
+
+function extractSnNumber(sn) {
+    if (!sn) return 0;
+    if (typeof sn === 'number') return sn;
+    const str = String(sn).trim();
+    if (/^\d+$/.test(str)) return parseInt(str, 10) || 0;
+    const m = str.match(/^[A-Za-z]+\d{2}(\d+)$/);
+    if (m) return parseInt(m[1], 10) || 0;
+    const m2 = str.match(/(\d+)$/);
+    if (m2) return parseInt(m2[1], 10) || 0;
+    return parseInt(str, 10) || 0;
+}
+window.extractSnNumber = extractSnNumber;
+
+function formatRecordSn(rec) {
+    if (!rec) return '';
+    if (typeof rec === 'string' || typeof rec === 'number') {
+        rec = { sn: rec };
+    }
+    const rawSn = String(rec.sn || rec.draftSn || '').trim();
+    if (/^[A-Za-z]+\d{2}\d{4,}$/.test(rawSn)) {
+        return rawSn.toUpperCase();
+    }
+    const cfg = (typeof window !== 'undefined' && window.schoolConfig) ? window.schoolConfig : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {});
+    const si = (rec.schoolCode || cfg.code || (cfg.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('')).toUpperCase() || "DPS";
+    const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
+    let num = 1;
+    if (rawSn) {
+        num = extractSnNumber(rawSn) || 1;
+    }
+    return `${si}${year}${String(num).padStart(4, '0')}`;
+}
+window.formatRecordSn = formatRecordSn;
+
 function resolveRecordSchoolInfo(rec) {
-    let targetId = rec && rec.schoolId ? String(rec.schoolId).trim() : '';
-    let targetCode = rec && rec.schoolCode ? String(rec.schoolCode).trim().toUpperCase() : '';
+    let targetId = '';
+    let targetCode = '';
+
+    // 1. Current active school configuration takes highest precedence
+    const cfg = (typeof window !== 'undefined' && window.schoolConfig) 
+        ? window.schoolConfig 
+        : (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
+    if (cfg) {
+        if (!targetId && cfg.id) targetId = String(cfg.id);
+        if (!targetCode && cfg.code) targetCode = String(cfg.code || '').trim().toUpperCase();
+    }
 
     if (!targetId || !targetCode) {
-        const cfg = (typeof window !== 'undefined' && window.schoolConfig) 
-            ? window.schoolConfig 
-            : (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
-        if (cfg) {
-            if (!targetId && cfg.id) targetId = String(cfg.id);
-            if (!targetCode && cfg.code) targetCode = String(cfg.code).trim().toUpperCase();
-        }
-    }
-    if (!targetId) {
-        try {
-            const activeId = localStorage.getItem('identify_active_school_id');
-            if (activeId) targetId = activeId;
-        } catch(e){}
-    }
-    if (!targetId) {
         try {
             const raw = localStorage.getItem('school_config_v1');
             if (raw) {
@@ -391,13 +437,38 @@ function resolveRecordSchoolInfo(rec) {
             }
         } catch(e){}
     }
-    // Match ID prefix if rec.id has rec_XXX_
+
+    if (!targetId) {
+        try {
+            const activeId = localStorage.getItem('identify_active_school_id');
+            if (activeId) targetId = activeId;
+        } catch(e){}
+    }
+
+    // 2. Fallback to record's own schoolId / schoolCode if present
+    if (!targetId && rec && rec.schoolId) {
+        targetId = String(rec.schoolId).trim();
+    }
+    if (!targetCode && rec && rec.schoolCode) {
+        targetCode = String(rec.schoolCode).trim().toUpperCase();
+    }
+
+    // 3. Fallback: Parse schoolCode from rec.sn (e.g. AS260001 -> AS)
+    if (!targetCode && rec && rec.sn) {
+        const m = String(rec.sn).trim().match(/^([A-Za-z]+)\d{2}\d+$/);
+        if (m && m[1]) {
+            targetCode = m[1].toUpperCase();
+        }
+    }
+
+    // 4. Fallback: Parse schoolCode from rec.id only if parts[1] is NOT numeric
     if (!targetCode && rec && rec.id && String(rec.id).startsWith('rec_')) {
         const parts = String(rec.id).split('_');
-        if (parts.length >= 2 && parts[1]) {
+        if (parts.length >= 3 && parts[1] && !/^\d+$/.test(parts[1])) {
             targetCode = parts[1].toUpperCase();
         }
     }
+
     if (!targetId && targetCode) {
         targetId = 'school_' + targetCode.toLowerCase();
     }
@@ -411,8 +482,7 @@ window.resolveRecordSchoolInfo = resolveRecordSchoolInfo;
 function prepareRecordForFirestore(data) {
     const cleanData = JSON.parse(JSON.stringify(data));
     const schoolInfo = resolveRecordSchoolInfo(cleanData);
-    cleanData.schoolId = schoolInfo.schoolId;
-    cleanData.schoolCode = schoolInfo.schoolCode;
+    const targetCode = String(schoolInfo.schoolCode || 'DPS').toUpperCase();
 
     // Guard against race conditions: if local db already marked this record verified or uploaded a photo, never overwrite with stale state
     const localDb = getLocalRecordsArray();
@@ -421,7 +491,7 @@ function prepareRecordForFirestore(data) {
         if (latestLocal) {
             const isLocalVerified = latestLocal.verified === true || String(latestLocal.verified).toLowerCase() === 'true' || latestLocal.verified === 'Completed';
             const isLocalReturned = String(latestLocal.verified).toLowerCase() === 'returned' || String(latestLocal.status).toLowerCase() === 'returned' || latestLocal.returned === true;
-            if (isLocalVerified && !isLocalReturned && !cleanData.returned) {
+            if (isLocalVerified && !isLocalReturned) {
                 cleanData.verified = true;
                 cleanData.status = 'verified';
                 cleanData.isRestored = false;
@@ -442,13 +512,35 @@ function prepareRecordForFirestore(data) {
         }
     }
     cleanData.createdAt = cleanData.createdAt || Date.now();
-    cleanData.updatedAt = Date.now();
-    cleanData._serverSaved = true;
-    cleanData._syncStatus = 'synced';
-    cleanData._pending = false;
+
+    // Format sn as {SchoolCode}{Year2Digits}{4-digit-serial} e.g. DPS260001, AS260001
+    const rawSn = String(cleanData.sn || '').trim();
+    if (!/^[A-Za-z]+\d{2}\d{4,}$/.test(rawSn)) {
+        const num = extractSnNumber(rawSn) || 1;
+        const year = new Date(cleanData.createdAt || Date.now()).getFullYear().toString().slice(-2);
+        cleanData.sn = `${targetCode}${year}${String(num).padStart(4, '0')}`;
+    } else {
+        cleanData.sn = rawSn.toUpperCase();
+    }
+
+    // Strip removed fields and background metadata per user requirement
+    delete cleanData.schoolId;
+    delete cleanData.schoolCode;
+    delete cleanData.returned;
+    delete cleanData._serverSaved;
+    delete cleanData._syncStatus;
+    delete cleanData._pending;
     delete cleanData._verifying;
     delete cleanData._displayPhotoSrc;
     delete cleanData._eid;
+    delete cleanData.draftSn;
+    delete cleanData.draftStatus;
+    delete cleanData.updatedAt;
+    delete cleanData.deviceInfo;
+    delete cleanData.location;
+    delete cleanData.timestamp;
+    delete cleanData.oldId;
+    delete cleanData.isRestored;
     if (cleanData.photo && String(cleanData.photo).startsWith('data:image')) {
         if (!cleanData.photoData) cleanData.photoData = cleanData.photo;
         delete cleanData.photo;
@@ -476,33 +568,49 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             window._recordsUnsubscribe = onSnapshot(schoolColRef, async (querySnapshot) => {
                 const records = [];
                 querySnapshot.forEach((d) => {
-                    records.push({ id: d.id, ...d.data() });
+                    const r = { id: d.id, ...d.data() };
+                    // Auto-purge/ignore ghost records: empty records with isDeleted: true and no student details
+                    const hasName = String(r.studentName || '').trim().length > 0;
+                    const hasFather = String(r.fatherName || '').trim().length > 0;
+                    const hasClass = String(r.sclass || '').trim().length > 0;
+                    const hasDoc = !!(r.photoData || r.docUrl || r.docFileId);
+                    if (r.isDeleted && !hasName && !hasFather && !hasClass && !hasDoc) {
+                        try {
+                            deleteDoc(d.ref).catch(()=>{});
+                            deleteDoc(doc(window.db, "records", String(d.id))).catch(()=>{});
+                        } catch(e) {}
+                        return; // Drop ghost record from state
+                    }
+                    records.push(r);
                 });
 
-                // If isolated subcollection is empty (e.g. legacy records still in root records), check root collection
-                if (records.length === 0) {
-                    try {
-                        const rootSnap = await getDocs(collection(window.db, "records"));
-                        const legacyRecords = [];
-                        rootSnap.forEach(d => {
-                            const r = { id: d.id, ...d.data() };
-                            const matchesId = r.schoolId && String(r.schoolId) === schoolId;
-                            const matchesCode = r.schoolCode && String(r.schoolCode).toUpperCase() === targetCode;
-                            const matchesPrefix = targetCode && (String(r.id || '').startsWith('rec_' + targetCode + '_') || String(r.id || '').startsWith('draft_' + targetCode + '-'));
-                            if (matchesId || (targetCode && (matchesCode || matchesPrefix))) {
+                // Always check root collection and merge any missing records or photoData for this school
+                try {
+                    const rootSnap = await getDocs(collection(window.db, "records"));
+                    const subMap = new Map();
+                    records.forEach(r => subMap.set(String(r.id), r));
+
+                    rootSnap.forEach(d => {
+                        const r = { id: d.id, ...d.data() };
+                        const matchesId = r.schoolId && String(r.schoolId) === schoolId;
+                        const matchesCode = r.schoolCode && String(r.schoolCode).toUpperCase() === targetCode;
+                        const matchesPrefix = targetCode && (String(r.id || '').startsWith('rec_' + targetCode + '_') || String(r.id || '').startsWith('draft_' + targetCode + '-'));
+                        const matchesSn = targetCode && r.sn && String(r.sn).toUpperCase().startsWith(targetCode);
+                        if (matchesId || (targetCode && (matchesCode || matchesPrefix || matchesSn))) {
+                            if (!subMap.has(String(r.id))) {
                                 records.push(r);
-                                legacyRecords.push(r);
+                                subMap.set(String(r.id), r);
+                                setDoc(doc(window.db, "schools", schoolId, "records", String(r.id)), r, { merge: true }).catch(()=>{});
+                            } else {
+                                const existing = subMap.get(String(r.id));
+                                if (r.photoData && !existing.photoData) {
+                                    existing.photoData = r.photoData;
+                                    setDoc(doc(window.db, "schools", schoolId, "records", String(r.id)), { photoData: r.photoData }, { merge: true }).catch(()=>{});
+                                }
                             }
-                        });
-                        // Background migrate legacy records into the dedicated school subcollection
-                        if (legacyRecords.length > 0) {
-                            Promise.all(legacyRecords.map(lr => {
-                                const docRef = doc(window.db, "schools", schoolId, "records", String(lr.id));
-                                return setDoc(docRef, lr, { merge: true });
-                            })).catch(()=>{});
                         }
-                    } catch(e) {}
-                }
+                    });
+                } catch(e) {}
 
                 if (onSuccess) onSuccess(records);
             }, (error) => {
@@ -529,16 +637,17 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             });
         } else if (fn === 'submitStudentData' || fn === 'addRecord') {
             const data = args[0];
+            const schoolInfo = resolveRecordSchoolInfo(data);
+            const schoolId = String(schoolInfo.schoolId || 'school_dps');
             const cleanData = prepareRecordForFirestore(data);
-            const schoolId = String(cleanData.schoolId || 'school_dps');
             
             // 1. Save in dedicated school subcollection: schools/{schoolId}/records/{id}
             const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(cleanData.id));
             // 2. Also keep root records in sync for compatibility
             const rootDocRef = doc(window.db, "records", String(cleanData.id));
             await Promise.all([
-                setDoc(schoolDocRef, cleanData, { merge: true }),
-                setDoc(rootDocRef, cleanData, { merge: true })
+                setDoc(schoolDocRef, cleanData),
+                setDoc(rootDocRef, cleanData)
             ]);
             if (onSuccess) onSuccess(data);
         } else if (fn === 'addManyRecords') {
@@ -548,13 +657,14 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             for (let i = 0; i < records.length; i += chunkSize) {
                 const chunk = records.slice(i, i + chunkSize);
                 await Promise.all(chunk.map(async (rec) => {
+                    const schoolInfo = resolveRecordSchoolInfo(rec);
+                    const schoolId = String(schoolInfo.schoolId || 'school_dps');
                     const cleanData = prepareRecordForFirestore(rec);
-                    const schoolId = String(cleanData.schoolId || 'school_dps');
                     const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(cleanData.id));
                     const rootDocRef = doc(window.db, "records", String(cleanData.id));
                     await Promise.all([
-                        setDoc(schoolDocRef, cleanData, { merge: true }),
-                        setDoc(rootDocRef, cleanData, { merge: true })
+                        setDoc(schoolDocRef, cleanData),
+                        setDoc(rootDocRef, cleanData)
                     ]);
                     addedCount++;
                 }));
@@ -562,13 +672,14 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             if (onSuccess) onSuccess(addedCount);
         } else if (fn === 'updateStudentData' || fn === 'updateRecord') {
             const data = args[0];
+            const schoolInfo = resolveRecordSchoolInfo(data);
+            const schoolId = String(schoolInfo.schoolId || 'school_dps');
             const cleanData = prepareRecordForFirestore(data);
-            const schoolId = String(cleanData.schoolId || 'school_dps');
             const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(cleanData.id));
             const rootDocRef = doc(window.db, "records", String(cleanData.id));
             await Promise.all([
-                setDoc(schoolDocRef, cleanData, { merge: true }),
-                setDoc(rootDocRef, cleanData, { merge: true })
+                setDoc(schoolDocRef, cleanData),
+                setDoc(rootDocRef, cleanData)
             ]);
             
             if (onSuccess) onSuccess(data);
@@ -587,17 +698,76 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                 }
             }
             if (recObj && recObj.id) {
+                const schoolInfo = resolveRecordSchoolInfo(recObj);
+                const schoolId = String(schoolInfo.schoolId || 'school_dps');
                 const cleanData = prepareRecordForFirestore({ ...recObj, isDeleted: false, isRestored: true, deletedAt: null });
-                const schoolId = String(cleanData.schoolId || 'school_dps');
                 const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(cleanData.id));
                 const rootDocRef = doc(window.db, "records", String(cleanData.id));
                 await Promise.all([
-                    setDoc(schoolDocRef, cleanData, { merge: true }),
-                    setDoc(rootDocRef, cleanData, { merge: true })
+                    setDoc(schoolDocRef, cleanData),
+                    setDoc(rootDocRef, cleanData)
                 ]);
             }
             if (onSuccess) onSuccess(true);
-        } else if (fn === 'deleteRecord' || fn === 'permanentDelete' || fn === 'permDelete') {
+        } else if (fn === 'deleteRecord') {
+            // SOFT DELETE: Update Firestore document with isDeleted: true so it appears in Recycle Bin
+            const arg = args[0];
+            const id = typeof arg === 'object' && arg ? arg.id : arg;
+            if (id && !String(id).startsWith('TEMP_')) {
+                const localDb = getLocalRecordsArray();
+                const recObj = (typeof arg === 'object' && arg) ? arg : (localDb.find(r => r && String(r.id) === String(id)) || null);
+                // Guard: Never create or soft-delete a ghost record in Firestore if it has no data
+                if (!recObj || (!String(recObj.studentName || '').trim() && !String(recObj.fatherName || '').trim() && !String(recObj.sclass || '').trim() && !recObj.photoData && !recObj.docUrl)) {
+                    if (onSuccess) onSuccess(true);
+                    return;
+                }
+                const schoolInfo = resolveRecordSchoolInfo(recObj);
+                const schoolId = String(schoolInfo.schoolId || (schoolInfo.schoolCode ? 'school_' + schoolInfo.schoolCode.toLowerCase() : 'school_dps'));
+
+                const softDeleteData = {
+                    isDeleted: true,
+                    deletedAt: Date.now(),
+                    updatedAt: Date.now()
+                };
+
+                const updatePromises = [
+                    setDoc(doc(window.db, "schools", schoolId, "records", String(id)), softDeleteData, { merge: true }),
+                    setDoc(doc(window.db, "records", String(id)), softDeleteData, { merge: true })
+                ];
+                if (schoolInfo.schoolCode && ('school_' + String(schoolInfo.schoolCode).toLowerCase()) !== schoolId) {
+                    updatePromises.push(setDoc(doc(window.db, "schools", "school_" + String(schoolInfo.schoolCode).toLowerCase(), "records", String(id)), softDeleteData, { merge: true }).catch(()=>{}));
+                }
+                await Promise.all(updatePromises);
+            }
+            if (onSuccess) onSuccess(true);
+        } else if (fn === 'restoreRecord') {
+            // RESTORE: Update Firestore document with isDeleted: false
+            const arg = args[0];
+            const id = typeof arg === 'object' && arg ? arg.id : arg;
+            if (id && !String(id).startsWith('TEMP_')) {
+                const localDb = getLocalRecordsArray();
+                const recObj = (typeof arg === 'object' && arg) ? arg : (localDb.find(r => r && String(r.id) === String(id)) || {});
+                const schoolInfo = resolveRecordSchoolInfo(recObj);
+                const schoolId = String(schoolInfo.schoolId || (schoolInfo.schoolCode ? 'school_' + schoolInfo.schoolCode.toLowerCase() : 'school_dps'));
+
+                const restoreData = {
+                    isDeleted: false,
+                    isRestored: true,
+                    updatedAt: Date.now()
+                };
+
+                const updatePromises = [
+                    setDoc(doc(window.db, "schools", schoolId, "records", String(id)), restoreData, { merge: true }),
+                    setDoc(doc(window.db, "records", String(id)), restoreData, { merge: true })
+                ];
+                if (schoolInfo.schoolCode && ('school_' + String(schoolInfo.schoolCode).toLowerCase()) !== schoolId) {
+                    updatePromises.push(setDoc(doc(window.db, "schools", "school_" + String(schoolInfo.schoolCode).toLowerCase(), "records", String(id)), restoreData, { merge: true }).catch(()=>{}));
+                }
+                await Promise.all(updatePromises);
+            }
+            if (onSuccess) onSuccess(true);
+        } else if (fn === 'permanentDelete' || fn === 'permDelete') {
+            // HARD DELETE: Actually delete the document from Firestore and Storage
             const arg = args[0];
             const id = typeof arg === 'object' && arg ? arg.id : arg;
             if (id && !String(id).startsWith('TEMP_')) {
@@ -607,22 +777,14 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                 const schoolId = String(schoolInfo.schoolId || (schoolInfo.schoolCode ? 'school_' + schoolInfo.schoolCode.toLowerCase() : 'school_dps'));
 
                 const delPromises = [];
-                // 1. Delete from resolved schoolId subcollection: schools/{schoolId}/records/{id}
                 delPromises.push(deleteDoc(doc(window.db, "schools", schoolId, "records", String(id))).catch(()=>{}));
-                // 2. Delete from root records collection: records/{id}
                 delPromises.push(deleteDoc(doc(window.db, "records", String(id))).catch(()=>{}));
-
-                // 3. If schoolCode is known, delete from schools/school_{code}/records/{id}
                 if (schoolInfo.schoolCode) {
                     delPromises.push(deleteDoc(doc(window.db, "schools", "school_" + String(schoolInfo.schoolCode).toLowerCase(), "records", String(id))).catch(()=>{}));
                 }
-
-                // 4. If active schoolConfig exists and differs, also delete from its subcollection
                 if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.id && String(schoolConfig.id) !== schoolId) {
                     delPromises.push(deleteDoc(doc(window.db, "schools", String(schoolConfig.id), "records", String(id))).catch(()=>{}));
                 }
-
-                // 5. Delete across all schools in schoolsList to ensure 0 ghost entries remain
                 const sList = (typeof loadSchoolsList === 'function' ? loadSchoolsList() : (Array.isArray(window.schoolsList) ? window.schoolsList : []));
                 sList.forEach(s => {
                     if (s && s.id && String(s.id) !== schoolId) {
@@ -632,13 +794,9 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                         delPromises.push(deleteDoc(doc(window.db, "schools", "school_" + String(s.code).toLowerCase(), "records", String(id))).catch(()=>{}));
                     }
                 });
-
-                // 6. Delete from Firebase Auth user.uid subcollection if logged in
                 if (window.auth && window.auth.currentUser && window.auth.currentUser.uid) {
                     delPromises.push(deleteDoc(doc(window.db, "schools", window.auth.currentUser.uid, "records", String(id))).catch(()=>{}));
                 }
-
-                // 7. Hard delete physical document / photo from Firebase Storage if present
                 const docFileId = recObj.docFileId || (recObj.docUrl && recObj.docUrl.includes('documents%2F') ? decodeURIComponent(recObj.docUrl.split('documents%2F')[1].split('?')[0]) : null);
                 if (docFileId && window.storage && window.firebaseAPI && window.firebaseAPI.deleteObject) {
                     try {
@@ -646,7 +804,6 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                         delPromises.push(deleteObject(ref(window.storage, `documents/${docFileId}`)).catch(()=>{}));
                     } catch(e){}
                 }
-
                 await Promise.all(delPromises);
             }
             if (onSuccess) onSuccess(true);
@@ -734,6 +891,17 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                 const counterRef = doc(window.db, "schools", schoolId, "config", "snCounter");
                 promises.push(setDoc(counterRef, { value: 0 }, { merge: true }).catch(()=>{}));
             } catch(e){}
+
+            // Also clean alias subcollection if present
+            if (activeSchoolInfo.schoolCode) {
+                try {
+                    const codeCol = collection(window.db, "schools", "school_" + String(activeSchoolInfo.schoolCode).toLowerCase(), "records");
+                    const cSnap = await getDocs(codeCol);
+                    cSnap.forEach((d) => {
+                        promises.push(deleteDoc(d.ref).catch(()=>{}));
+                    });
+                } catch(e){}
+            }
 
             await Promise.all(promises);
             if (onSuccess) onSuccess(true);
