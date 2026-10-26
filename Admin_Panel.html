@@ -21,10 +21,8 @@
                 const p = new URLSearchParams(window.location.search);
                 const isCam = p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam');
                 if (isCam) {
-                    window.isCameraSyncMode = true;
-                    window.cameraSyncSessionId = p.get('session') || p.get('cam');
-                    window.cameraSyncSchoolCode = p.get('school') || 'DPS';
-                    document.documentElement.classList.add('is-camera-sync-mode');
+                    window.location.replace('mobile-camera.html' + window.location.search);
+                    return;
                 } else {
                     const formCode = p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' ? (p.get('school') || p.get('code')) : null);
                     if (formCode) {

@@ -154,9 +154,37 @@
         let torchActive = false;
         let lastCapturedDataUrl = null;
 
+        function showFallbackCameraNotice() {
+            const guidelines = document.getElementById('camera-guidelines');
+            if (guidelines) guidelines.classList.add('hidden');
+            let fallbackCard = document.getElementById('http-camera-fallback-card');
+            if (!fallbackCard) {
+                fallbackCard = document.createElement('div');
+                fallbackCard.id = 'http-camera-fallback-card';
+                fallbackCard.className = 'z-20 p-6 bg-slate-900/95 rounded-3xl border border-emerald-500/40 text-center max-w-xs mx-4 shadow-2xl animate-in zoom-in-95 duration-200';
+                fallbackCard.innerHTML = `
+                    <div class="w-14 h-14 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-2xl mb-3 shadow-inner">
+                        <i class="fa-solid fa-camera"></i>
+                    </div>
+                    <h3 class="text-sm font-black text-white">Capture Student Photo</h3>
+                    <p class="text-xs text-slate-300 mt-1 mb-5 leading-relaxed">Tap below to open your phone's camera app directly and take the student's photo.</p>
+                    <button type="button" onclick="document.getElementById('native-camera-input').click()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs rounded-2xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition">
+                        <i class="fa-solid fa-camera"></i> Open Phone Camera
+                    </button>
+                `;
+                const main = document.querySelector('main');
+                if (main) main.appendChild(fallbackCard);
+            }
+        }
+
         async function initCamera() {
             if (mediaStream) {
-                mediaStream.getTracks().forEach(t => t.stop());
+                try { mediaStream.getTracks().forEach(t => t.stop()); } catch(e){}
+            }
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                console.warn("navigator.mediaDevices.getUserMedia not available in this context. Showing 1-tap Native Camera button.");
+                showFallbackCameraNotice();
+                return;
             }
             try {
                 const constraints = {
@@ -169,15 +197,21 @@
                 };
                 mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
                 const videoEl = document.getElementById('mobile-video');
-                videoEl.srcObject = mediaStream;
+                if (videoEl) videoEl.srcObject = mediaStream;
+                const fb = document.getElementById('http-camera-fallback-card');
+                if (fb) fb.remove();
+                const guidelines = document.getElementById('camera-guidelines');
+                if (guidelines) guidelines.classList.remove('hidden');
             } catch (err) {
                 console.warn("Could not start environment camera, falling back to any camera:", err);
                 try {
                     mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     const videoEl = document.getElementById('mobile-video');
-                    videoEl.srcObject = mediaStream;
+                    if (videoEl) videoEl.srcObject = mediaStream;
+                    const fb = document.getElementById('http-camera-fallback-card');
+                    if (fb) fb.remove();
                 } catch(e) {
-                    alert("Please allow camera access on your mobile device to capture live photo.");
+                    showFallbackCameraNotice();
                 }
             }
         }
@@ -208,7 +242,10 @@
         function takeSnapshot() {
             const video = document.getElementById('mobile-video');
             const canvas = document.getElementById('snapshot-canvas');
-            if (!video || !canvas) return;
+            if (!video || !canvas || !mediaStream || !video.videoWidth) {
+                document.getElementById('native-camera-input').click();
+                return;
+            }
 
             const w = video.videoWidth || 1280;
             const h = video.videoHeight || 720;
