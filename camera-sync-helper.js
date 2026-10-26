@@ -4,6 +4,7 @@
  * - Mobile: opens native device camera directly
  * - Desktop with Webcam: opens Live Desktop Webcam modal
  * - Desktop without Webcam: opens Mobile QR Code for real-time cloud photo transfer
+ * - Mobile QR Receiver: Direct full-screen live camera view with 1-tap Phone Camera & WebRTC
  */
 
 (function () {
@@ -42,12 +43,13 @@
         if (isHttp) {
             const baseUrl = window.location.href.split('?')[0].replace(/(?:Admin|School)_Panel\.html/i, '');
             const cleanBase = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
-            return `${cleanBase}mobile-camera.html?session=${encodeURIComponent(sessionId)}&school=${encodeURIComponent(schoolCode)}`;
+            return `${cleanBase}School_Panel.html?mode=camera_sync&session=${encodeURIComponent(sessionId)}&school=${encodeURIComponent(schoolCode)}`;
         } else {
             // Local file:/// mode fallback to live hosted service
-            return `https://id3files.web.app/mobile-camera.html?session=${encodeURIComponent(sessionId)}&school=${encodeURIComponent(schoolCode)}`;
+            return `https://id3files.web.app/School_Panel.html?mode=camera_sync&session=${encodeURIComponent(sessionId)}&school=${encodeURIComponent(schoolCode)}`;
         }
     }
+    window.getMobileCameraSyncUrl = getMobileCameraSyncUrl;
 
     function applyCapturedPhotoToForm(dataUrl, targetType = 'student_photo') {
         if (!dataUrl) return;
@@ -311,7 +313,7 @@
                 </div>
                 <h3 class="text-base font-black text-slate-800">Scan QR with Mobile Camera</h3>
                 <p class="text-xs text-slate-500 mt-1 mb-4 leading-relaxed">
-                    Apne mobile se yeh QR code scan karein. Phone me live camera open hoga aur photo click karte hi automatically yahan attach ho jayegi.
+                    Apne mobile se yeh QR code scan karein. Phone me direct live camera open hoga aur photo capture karte hi form me automatically attach ho jayegi.
                 </p>
 
                 <!-- QR Code Display Box -->
@@ -394,7 +396,7 @@
     }
     window.openMobileQrCaptureModal = openMobileQrCaptureModal;
 
-    // --- 3. Master Dispatcher ---
+    // --- 3. Master Dispatcher (for forms) ---
     async function triggerSmartPhotoCapture(targetType = 'student_photo') {
         // Case A: Mobile device
         if (isMobileDevice()) {
@@ -423,5 +425,342 @@
         triggerSmartPhotoCapture(`custom-${idx}`);
     }
     window.triggerSmartCustomPhotoCapture = triggerSmartCustomPhotoCapture;
+
+    // --- 4. Direct Mobile Camera Receiver (when opened via QR scan on mobile) ---
+    function checkAndLaunchDirectMobileCamera() {
+        const params = new URLSearchParams(window.location.search);
+        const isCam = params.has('session') || params.get('mode') === 'camera_sync' || params.has('cam');
+        if (!isCam) return;
+
+        const sessionId = params.get('session') || params.get('cam');
+        const schoolCode = (params.get('school') || 'IDentify').toUpperCase();
+
+        document.documentElement.classList.add('is-camera-sync-mode');
+
+        const initUI = () => {
+            // Remove splash screen immediately
+            const splash = document.getElementById('initial-splash-screen');
+            if (splash) splash.remove();
+
+            // Set document title
+            document.title = `${schoolCode} Live Camera`;
+
+            // Create root container
+            let root = document.getElementById('direct-mobile-camera-sync-root');
+            if (!root) {
+                root = document.createElement('div');
+                root.id = 'direct-mobile-camera-sync-root';
+                root.className = 'fixed inset-0 z-[999999] bg-[#0b0f19] text-white flex flex-col justify-between overflow-hidden select-none';
+                document.body.appendChild(root);
+            }
+
+            root.innerHTML = `
+                <!-- Top Header -->
+                <header class="z-20 px-4 py-3 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400">
+                            <i class="fa-solid fa-camera"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-xs font-black tracking-wide text-white">${schoolCode} Live Camera</h1>
+                            <p class="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live PC Sync Active
+                            </p>
+                        </div>
+                    </div>
+                    <button type="button" id="direct-cam-flip-btn" class="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 border border-white/20 flex items-center justify-center text-white transition">
+                        <i class="fa-solid fa-camera-rotate text-sm"></i>
+                    </button>
+                </header>
+
+                <!-- Camera Viewport -->
+                <main class="relative flex-1 flex items-center justify-center overflow-hidden bg-black">
+                    <video id="direct-cam-video" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover"></video>
+                    <canvas id="direct-cam-canvas" class="hidden"></canvas>
+
+                    <!-- Passport Guideline Overlay -->
+                    <div id="direct-cam-guidelines" class="relative pointer-events-none z-10 w-64 h-80 flex flex-col items-center justify-center">
+                        <div style="border: 2px dashed rgba(255,255,255,0.7); border-radius: 50% / 60%; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);" class="w-56 h-72 relative flex items-center justify-center">
+                            <div class="text-[11px] font-bold text-white/90 bg-black/60 px-3 py-1 rounded-full mb-24">
+                                Fit Face Inside Frame
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Direct Phone Camera Native Button (1-Tap for Native Camera App) -->
+                    <div class="absolute top-4 left-1/2 -translate-x-1/2 z-20">
+                        <button type="button" id="direct-cam-native-app-btn" class="px-4 py-2 bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 backdrop-blur-md border border-white/20 rounded-full text-[11px] font-extrabold text-white flex items-center gap-2 shadow-xl transition">
+                            <i class="fa-solid fa-camera text-white"></i> Open Phone Camera App
+                        </button>
+                    </div>
+
+                    <!-- Captured Preview Overlay -->
+                    <div id="direct-cam-preview" class="hidden absolute inset-0 z-30 bg-black flex flex-col items-center justify-center p-4">
+                        <img id="direct-cam-preview-img" src="" alt="Captured Photo" class="max-h-[68vh] max-w-full rounded-2xl shadow-2xl object-contain border border-white/20">
+                        <div class="flex items-center gap-3 mt-5 w-full max-w-xs">
+                            <button type="button" id="direct-cam-retake-btn" class="flex-1 py-3.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-black text-xs rounded-xl flex items-center justify-center gap-2 border border-slate-700 transition">
+                                <i class="fa-solid fa-arrow-rotate-left"></i> Retake
+                            </button>
+                            <button type="button" id="direct-cam-send-btn" class="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition">
+                                <i class="fa-solid fa-paper-plane"></i> Send to PC
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Syncing Progress Overlay -->
+                    <div id="direct-cam-sync-overlay" class="hidden absolute inset-0 z-40 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
+                        <div id="direct-cam-sync-spinner" class="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                        <div id="direct-cam-sync-success-icon" class="hidden w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-400 text-3xl mb-4 animate-bounce">
+                            <i class="fa-solid fa-check"></i>
+                        </div>
+                        <h3 id="direct-cam-sync-title" class="text-base font-black tracking-wide text-white">Sending to Desktop PC...</h3>
+                        <p id="direct-cam-sync-subtitle" class="text-xs text-slate-300 mt-2 max-w-xs leading-relaxed">
+                            Photo is transferring directly into the student registration form on your PC.
+                        </p>
+                    </div>
+                </main>
+
+                <!-- Bottom Controls Bar -->
+                <footer id="direct-cam-bottom-controls" class="z-20 pb-8 pt-4 px-6 flex items-center justify-around bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+                    <!-- Native Camera & Gallery file inputs -->
+                    <input type="file" id="direct-cam-native-file-input" accept="image/*" capture="environment" class="hidden">
+                    <input type="file" id="direct-cam-gallery-file-input" accept="image/*" class="hidden">
+
+                    <button type="button" id="direct-cam-gallery-btn" class="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 border border-white/20 flex items-center justify-center text-white transition" title="Choose from Gallery">
+                        <i class="fa-solid fa-image text-sm"></i>
+                    </button>
+
+                    <!-- Big Shutter Button -->
+                    <button type="button" id="direct-cam-shutter-btn" style="box-shadow: 0 0 0 4px rgba(255,255,255,0.3), 0 0 20px rgba(16,185,129,0.4);" class="w-18 h-18 rounded-full bg-white flex items-center justify-center p-1.5 active:scale-90 transition-transform">
+                        <div class="w-full h-full rounded-full bg-emerald-500 flex items-center justify-center text-white text-2xl shadow-inner">
+                            <i class="fa-solid fa-camera"></i>
+                        </div>
+                    </button>
+
+                    <button type="button" id="direct-cam-torch-btn" class="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 border border-white/20 flex items-center justify-center text-white transition" title="Torch">
+                        <i class="fa-solid fa-bolt text-sm"></i>
+                    </button>
+                </footer>
+            `;
+
+            // State & handlers
+            let mediaStream = null;
+            let currentFacing = 'environment';
+            let torchOn = false;
+            let currentPhotoData = null;
+
+            async function startDirectStream() {
+                if (mediaStream) {
+                    try {
+                        mediaStream.getTracks().forEach(t => t.stop());
+                    } catch(e){}
+                }
+                const videoEl = document.getElementById('direct-cam-video');
+                if (!videoEl) return;
+                try {
+                    mediaStream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: { ideal: currentFacing },
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        },
+                        audio: false
+                    });
+                    videoEl.srcObject = mediaStream;
+                } catch (e) {
+                    console.warn("Direct stream ideal constraint failed, fallback to any video:", e);
+                    try {
+                        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                        videoEl.srcObject = mediaStream;
+                    } catch (err) {
+                        console.warn("Direct stream getUserMedia blocked, native camera input ready:", err);
+                    }
+                }
+            }
+
+            // Wire buttons
+            const flipBtn = document.getElementById('direct-cam-flip-btn');
+            if (flipBtn) {
+                flipBtn.onclick = () => {
+                    currentFacing = (currentFacing === 'environment') ? 'user' : 'environment';
+                    startDirectStream();
+                };
+            }
+
+            const torchBtn = document.getElementById('direct-cam-torch-btn');
+            if (torchBtn) {
+                torchBtn.onclick = async () => {
+                    if (!mediaStream) return;
+                    const track = mediaStream.getVideoTracks()[0];
+                    if (!track) return;
+                    try {
+                        torchOn = !torchOn;
+                        await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+                        const icon = torchBtn.querySelector('i');
+                        if (icon) {
+                            icon.className = torchOn ? 'fa-solid fa-bolt text-amber-400' : 'fa-solid fa-bolt text-sm';
+                        }
+                    } catch(e){
+                        console.warn("Torch not supported on this device");
+                    }
+                };
+            }
+
+            const nativeInput = document.getElementById('direct-cam-native-file-input');
+            const galleryInput = document.getElementById('direct-cam-gallery-file-input');
+            const nativeAppBtn = document.getElementById('direct-cam-native-app-btn');
+            const galleryBtn = document.getElementById('direct-cam-gallery-btn');
+
+            if (nativeAppBtn && nativeInput) {
+                nativeAppBtn.onclick = () => nativeInput.click();
+            }
+            if (galleryBtn && galleryInput) {
+                galleryBtn.onclick = () => galleryInput.click();
+            }
+
+            const handleFile = (file) => {
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    currentPhotoData = e.target.result;
+                    showPreview(currentPhotoData);
+                };
+                reader.readAsDataURL(file);
+            };
+
+            if (nativeInput) nativeInput.onchange = (e) => handleFile(e.target.files[0]);
+            if (galleryInput) galleryInput.onchange = (e) => handleFile(e.target.files[0]);
+
+            const shutterBtn = document.getElementById('direct-cam-shutter-btn');
+            if (shutterBtn) {
+                shutterBtn.onclick = () => {
+                    const video = document.getElementById('direct-cam-video');
+                    const canvas = document.getElementById('direct-cam-canvas');
+                    if (!video || !canvas) return;
+
+                    const w = video.videoWidth || 1280;
+                    const h = video.videoHeight || 720;
+                    canvas.width = w;
+                    canvas.height = h;
+
+                    const ctx = canvas.getContext('2d');
+                    if (currentFacing === 'user') {
+                        ctx.translate(w, 0);
+                        ctx.scale(-1, 1);
+                    }
+                    ctx.drawImage(video, 0, 0, w, h);
+                    currentPhotoData = canvas.toDataURL('image/jpeg', 0.85);
+                    showPreview(currentPhotoData);
+                };
+            }
+
+            function showPreview(dataUrl) {
+                const preview = document.getElementById('direct-cam-preview');
+                const previewImg = document.getElementById('direct-cam-preview-img');
+                const bottomControls = document.getElementById('direct-cam-bottom-controls');
+                if (previewImg) previewImg.src = dataUrl;
+                if (preview) preview.classList.remove('hidden');
+                if (bottomControls) bottomControls.classList.add('hidden');
+            }
+
+            const retakeBtn = document.getElementById('direct-cam-retake-btn');
+            if (retakeBtn) {
+                retakeBtn.onclick = () => {
+                    currentPhotoData = null;
+                    const preview = document.getElementById('direct-cam-preview');
+                    const bottomControls = document.getElementById('direct-cam-bottom-controls');
+                    if (preview) preview.classList.add('hidden');
+                    if (bottomControls) bottomControls.classList.remove('hidden');
+                    if (nativeInput) nativeInput.value = '';
+                    if (galleryInput) galleryInput.value = '';
+                };
+            }
+
+            const sendBtn = document.getElementById('direct-cam-send-btn');
+            if (sendBtn) {
+                sendBtn.onclick = async () => {
+                    if (!currentPhotoData || !sessionId) return;
+                    sendBtn.disabled = true;
+
+                    const syncOverlay = document.getElementById('direct-cam-sync-overlay');
+                    const syncSpinner = document.getElementById('direct-cam-sync-spinner');
+                    const syncSuccessIcon = document.getElementById('direct-cam-sync-success-icon');
+                    const syncTitle = document.getElementById('direct-cam-sync-title');
+                    const syncSubtitle = document.getElementById('direct-cam-sync-subtitle');
+
+                    if (syncOverlay) syncOverlay.classList.remove('hidden');
+
+                    try {
+                        // Compress photo for lightning fast Firestore sync
+                        const img = new Image();
+                        img.src = currentPhotoData;
+                        await new Promise(r => { img.onload = r; });
+                        const maxDim = 1000;
+                        let cw = img.width, ch = img.height;
+                        if (cw > maxDim || ch > maxDim) {
+                            if (cw > ch) { ch = Math.round((ch * maxDim) / cw); cw = maxDim; }
+                            else { cw = Math.round((cw * maxDim) / ch); ch = maxDim; }
+                        }
+                        const rc = document.createElement('canvas');
+                        rc.width = cw; rc.height = ch;
+                        rc.getContext('2d').drawImage(img, 0, 0, cw, ch);
+                        const compressed = rc.toDataURL('image/jpeg', 0.82);
+
+                        // Ensure Firebase Firestore ready
+                        let waitCount = 0;
+                        while ((!window.db || !window.firebaseAPI || !window.firebaseAPI.setDoc) && waitCount < 50) {
+                            await new Promise(r => setTimeout(r, 100));
+                            waitCount++;
+                        }
+
+                        if (window.auth && (!window.auth.currentUser || !window.auth.currentUser.email) && window.firebaseAPI && window.firebaseAPI.signInWithEmailAndPassword) {
+                            try {
+                                await window.firebaseAPI.signInWithEmailAndPassword(window.auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
+                            } catch(e){}
+                        }
+
+                        if (window.db && window.firebaseAPI && window.firebaseAPI.setDoc && window.firebaseAPI.doc) {
+                            const docRef = window.firebaseAPI.doc(window.db, "camera_sync", sessionId);
+                            await window.firebaseAPI.setDoc(docRef, {
+                                photoData: compressed,
+                                status: "captured",
+                                schoolCode: schoolCode,
+                                timestamp: Date.now()
+                            }, { merge: true });
+                        } else {
+                            throw new Error("Cloud database connecting... please retry in 2 seconds.");
+                        }
+
+                        if (syncSpinner) syncSpinner.classList.add('hidden');
+                        if (syncSuccessIcon) syncSuccessIcon.classList.remove('hidden');
+                        if (syncTitle) syncTitle.innerText = "Photo Sent to PC! ✓";
+                        if (syncSubtitle) syncSubtitle.innerHTML = "Photo has been transferred directly into the form on your computer.<br><br><span class='text-emerald-400 font-bold'>You can close this tab now.</span>";
+
+                        if (mediaStream) {
+                            try { mediaStream.getTracks().forEach(t => t.stop()); } catch(e){}
+                        }
+                    } catch (err) {
+                        console.error("Camera sync send error:", err);
+                        alert("Error sending photo: " + (err.message || "Network issue. Please try again."));
+                        if (syncOverlay) syncOverlay.classList.add('hidden');
+                        sendBtn.disabled = false;
+                    }
+                };
+            }
+
+            // Start stream
+            startDirectStream();
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initUI);
+        } else {
+            initUI();
+        }
+    }
+    window.checkAndLaunchDirectMobileCamera = checkAndLaunchDirectMobileCamera;
+
+    // Auto-check on script load
+    checkAndLaunchDirectMobileCamera();
 
 })();

@@ -11,21 +11,43 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_6">
-    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_6">
+    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_8">
+    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_8">
     <link rel="manifest" href="manifest.json">
     <title id="page-title">IDentify&deg;</title>
     <script>
         (function() {
             try {
                 const p = new URLSearchParams(window.location.search);
-                if (p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' && (p.get('school') || p.get('code') || p.get('id'))) || p.get('school')) {
+                const isCam = p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam');
+                if (isCam) {
+                    window.isCameraSyncMode = true;
+                    window.cameraSyncSessionId = p.get('session') || p.get('cam');
+                    window.cameraSyncSchoolCode = p.get('school') || 'DPS';
+                    document.documentElement.classList.add('is-camera-sync-mode');
+                } else if (p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' && (p.get('school') || p.get('code') || p.get('id'))) || p.get('school')) {
                     document.documentElement.classList.add('is-public-form');
                     window.isPublicFormMode = true;
                 }
             } catch(e){}
         })();
     </script>
+    <style id="camera-sync-early-styles">
+        html.is-camera-sync-mode body > *:not(#direct-mobile-camera-sync-root) {
+            display: none !important;
+        }
+        html.is-camera-sync-mode #initial-splash-screen {
+            display: none !important;
+        }
+        html.is-camera-sync-mode body {
+            background-color: #0b0f19 !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: 100vh !important;
+            width: 100vw !important;
+        }
+    </style>
     <!-- External Libraries -->
     <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -275,7 +297,7 @@
     </script>
     <script src="db-helper.js?v=231026_4"></script>
     <script src="cropper-helper.js?v=231026_4"></script>
-    <script src="camera-sync-helper.js?v=231026_6"></script>
+    <script src="camera-sync-helper.js?v=231026_8"></script>
     <script src="card-generator.js?v=231026_4"></script>
 </head>
 
@@ -283,7 +305,7 @@
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
         <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
-            <img src="./Newicon.png?v=231026_6" class="w-[180px] h-[180px] object-contain drop-shadow-md">
+            <img src="./Newicon.png?v=231026_8" class="w-[180px] h-[180px] object-contain drop-shadow-md">
         </div>
         <!-- 3 Loading Dots -->
         <div class="absolute bottom-16 flex space-x-3 justify-center items-center">
@@ -558,7 +580,7 @@
 
                 <!-- Records List View -->
                 <div id="records-list-view" class="pt-1 flex-1 flex flex-col min-h-0 overflow-hidden" ontouchstart="handleHomeTouchStart(event)" ontouchend="handleHomeTouchEnd(event)">
-                    <div class="flex-1 overflow-y-auto custom-scroll system-scroll px-4 pt-1 pb-6">
+                    <div class="flex-1 overflow-y-auto custom-scroll system-scroll px-4 pt-1 pb-6" ontouchstart="handleHomeTouchStart(event)" ontouchend="handleHomeTouchEnd(event)">
                         <div id="records-list-container" class="system-card rounded-3xl overflow-hidden">
                             <!-- Premium Skeleton Loading Animation -->
                             <div id="skeleton-loader" class="divide-y divide-gray-50 bg-white">
@@ -14607,19 +14629,67 @@
     }
     window.handleHomeTouchStart = handleHomeTouchStart;
 
+    function handleFilterSwipe(direction) {
+        // Prevent swipe filter change during form entry, modals, or multi-selection
+        if (typeof blankRecordMode !== 'undefined' && blankRecordMode !== 'none') return;
+        if (typeof bulkSelectActive !== 'undefined' && bulkSelectActive) return;
+        
+        const previewModal = document.getElementById('preview-modal');
+        if (previewModal && !previewModal.classList.contains('hidden')) return;
+        const customModal = document.getElementById('custom-modal');
+        if (customModal && !customModal.classList.contains('hidden')) return;
+
+        const filterOrder = ['all', 'verified', 'unverified', 'pending'];
+        const currentFilter = (typeof activeStatusFilter !== 'undefined' && activeStatusFilter) ? activeStatusFilter : 'all';
+        const currentIndex = filterOrder.indexOf(currentFilter);
+        const validIndex = currentIndex >= 0 ? currentIndex : 0;
+
+        if (direction === 'left') {
+            // Swipe Left -> Next filter in sequence (All -> Verified -> Unverified -> Pending)
+            if (validIndex < filterOrder.length - 1) {
+                const nextFilter = filterOrder[validIndex + 1];
+                if (typeof setChipFilter === 'function') {
+                    setChipFilter('status', nextFilter);
+                }
+            }
+        } else if (direction === 'right') {
+            // Swipe Right -> Previous filter in sequence (Pending -> Unverified -> Verified -> All)
+            if (validIndex > 0) {
+                const prevFilter = filterOrder[validIndex - 1];
+                if (typeof setChipFilter === 'function') {
+                    setChipFilter('status', prevFilter);
+                }
+            }
+        }
+    }
+    window.handleFilterSwipe = handleFilterSwipe;
+
     function handleHomeTouchEnd(e) {
         if (!e || !e.changedTouches || !e.changedTouches[0]) return;
         const diffX = e.changedTouches[0].clientX - _homeTouchStartX;
         const diffY = e.changedTouches[0].clientY - _homeTouchStartY;
-        if (Math.abs(diffX) > 80 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
-            if (diffX < 0 && typeof currentTab !== 'undefined' && currentTab === 'home') {
-                if (typeof showTab === 'function') showTab('records');
-            } else if (diffX > 0 && typeof currentTab !== 'undefined' && currentTab === 'records' && typeof blankRecordMode !== 'undefined' && blankRecordMode === 'none') {
-                if (typeof showTab === 'function') showTab('home');
+
+        // Snappy horizontal threshold: at least 45px horizontal movement, dominating vertical scroll
+        if (Math.abs(diffX) > 45 && Math.abs(diffX) > Math.abs(diffY) * 1.25) {
+            if (diffX < 0) {
+                // Swiped Left -> Next filter
+                handleFilterSwipe('left');
+            } else {
+                // Swiped Right -> Previous filter
+                handleFilterSwipe('right');
             }
         }
     }
     window.handleHomeTouchEnd = handleHomeTouchEnd;
+
+    // Attach listeners dynamically to records view to ensure 100% swipe capture
+    document.addEventListener('DOMContentLoaded', () => {
+        const rView = document.getElementById('records-list-view');
+        if (rView) {
+            rView.addEventListener('touchstart', handleHomeTouchStart, { passive: true });
+            rView.addEventListener('touchend', handleHomeTouchEnd, { passive: true });
+        }
+    });
 </script>
     <script>
     (function() {
@@ -14718,7 +14788,7 @@
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./Newicon.png?v=231026_6" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./Newicon.png'">
+                <img src="./Newicon.png?v=231026_8" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./Newicon.png'">
             </div>
             <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">

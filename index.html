@@ -8,13 +8,17 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>IDentify&deg; Portal</title>
-    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_6">
-    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_6">
+    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_8">
+    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_8">
     <!-- Instant Redirect Handler -->
     <script>
         (function() {
             try {
                 const p = new URLSearchParams(window.location.search);
+                if (p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam')) {
+                    window.location.replace('School_Panel.html' + window.location.search);
+                    return;
+                }
                 const formCode = p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' ? (p.get('school') || p.get('code')) : null) || p.get('school') || p.get('code');
                 if (formCode) {
                     window.location.replace('School_Panel.html?form=' + encodeURIComponent(formCode));
