@@ -1,6 +1,6 @@
 importScripts('https://storage.googleapis.com/workbox-cdn/releases/6.5.4/workbox-sw.js');
 
-const CACHE_VERSION = 'v231026_4';
+const CACHE_VERSION = 'v231026_6';
 const CURRENT_CACHES = {
   html: `html-cache-${CACHE_VERSION}`,
   static: `static-resources-${CACHE_VERSION}`,

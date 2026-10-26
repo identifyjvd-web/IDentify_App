@@ -11,9 +11,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/x-icon" href="./favicon.ico?v=231026_4">
-    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png?v=231026_4">
-    <link rel="apple-touch-icon" href="./idapplogo.png?v=231026_4">
+    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_6">
+    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_6">
     <link rel="manifest" href="manifest.json">
     <title id="page-title">IDentify&deg;</title>
     <script>
@@ -233,6 +232,7 @@
     </script>
     <script src="db-helper.js?v=231026_4"></script>
     <script src="cropper-helper.js?v=231026_4"></script>
+    <script src="camera-sync-helper.js?v=231026_6"></script>
     <script src="card-generator.js?v=231026_4"></script>
 </head>
 
@@ -240,7 +240,7 @@
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
         <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
-            <img src="./idapplogo.png?v=231026_4" class="w-[180px] h-[180px] object-contain drop-shadow-md">
+            <img src="./Newicon.png?v=231026_6" class="w-[180px] h-[180px] object-contain drop-shadow-md">
         </div>
         <!-- 3 Loading Dots -->
         <div class="absolute bottom-16 flex space-x-3 justify-center items-center">
@@ -2901,7 +2901,7 @@
             }
             window.getGlobalSystemAbout = getGlobalSystemAbout;
 
-            const DEFAULT_CONFIG = { name: 'Delhi Public School', code: 'DPS', about: 'ID Card Management Portal', logo: './idapplogo.png', ...DEFAULT_SYSTEM_ABOUT };
+            const DEFAULT_CONFIG = { name: 'Delhi Public School', code: 'DPS', about: 'ID Card Management Portal', logo: './Newicon.png', ...DEFAULT_SYSTEM_ABOUT };
             schoolConfig = loadSchoolConfig();
             window.schoolConfig = schoolConfig;
 
@@ -3674,26 +3674,7 @@
                 const schoolId = String(target.id);
                 const targetCode = String(target.code || '').trim().toUpperCase();
 
-                // Show progress overlay
-                const overlay = document.createElement('div');
-                overlay.id = 'school-delete-backup-overlay';
-                overlay.className = 'fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-slate-900/85 backdrop-blur-md text-white p-6 text-center select-none';
-                overlay.innerHTML = `
-                    <div class="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center mb-4 shadow-xl">
-                        <i class="fa-solid fa-box-archive text-3xl text-emerald-400 animate-pulse"></i>
-                    </div>
-                    <h3 class="text-lg font-black tracking-wide" id="delete-backup-title">${skipBackup ? 'Deleting School from Firebase...' : 'Generating Backup & Deleting...'}</h3>
-                    <p class="text-xs text-slate-300 mt-1 mb-4 text-center max-w-sm" id="delete-backup-desc">
-                        ${skipBackup ? `Permanently deleting <strong>${sanitizeHTML(target.name)}</strong> and all records from Firebase cloud.` : `Collecting backup ZIP and deleting <strong>${sanitizeHTML(target.name)}</strong>.`}
-                    </p>
-                    <div class="w-64 h-2.5 bg-white/20 rounded-full overflow-hidden mb-2">
-                        <div id="delete-backup-bar" class="h-full bg-emerald-400 transition-all duration-200" style="width: 20%"></div>
-                    </div>
-                    <div id="delete-backup-status" class="text-xs font-bold text-emerald-300">Processing...</div>
-                `;
-                document.body.appendChild(overlay);
-
-                // Step 1: Backup (if requested)
+                // Step 1: Backup (if requested, in-memory ZIP download)
                 if (!skipBackup) {
                     try {
                         const zip = new JSZip();
@@ -3731,110 +3712,24 @@
                     }
                 }
 
-                // Step 2: GUARANTEED COMPLETE FIREBASE & LOCAL DELETION
+                // Step 2: INSTANT LOCAL DELETION & UI UPDATE (0 delay, never hangs)
                 try {
-                    const bar = document.getElementById('delete-backup-bar');
-                    const st = document.getElementById('delete-backup-status');
-                    if (bar) bar.style.width = '70%';
-                    if (st) st.innerText = 'Wiping school and student records from Firebase...';
+                    // Close PIN modal and any overlay
+                    const pinModal = document.getElementById('admin-pin-dialog');
+                    if (pinModal) pinModal.remove();
+                    const existingOverlay = document.getElementById('school-delete-backup-overlay');
+                    if (existingOverlay) existingOverlay.remove();
 
-                    // 1. Delete from schoolsList and sync to system/schools
+                    // 1. Delete from schoolsList locally
                     schoolsList = schoolsList.filter(s => s && String(s.id) !== schoolId);
-                    await saveSchoolsList(schoolsList);
+                    localStorage.setItem(SCHOOLS_KEY, JSON.stringify(schoolsList));
 
                     // 2. Remove records locally
                     db = db.filter(r => !(typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, target) : false));
                     bin = db.filter(r => r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true');
-                    try { if (window.idbSaveRecords) await window.idbSaveRecords(db).catch(()=>{}); } catch(e){}
+                    try { if (window.idbSaveRecords) window.idbSaveRecords(db).catch(()=>{}); } catch(e){}
 
-                    // 3. Delete from Firebase Authentication
-                    if (target.email && window.firebaseAPI && window.firebaseAPI.initializeApp && window.firebaseAPI.firebaseConfig) {
-                        let tempApp = null;
-                        try {
-                            const safeKey = target.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
-                            const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
-                            const authSnap = await window.firebaseAPI.getDoc(authDocRef);
-                            let schoolPassword = '';
-                            if (authSnap.exists() && authSnap.data()[safeKey]?.hash) {
-                                schoolPassword = decryptSchoolPassword(authSnap.data()[safeKey].hash);
-                            }
-                            if (schoolPassword) {
-                                tempApp = window.firebaseAPI.initializeApp(window.firebaseAPI.firebaseConfig, 'DelAuth_' + Date.now());
-                                const tempAuth = window.firebaseAPI.getAuth(tempApp);
-                                const cred = await window.firebaseAPI.signInWithEmailAndPassword(tempAuth, target.email, schoolPassword);
-                                if (cred && cred.user) {
-                                    await cred.user.delete();
-                                }
-                            }
-                        } catch(delAuthErr) {
-                            console.warn("Firebase Auth delete notice:", delAuthErr.message);
-                        } finally {
-                            if (tempApp && typeof window.firebaseAPI.deleteApp === 'function') {
-                                await window.firebaseAPI.deleteApp(tempApp).catch(()=>{});
-                            }
-                        }
-                    }
-
-                    // 4. Delete all Firestore documents & subcollections across aliases
-                    if (window.db && window.firebaseAPI && typeof window.firebaseAPI.getDocs === 'function') {
-                        const { collection, doc, deleteDoc, getDocs, updateDoc, deleteField } = window.firebaseAPI;
-                        const aliases = new Set([schoolId]);
-                        if (targetCode) {
-                            aliases.add('school_' + targetCode.toLowerCase());
-                            aliases.add('school_' + targetCode);
-                            aliases.add(targetCode);
-                        }
-
-                        for (const aliasId of aliases) {
-                            // Subcollection records
-                            try {
-                                const sSnap = await getDocs(collection(window.db, "schools", aliasId, "records"));
-                                for (const d of sSnap.docs) {
-                                    await deleteDoc(d.ref).catch(()=>{});
-                                }
-                            } catch(e){}
-
-                            // Subcollection config
-                            try {
-                                const cSnap = await getDocs(collection(window.db, "schools", aliasId, "config"));
-                                for (const d of cSnap.docs) {
-                                    await deleteDoc(d.ref).catch(()=>{});
-                                }
-                            } catch(e){}
-
-                            // Parent school doc
-                            await deleteDoc(doc(window.db, "schools", aliasId)).catch(()=>{});
-                        }
-
-                        // Root records collection
-                        try {
-                            const rootSnap = await getDocs(collection(window.db, "records"));
-                            const totalRemaining = schoolsList.length;
-                            for (const d of rootSnap.docs) {
-                                const r = d.data() || {};
-                                const matchesId = r.schoolId && String(r.schoolId) === schoolId;
-                                const matchesCode = targetCode && r.schoolCode && String(r.schoolCode).toUpperCase() === targetCode;
-                                const matchesPrefix = targetCode && (String(d.id).startsWith('rec_' + targetCode + '_') || String(d.id).startsWith('draft_' + targetCode + '-') || String(d.id).startsWith('import_' + targetCode + '_'));
-                                const belongs = typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool({ id: d.id, ...r }, target) : false;
-                                if (matchesId || matchesCode || matchesPrefix || belongs || totalRemaining === 0) {
-                                    await deleteDoc(d.ref).catch(()=>{});
-                                }
-                            }
-                        } catch(e){}
-
-                        // System school_auth
-                        if (target.email) {
-                            try {
-                                const safeKey = target.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
-                                const authDocRef = doc(window.db, "system", "school_auth");
-                                if (deleteField) {
-                                    await updateDoc(authDocRef, { [safeKey]: deleteField() }).catch(()=>{});
-                                }
-                            } catch(e){}
-                        }
-                    }
-
-                    // 5. If 0 schools remain, complete system reset
+                    // 3. If 0 schools remain, complete system reset
                     if (schoolsList.length === 0) {
                         schoolConfig = {
                             ...DEFAULT_CONFIG,
@@ -3857,33 +3752,120 @@
                         try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
                         try { localStorage.removeItem(ACTIVITY_KEY); } catch(e){}
                         try { if (window.SchoolLocalDB && typeof window.SchoolLocalDB.clearQueue === 'function') window.SchoolLocalDB.clearQueue(); } catch(e){}
-                        try { if (window.idbSaveRecords) await window.idbSaveRecords([]).catch(()=>{}); } catch(e){}
-
-                        if (window.db && window.firebaseAPI && typeof window.firebaseAPI.doc === 'function') {
-                            const { doc, setDoc } = window.firebaseAPI;
-                            setDoc(doc(window.db, "system", "schools"), { list: [], updatedAt: Date.now() }).catch(()=>{});
-                            setDoc(doc(window.db, "system", "schoolConfig"), schoolConfig).catch(()=>{});
-                            setDoc(doc(window.db, "system", "school_auth"), {}).catch(()=>{});
-                        }
+                        try { if (window.idbSaveRecords) window.idbSaveRecords([]).catch(()=>{}); } catch(e){}
                     } else if (isCurrentSchoolActive(target)) {
                         selectActiveSchool(schoolsList[0].id);
                     }
 
+                    // 4. Update UI immediately
                     updateBrandingUI();
                     schoolManageViewMode = 'list';
                     editingSchoolId = null;
+                    if (typeof renderSchoolsTable === 'function') renderSchoolsTable();
                     renderBlankRecordContent();
                     renderHomeAnalysis();
                     filterRecords();
                     updateBinBadge();
 
-                    if (overlay && overlay.parentNode) overlay.remove();
-                    showToast(`School "${target.name}" and all records permanently deleted.`);
-                } catch(err) {
-                    console.error("Delete Error:", err);
-                    if (overlay && overlay.parentNode) overlay.remove();
-                    showToast('Error during deletion: ' + (err.message || 'Unknown error'), { type: 'error' });
+                    showToast(`School "${target.name}" deleted from app. Cloud cleanup running in background.`);
+                } catch(localErr) {
+                    console.error("Local deletion error:", localErr);
                 }
+
+                // Step 3: BACKGROUND CLOUD DELETION (runs non-blocking)
+                setTimeout(async () => {
+                    try {
+                        // 1. Sync updated schools list to Firebase
+                        await saveSchoolsList(schoolsList).catch(()=>{});
+
+                        // 2. Delete from Firebase Authentication
+                        if (target.email && window.firebaseAPI && window.firebaseAPI.initializeApp && window.firebaseAPI.firebaseConfig) {
+                            let tempApp = null;
+                            try {
+                                const safeKey = target.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                                const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                                const authSnap = await window.firebaseAPI.getDoc(authDocRef);
+                                let schoolPassword = '';
+                                if (authSnap.exists() && authSnap.data()[safeKey]?.hash) {
+                                    schoolPassword = decryptSchoolPassword(authSnap.data()[safeKey].hash);
+                                }
+                                if (schoolPassword) {
+                                    tempApp = window.firebaseAPI.initializeApp(window.firebaseAPI.firebaseConfig, 'DelAuth_' + Date.now());
+                                    const tempAuth = window.firebaseAPI.getAuth(tempApp);
+                                    const cred = await window.firebaseAPI.signInWithEmailAndPassword(tempAuth, target.email, schoolPassword);
+                                    if (cred && cred.user) {
+                                        await cred.user.delete();
+                                    }
+                                }
+                            } catch(delAuthErr) {
+                                console.warn("Firebase Auth delete notice:", delAuthErr.message);
+                            } finally {
+                                if (tempApp && typeof window.firebaseAPI.deleteApp === 'function') {
+                                    await window.firebaseAPI.deleteApp(tempApp).catch(()=>{});
+                                }
+                            }
+                        }
+
+                        // 3. Delete all Firestore documents & subcollections across aliases
+                        if (window.db && window.firebaseAPI && typeof window.firebaseAPI.getDocs === 'function') {
+                            const { collection, doc, deleteDoc, getDocs, updateDoc, deleteField, setDoc } = window.firebaseAPI;
+                            const aliases = new Set([schoolId]);
+                            if (targetCode) {
+                                aliases.add('school_' + targetCode.toLowerCase());
+                                aliases.add('school_' + targetCode);
+                                aliases.add(targetCode);
+                            }
+
+                            for (const aliasId of aliases) {
+                                try {
+                                    const sSnap = await getDocs(collection(window.db, "schools", aliasId, "records"));
+                                    for (const d of sSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
+                                } catch(e){}
+                                try {
+                                    const cSnap = await getDocs(collection(window.db, "schools", aliasId, "config"));
+                                    for (const d of cSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
+                                } catch(e){}
+                                await deleteDoc(doc(window.db, "schools", aliasId)).catch(()=>{});
+                            }
+
+                            // Root records collection
+                            try {
+                                const rootSnap = await getDocs(collection(window.db, "records"));
+                                const totalRemaining = schoolsList.length;
+                                for (const d of rootSnap.docs) {
+                                    const r = d.data() || {};
+                                    const matchesId = r.schoolId && String(r.schoolId) === schoolId;
+                                    const matchesCode = targetCode && r.schoolCode && String(r.schoolCode).toUpperCase() === targetCode;
+                                    const matchesPrefix = targetCode && (String(d.id).startsWith('rec_' + targetCode + '_') || String(d.id).startsWith('draft_' + targetCode + '-') || String(d.id).startsWith('import_' + targetCode + '_'));
+                                    const matchesSn = targetCode && r.sn && String(r.sn).toUpperCase().startsWith(targetCode);
+                                    const belongs = typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool({ id: d.id, ...r }, target) : false;
+                                    if (matchesId || matchesCode || matchesPrefix || matchesSn || belongs || totalRemaining === 0) {
+                                        await deleteDoc(d.ref).catch(()=>{});
+                                    }
+                                }
+                            } catch(e){}
+
+                            // System school_auth
+                            if (target.email) {
+                                try {
+                                    const safeKey = target.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                                    const authDocRef = doc(window.db, "system", "school_auth");
+                                    if (deleteField) {
+                                        await updateDoc(authDocRef, { [safeKey]: deleteField() }).catch(()=>{});
+                                    }
+                                } catch(e){}
+                            }
+
+                            if (schoolsList.length === 0) {
+                                setDoc(doc(window.db, "system", "schools"), { list: [], updatedAt: Date.now() }).catch(()=>{});
+                                setDoc(doc(window.db, "system", "schoolConfig"), schoolConfig).catch(()=>{});
+                                setDoc(doc(window.db, "system", "school_auth"), {}).catch(()=>{});
+                            }
+                        }
+                    } catch(err) {
+                        console.warn("Background school deletion notice:", err);
+                    }
+                }, 50);
             }
             window.executeSchoolDeleteAndBackup = executeSchoolDeleteAndBackup;
 
@@ -3908,118 +3890,108 @@
 
             async function deleteAllSchoolsAndCloudData() {
                 showAdminPinModal({ id: 'ALL', name: 'ALL SCHOOLS & ALL STUDENT DATA' }, async () => {
-                    const overlay = document.createElement('div');
-                    overlay.className = 'fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-slate-900/90 backdrop-blur-md text-white p-6 text-center select-none';
-                    overlay.innerHTML = `
-                        <div class="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center mb-4 shadow-xl">
-                            <i class="fa-solid fa-trash-can text-3xl text-rose-500 animate-pulse"></i>
-                        </div>
-                        <h3 class="text-lg font-black tracking-wide">Purging ALL Schools & Cloud Data...</h3>
-                        <p class="text-xs text-slate-300 mt-1 mb-4 text-center max-w-sm">Permanently wiping all schools, student records, and credentials from Firebase.</p>
-                    `;
-                    document.body.appendChild(overlay);
+                    // Close PIN modal immediately
+                    const pinModal = document.getElementById('admin-pin-dialog');
+                    if (pinModal) pinModal.remove();
 
-                    try {
-                        // 1. Wipe all schools locally
-                        schoolsList = [];
-                        localStorage.setItem(SCHOOLS_KEY, JSON.stringify([]));
-                        localStorage.removeItem('identify_active_school_id');
-                        schoolConfig = {
-                            ...DEFAULT_CONFIG,
-                            id: '',
-                            name: '',
-                            code: '',
-                            address: '',
-                            contactPerson: '',
-                            mobile: '',
-                            email: '',
-                            logo: '',
-                            formActive: true,
-                            active: true
-                        };
-                        localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
-                        db = [];
-                        bin = [];
-                        try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
-                        try { localStorage.removeItem(ACTIVITY_KEY); } catch(e){}
-                        try { if (window.SchoolLocalDB && typeof window.SchoolLocalDB.clearQueue === 'function') window.SchoolLocalDB.clearQueue(); } catch(e){}
-                        try { if (window.idbSaveRecords) await window.idbSaveRecords([]).catch(()=>{}); } catch(e){}
+                    // 1. INSTANT LOCAL WIPE (0 delay, never hangs)
+                    schoolsList = [];
+                    localStorage.setItem(SCHOOLS_KEY, JSON.stringify([]));
+                    localStorage.removeItem('identify_active_school_id');
+                    schoolConfig = {
+                        ...DEFAULT_CONFIG,
+                        id: '',
+                        name: '',
+                        code: '',
+                        address: '',
+                        contactPerson: '',
+                        mobile: '',
+                        email: '',
+                        logo: '',
+                        formActive: true,
+                        active: true
+                    };
+                    localStorage.setItem(CONFIG_KEY, JSON.stringify(schoolConfig));
+                    db = [];
+                    bin = [];
+                    try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
+                    try { localStorage.removeItem(ACTIVITY_KEY); } catch(e){}
+                    try { if (window.SchoolLocalDB && typeof window.SchoolLocalDB.clearQueue === 'function') window.SchoolLocalDB.clearQueue(); } catch(e){}
+                    try { if (window.idbSaveRecords) window.idbSaveRecords([]).catch(()=>{}); } catch(e){}
 
-                        // 2. Wipe in Firebase
-                        if (window.db && window.firebaseAPI) {
-                            const { collection, doc, deleteDoc, getDocs, setDoc } = window.firebaseAPI;
+                    // 2. INSTANT UI UPDATE
+                    updateBrandingUI();
+                    schoolManageViewMode = 'list';
+                    editingSchoolId = null;
+                    if (typeof renderSchoolsTable === 'function') renderSchoolsTable();
+                    renderBlankRecordContent();
+                    renderHomeAnalysis();
+                    filterRecords();
+                    updateBinBadge();
 
-                            const discoveredSchools = new Set([
-                                '9xmvfHIMdMPCPGKLZjxQ6fcnMAo1',
-                                'Qd25qzh5XhdGUxv3BDzEmopbUQz1',
-                                'school_1792097698093',
-                                'school_1792166693296',
-                                'school_1792738535131',
-                                'school_dps',
-                                'school_kvc',
-                                'school_शएम'
-                            ]);
+                    showToast('All schools and records cleared from app. Cloud purging in background.');
 
-                            try {
-                                const snap = await getDocs(collection(window.db, "schools"));
-                                snap.forEach(d => discoveredSchools.add(d.id));
-                            } catch(e){}
-
-                            try {
-                                const rootSnap = await getDocs(collection(window.db, "records"));
-                                rootSnap.forEach(d => {
-                                    const r = d.data() || {};
-                                    if (r.schoolId) discoveredSchools.add(String(r.schoolId).trim());
-                                    if (r.schoolCode) discoveredSchools.add('school_' + String(r.schoolCode).trim().toLowerCase());
-                                });
-                            } catch(e){}
-
-                            for (const sId of discoveredSchools) {
-                                try {
-                                    const recSnap = await getDocs(collection(window.db, "schools", sId, "records"));
-                                    for (const d of recSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
-                                } catch(e){}
-                                try {
-                                    const cfgSnap = await getDocs(collection(window.db, "schools", sId, "config"));
-                                    for (const d of cfgSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
-                                } catch(e){}
-                                await deleteDoc(doc(window.db, "schools", sId)).catch(()=>{});
-                            }
-
-                            try {
-                                const rootSnap = await getDocs(collection(window.db, "records"));
-                                for (const d of rootSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
-                            } catch(e){}
-
-                            try {
-                                const actSnap = await getDocs(collection(window.db, "activityLogs"));
-                                for (const d of actSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
-                            } catch(e){}
-
-                            try { await setDoc(doc(window.db, "system", "schools"), { list: [], updatedAt: Date.now() }); } catch(e){}
-                            try { await setDoc(doc(window.db, "system", "school_auth"), {}); } catch(e){}
-                            try { await setDoc(doc(window.db, "system", "schoolConfig"), schoolConfig); } catch(e){}
-                        }
-
-                        if (overlay && overlay.parentNode) overlay.remove();
-                        updateBrandingUI();
-                        schoolManageViewMode = 'list';
-                        editingSchoolId = null;
-                        renderBlankRecordContent();
-                        renderHomeAnalysis();
-                        filterRecords();
-                        updateBinBadge();
-                        // Run deep orphan purge as well to ensure total cloud cleanliness
+                    // 3. ASYNCHRONOUS BACKGROUND CLOUD WIPE
+                    setTimeout(async () => {
                         try {
-                            if (typeof cleanupOrphanSchoolsAndRecords === 'function') {
-                                await cleanupOrphanSchoolsAndRecords();
+                            if (window.db && window.firebaseAPI) {
+                                const { collection, doc, deleteDoc, getDocs, setDoc } = window.firebaseAPI;
+
+                                const discoveredSchools = new Set([
+                                    '9xmvfHIMdMPCPGKLZjxQ6fcnMAo1',
+                                    'Qd25qzh5XhdGUxv3BDzEmopbUQz1',
+                                    'school_1792097698093',
+                                    'school_1792166693296',
+                                    'school_1792738535131',
+                                    'school_dps',
+                                    'school_kvc',
+                                    'school_शएम'
+                                ]);
+
+                                try {
+                                    const snap = await getDocs(collection(window.db, "schools"));
+                                    snap.forEach(d => discoveredSchools.add(d.id));
+                                } catch(e){}
+
+                                try {
+                                    const rootSnap = await getDocs(collection(window.db, "records"));
+                                    rootSnap.forEach(d => {
+                                        const r = d.data() || {};
+                                        if (r.schoolId) discoveredSchools.add(String(r.schoolId).trim());
+                                        if (r.schoolCode) discoveredSchools.add('school_' + String(r.schoolCode).trim().toLowerCase());
+                                    });
+                                } catch(e){}
+
+                                for (const sId of discoveredSchools) {
+                                    try {
+                                        const recSnap = await getDocs(collection(window.db, "schools", sId, "records"));
+                                        for (const d of recSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
+                                    } catch(e){}
+                                    try {
+                                        const cfgSnap = await getDocs(collection(window.db, "schools", sId, "config"));
+                                        for (const d of cfgSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
+                                    } catch(e){}
+                                    await deleteDoc(doc(window.db, "schools", sId)).catch(()=>{});
+                                }
+
+                                try {
+                                    const rootSnap = await getDocs(collection(window.db, "records"));
+                                    for (const d of rootSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
+                                } catch(e){}
+
+                                try {
+                                    const actSnap = await getDocs(collection(window.db, "activityLogs"));
+                                    for (const d of actSnap.docs) { await deleteDoc(d.ref).catch(()=>{}); }
+                                } catch(e){}
+
+                                try { await setDoc(doc(window.db, "system", "schools"), { list: [], updatedAt: Date.now() }); } catch(e){}
+                                try { await setDoc(doc(window.db, "system", "school_auth"), {}); } catch(e){}
+                                try { await setDoc(doc(window.db, "system", "schoolConfig"), schoolConfig); } catch(e){}
                             }
-                        } catch(e) {}
-                        showModal('success', 'All Schools Deleted', 'All schools and student records have been permanently wiped from Firebase cloud and this application.');
-                    } catch(err) {
-                        if (overlay && overlay.parentNode) overlay.remove();
-                        showModal('error', 'Error', err.message || 'Error deleting schools');
-                    }
+                        } catch(err) {
+                            console.warn("Background full cloud wipe notice:", err);
+                        }
+                    }, 50);
                 });
             }
             window.deleteAllSchoolsAndCloudData = deleteAllSchoolsAndCloudData;
@@ -4618,7 +4590,7 @@
                 }
                 document.title = "IDentify°-" + (schoolConfig.code || "DPS");
 
-                const validLogo = schoolConfig && schoolConfig.logo && typeof schoolConfig.logo === 'string' && schoolConfig.logo.trim() && schoolConfig.logo !== './idapplogo.png';
+                const validLogo = schoolConfig && schoolConfig.logo && typeof schoolConfig.logo === 'string' && schoolConfig.logo.trim() && (schoolConfig.logo !== './Newicon.png' && schoolConfig.logo !== './idapplogo.png');
                 if (validLogo) {
                     const loginLogo = document.getElementById('login-logo-container');
                     if (loginLogo) loginLogo.innerHTML = `<img src="${schoolConfig.logo}" class="w-full h-full object-cover">`;
@@ -5252,8 +5224,12 @@
                 if (input) input.click();
             }
             function triggerCustomPhotoCapture(idx) {
-                const input = document.getElementById(`blank-custom-img-capture-${idx}`);
-                if (input) input.click();
+                if (typeof triggerSmartCustomPhotoCapture === 'function') {
+                    triggerSmartCustomPhotoCapture(idx);
+                } else {
+                    const input = document.getElementById(`blank-custom-img-capture-${idx}`);
+                    if (input) input.click();
+                }
             }
             async function handleCustomPhotoUpload(idx, input) {
                 const file = input && input.files && input.files[0];
@@ -7321,22 +7297,46 @@
                 `;
 
                 showModal('delete-all', modalTitle, modalMsg, () => {
-                    const overlay = document.createElement('div');
-                    overlay.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-white/80 backdrop-blur-sm';
-                    overlay.innerHTML = `
-                        <div class="flex flex-col items-center justify-center space-y-4">
-                            <div class="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
-                            <div class="text-red-700 font-black text-lg">Erasing All Records...</div>
-                        </div>
-                    `;
-                    document.body.appendChild(overlay);
-
                     const targetCfg = schoolConfig ? { ...schoolConfig } : null;
                     const targetId = targetCfg ? String(targetCfg.id || '') : '';
                     const targetCode = targetCfg ? String(targetCfg.code || '').trim().toUpperCase() : '';
 
-                    serverCallSilent('deleteAllRecords', [targetCfg], async () => {
-                        // Direct Firestore cleanup to guarantee complete deletion in all collections
+                    // 1. INSTANT OPTIMISTIC APP CLEANUP (0 delay, never hangs)
+                    db = db.filter(r => !(typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, targetCfg) : false));
+                    bin = db.filter(r => r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true');
+                    currentRenderedRecords = [];
+                    try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
+                    try { localStorage.removeItem(ACTIVITY_KEY); } catch(e){}
+                    try { if (window.SchoolLocalDB && SchoolLocalDB.clearQueue) SchoolLocalDB.clearQueue(); } catch(e){}
+                    try { if (window.idbSaveRecords) window.idbSaveRecords(db).catch(()=>{}); } catch(e){}
+                    
+                    // Reset SN counter for this school locally
+                    if (typeof saveSchoolSn === 'function') {
+                        saveSchoolSn(0);
+                    }
+                    if (typeof syncMaxSnAfterDeletion === 'function') {
+                        syncMaxSnAfterDeletion();
+                    }
+
+                    // 2. INSTANT UI UPDATE
+                    showToast('School data cleared from app. Cloud cleanup in background...', { duration: 4000 });
+                    renderHomeAnalysis();
+                    filterRecords();
+                    updateBinBadge();
+                    if (typeof updateBlankRecordHeader === 'function') {
+                        updateBlankRecordHeader('settings');
+                    }
+                    renderBlankRecordContent();
+                    if (typeof renderClassTabs === 'function') {
+                        renderClassTabs();
+                    }
+
+                    // 3. ASYNCHRONOUS BACKGROUND CLOUD CLEANUP (runs non-blocking)
+                    setTimeout(async () => {
+                        try {
+                            serverCallSilent('deleteAllRecords', [targetCfg], () => {}, () => {});
+                        } catch(e) {}
+
                         try {
                             if (window.db && window.firebaseAPI && typeof window.firebaseAPI.getDocs === 'function') {
                                 const { collection, doc, deleteDoc, getDocs, setDoc } = window.firebaseAPI;
@@ -7348,7 +7348,6 @@
                                             delPromises.push(deleteDoc(doc(window.db, "schools", targetId, "records", d.id)).catch(()=>{}));
                                         });
                                     } catch(e){}
-                                    // Reset school SN counter in Firebase
                                     try {
                                         const counterRef = doc(window.db, "schools", targetId, "config", "snCounter");
                                         delPromises.push(setDoc(counterRef, { value: 0 }, { merge: true }).catch(()=>{}));
@@ -7362,8 +7361,9 @@
                                         const matchesId = targetId && rData.schoolId && String(rData.schoolId) === targetId;
                                         const matchesCode = targetCode && rData.schoolCode && String(rData.schoolCode).toUpperCase() === targetCode;
                                         const matchesPrefix = targetCode && (String(d.id).startsWith('rec_' + targetCode + '_') || String(d.id).startsWith('draft_' + targetCode + '-'));
+                                        const matchesSn = targetCode && rData.sn && String(rData.sn).toUpperCase().startsWith(targetCode);
                                         const belongs = typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool({ id: d.id, ...rData }, targetCfg) : false;
-                                        if (matchesId || matchesCode || matchesPrefix || belongs || totalSchoolsCount <= 1) {
+                                        if (matchesId || matchesCode || matchesPrefix || matchesSn || belongs || totalSchoolsCount <= 1) {
                                             delPromises.push(deleteDoc(doc(window.db, "records", d.id)).catch(()=>{}));
                                         }
                                     });
@@ -7374,57 +7374,25 @@
                                         delPromises.push(deleteDoc(doc(window.db, "activityLogs", d.id)).catch(()=>{}));
                                     });
                                 } catch(e){}
-                                await Promise.all(delPromises);
+                                
+                                await Promise.race([
+                                    Promise.all(delPromises),
+                                    new Promise(res => setTimeout(res, 4000))
+                                ]);
                             }
                         } catch(fsErr) {
-                            console.warn("Direct Firestore records deletion error:", fsErr);
+                            console.warn("Background Firestore records deletion error:", fsErr);
                         }
-
-                        // Local records and cache cleanup
-                        db = db.filter(r => !(typeof recordBelongsToSchool === 'function' ? recordBelongsToSchool(r, targetCfg) : false));
-                        bin = db.filter(r => r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true');
-                        try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
-                        try { localStorage.removeItem(ACTIVITY_KEY); } catch(e){}
-                        try { if (window.SchoolLocalDB && SchoolLocalDB.clearQueue) SchoolLocalDB.clearQueue(); } catch(e){}
-                        try { if (window.idbSaveRecords) await window.idbSaveRecords(db).catch(()=>{}); } catch(e){}
-                        
-                        // Reset SN counter for this school locally
-                        if (typeof saveSchoolSn === 'function') {
-                            saveSchoolSn(0);
-                        }
-                        if (typeof syncMaxSnAfterDeletion === 'function') {
-                            syncMaxSnAfterDeletion();
-                        }
-
-                        // Run deep cloud orphan cleanup to ensure complete database hygiene
-                        try {
-                            if (typeof cleanupOrphanSchoolsAndRecords === 'function') {
-                                await cleanupOrphanSchoolsAndRecords();
-                            }
-                        } catch(e) {}
 
                         // Cross-device wipe signal (scoped strictly to current active school)
                         try {
-                            const sysDoc = window.firebaseAPI.doc(window.db, "system", "schoolConfig");
-                            const activeId = targetCfg ? (targetCfg.id || targetCfg.code) : null;
-                            await window.firebaseAPI.updateDoc(sysDoc, { lastWipeTimestamp: Date.now(), lastWipeSchool: activeId });
-                        } catch(e) { console.warn('Could not broadcast wipe signal', e); }
-
-                        // Safely remove overlay once
-                        if (overlay && overlay.parentNode) overlay.remove();
-
-                        showToast('School Data Deleted Successfully');
-                        renderHomeAnalysis();
-                        filterRecords();
-                        updateBinBadge();
-                        if (typeof updateBlankRecordHeader === 'function') {
-                            updateBlankRecordHeader('settings');
-                        }
-                        renderBlankRecordContent();
-                    }, (err) => {
-                        if (overlay && overlay.parentNode) overlay.remove();
-                        showModal('error', 'Error Deleting Data', 'An error occurred while deleting data: ' + (err.message || 'Unknown error'));
-                    });
+                            if (window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.updateDoc) {
+                                const sysDoc = window.firebaseAPI.doc(window.db, "system", "schoolConfig");
+                                const activeId = targetCfg ? (targetCfg.id || targetCfg.code) : null;
+                                window.firebaseAPI.updateDoc(sysDoc, { lastWipeTimestamp: Date.now(), lastWipeSchool: activeId }).catch(()=>{});
+                            }
+                        } catch(e) {}
+                    }, 50);
                 }, 'Delete All Data Now');
             }
 
@@ -8081,8 +8049,12 @@
                 if (input) input.click();
             }
             function triggerPhotoCapture() {
-                const input = document.getElementById('photo-capture');
-                if (input) input.click();
+                if (typeof triggerSmartPhotoCapture === 'function') {
+                    triggerSmartPhotoCapture('student_photo');
+                } else {
+                    const input = document.getElementById('photo-capture');
+                    if (input) input.click();
+                }
             }
             function syncBlankField(fieldId, value, el) {
                 let finalValue = value;
@@ -15882,7 +15854,7 @@
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./idapplogo.png?v=231026_4" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png?v=231026_4'">
+                <img src="./Newicon.png?v=231026_6" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./Newicon.png'">
             </div>
             <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">

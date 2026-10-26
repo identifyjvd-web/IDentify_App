@@ -316,8 +316,14 @@ function serverCallSilent(fn, args, onSuccess, onFailure) {
     const isOffline = !navigator.onLine;
     const isSyncableFn = ['addRecord', 'submitStudentData', 'updateRecord', 'deleteRecord', 'restoreRecord', 'permanentDelete', 'permDelete'].includes(fn);
 
+    const safeOnSuccess = onSuccess || (() => {});
+    const safeOnFailure = onFailure || ((err) => {
+        console.warn(`[serverCallSilent] ${fn} completed with notice:`, err);
+        if (onSuccess) onSuccess();
+    });
+
     if (isSyncableFn && !shouldSyncRecordToServer(fn, args)) {
-        if (onSuccess) onSuccess(args && args[0] ? args[0] : true);
+        safeOnSuccess(args && args[0] ? args[0] : true);
         return;
     }
 
@@ -851,40 +857,45 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
         } else if (fn === 'deleteSchoolRecords' || fn === 'deleteAllRecords') {
             const activeSchoolInfo = resolveRecordSchoolInfo(args && args[0] ? args[0] : null);
             const schoolId = String(activeSchoolInfo.schoolId || 'school_dps');
-            
-            // Delete only records of THIS school from dedicated subcollection
-            const schoolRecsCol = collection(window.db, "schools", schoolId, "records");
-            const snap = await getDocs(schoolRecsCol);
-            const promises = [];
-            snap.forEach((d) => {
-                const rData = d.data() || {};
-                if (rData.docFileId && window.storage && window.firebaseAPI && window.firebaseAPI.deleteObject) {
-                    try {
-                        const { ref, deleteObject } = window.firebaseAPI;
-                        promises.push(deleteObject(ref(window.storage, `documents/${rData.docFileId}`)).catch(()=>{}));
-                    } catch(e){}
-                }
-                promises.push(deleteDoc(doc(window.db, "schools", schoolId, "records", d.id)).catch(()=>{}));
-            });
-
-            // Also delete from root records only those belonging to THIS school
-            const rootSnap = await getDocs(collection(window.db, "records"));
             const targetCode = String(activeSchoolInfo.schoolCode || '').toUpperCase();
-            rootSnap.forEach((d) => {
-                const rData = d.data() || {};
-                const matchesId = rData.schoolId && String(rData.schoolId) === schoolId;
-                const matchesCode = targetCode && rData.schoolCode && String(rData.schoolCode).toUpperCase() === targetCode;
-                const matchesPrefix = targetCode && (String(d.id).startsWith('rec_' + targetCode + '_') || String(d.id).startsWith('draft_' + targetCode + '-'));
-                if (matchesId || matchesCode || matchesPrefix) {
+            
+            const promises = [];
+            try {
+                // Delete only records of THIS school from dedicated subcollection
+                const schoolRecsCol = collection(window.db, "schools", schoolId, "records");
+                const snap = await getDocs(schoolRecsCol);
+                snap.forEach((d) => {
+                    const rData = d.data() || {};
                     if (rData.docFileId && window.storage && window.firebaseAPI && window.firebaseAPI.deleteObject) {
                         try {
                             const { ref, deleteObject } = window.firebaseAPI;
                             promises.push(deleteObject(ref(window.storage, `documents/${rData.docFileId}`)).catch(()=>{}));
                         } catch(e){}
                     }
-                    promises.push(deleteDoc(doc(window.db, "records", d.id)).catch(()=>{}));
-                }
-            });
+                    promises.push(deleteDoc(doc(window.db, "schools", schoolId, "records", d.id)).catch(()=>{}));
+                });
+            } catch(e){}
+
+            try {
+                // Also delete from root records only those belonging to THIS school
+                const rootSnap = await getDocs(collection(window.db, "records"));
+                rootSnap.forEach((d) => {
+                    const rData = d.data() || {};
+                    const matchesId = rData.schoolId && String(rData.schoolId) === schoolId;
+                    const matchesCode = targetCode && rData.schoolCode && String(rData.schoolCode).toUpperCase() === targetCode;
+                    const matchesPrefix = targetCode && (String(d.id).startsWith('rec_' + targetCode + '_') || String(d.id).startsWith('draft_' + targetCode + '-'));
+                    const matchesSn = targetCode && rData.sn && String(rData.sn).toUpperCase().startsWith(targetCode);
+                    if (matchesId || matchesCode || matchesPrefix || matchesSn) {
+                        if (rData.docFileId && window.storage && window.firebaseAPI && window.firebaseAPI.deleteObject) {
+                            try {
+                                const { ref, deleteObject } = window.firebaseAPI;
+                                promises.push(deleteObject(ref(window.storage, `documents/${rData.docFileId}`)).catch(()=>{}));
+                            } catch(e){}
+                        }
+                        promises.push(deleteDoc(doc(window.db, "records", d.id)).catch(()=>{}));
+                    }
+                });
+            } catch(e){}
 
             // Reset school's snCounter in Firebase
             try {
@@ -903,7 +914,13 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
                 } catch(e){}
             }
 
-            await Promise.all(promises);
+            try {
+                await Promise.race([
+                    Promise.all(promises),
+                    new Promise(r => setTimeout(r, 4000))
+                ]);
+            } catch(e){}
+
             if (onSuccess) onSuccess(true);
         } else if (fn === 'saveFormFields') {
             const data = args[0];

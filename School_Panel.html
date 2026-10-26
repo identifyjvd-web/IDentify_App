@@ -11,9 +11,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/x-icon" href="./favicon.ico?v=231026_4">
-    <link rel="icon" type="image/png" sizes="64x64" href="./fevicon.png?v=231026_4">
-    <link rel="apple-touch-icon" href="./idapplogo.png?v=231026_4">
+    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_6">
+    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_6">
     <link rel="manifest" href="manifest.json">
     <title id="page-title">IDentify&deg;</title>
     <script>
@@ -276,6 +275,7 @@
     </script>
     <script src="db-helper.js?v=231026_4"></script>
     <script src="cropper-helper.js?v=231026_4"></script>
+    <script src="camera-sync-helper.js?v=231026_6"></script>
     <script src="card-generator.js?v=231026_4"></script>
 </head>
 
@@ -283,7 +283,7 @@
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
         <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
-            <img src="./idapplogo.png?v=231026_4" class="w-[180px] h-[180px] object-contain drop-shadow-md">
+            <img src="./Newicon.png?v=231026_6" class="w-[180px] h-[180px] object-contain drop-shadow-md">
         </div>
         <!-- 3 Loading Dots -->
         <div class="absolute bottom-16 flex space-x-3 justify-center items-center">
@@ -2021,11 +2021,11 @@
                         publicFormActive: true,
                         formActive: true,
                         active: true,
-                        logo: './idapplogo.png'
+                        logo: './Newicon.png'
                     };
                 }
 
-                const baseCfg = (typeof DEFAULT_CONFIG !== 'undefined') ? DEFAULT_CONFIG : { name: 'Delhi Public School', code: 'DPS', logo: './idapplogo.png' };
+                const baseCfg = (typeof DEFAULT_CONFIG !== 'undefined') ? DEFAULT_CONFIG : { name: 'Delhi Public School', code: 'DPS', logo: './Newicon.png' };
                 schoolConfig = { ...baseCfg, ...matchedSchool };
                 window.schoolConfig = schoolConfig;
                 document.title = (schoolConfig.name || "School") + " - Student Registration";
@@ -3827,7 +3827,7 @@
             function encryptLocal(str) { return btoa(xorCipher(str)); }
             function decryptLocal(str) { try { return xorCipher(atob(str)); } catch(e) { return ''; } }
 
-            const DEFAULT_CONFIG = { name: 'Delhi Public School', code: 'DPS', about: 'ID Card Management Portal', systemAbout: 'ID Card Management Portal', logo: './idapplogo.png' };
+            const DEFAULT_CONFIG = { name: 'Delhi Public School', code: 'DPS', about: 'ID Card Management Portal', systemAbout: 'ID Card Management Portal', logo: './Newicon.png' };
             let schoolConfig = loadSchoolConfig();
             if (window._pendingLoadAllData) {
                 window._pendingLoadAllData = false;
@@ -4208,7 +4208,7 @@
                 }
                 document.title = "IDentify°-" + (schoolConfig.code || "DPS");
 
-                const validLogo = schoolConfig && schoolConfig.logo && typeof schoolConfig.logo === 'string' && schoolConfig.logo.trim() && schoolConfig.logo !== './idapplogo.png';
+                const validLogo = schoolConfig && schoolConfig.logo && typeof schoolConfig.logo === 'string' && schoolConfig.logo.trim() && (schoolConfig.logo !== './Newicon.png' && schoolConfig.logo !== './idapplogo.png');
                 if (validLogo) {
                     const loginLogo = document.getElementById('login-logo-container');
                     if (loginLogo) loginLogo.innerHTML = `<img src="${schoolConfig.logo}" class="w-full h-full object-cover">`;
@@ -4842,8 +4842,12 @@
                 if (input) input.click();
             }
             function triggerCustomPhotoCapture(idx) {
-                const input = document.getElementById(`blank-custom-img-capture-${idx}`);
-                if (input) input.click();
+                if (typeof triggerSmartCustomPhotoCapture === 'function') {
+                    triggerSmartCustomPhotoCapture(idx);
+                } else {
+                    const input = document.getElementById(`blank-custom-img-capture-${idx}`);
+                    if (input) input.click();
+                }
             }
             async function handleCustomPhotoUpload(idx, input) {
                 const file = input && input.files && input.files[0];
@@ -6845,7 +6849,7 @@
             }
 
             function openDevPhoto() {
-                const photoUrl = schoolConfig.adminPhoto || 'idapplogo.png';
+                const photoUrl = schoolConfig.adminPhoto || 'Newicon.png';
                 const overlay = document.createElement('div');
                 overlay.id = 'dev-photo-lightbox';
                 overlay.className = 'fixed inset-0 bg-black/85 backdrop-blur-sm z-[9999] flex items-center justify-center cursor-pointer p-4 transition-all duration-300 opacity-0';
@@ -6981,28 +6985,41 @@
 
             function confirmDeleteAllSystemData() {
                 showModal('delete-all', 'DELETE ALL SYSTEM DATA?', 'Are you absolutely sure you want to permanently erase ALL records from the admin panel, school panel, and Firebase cloud? This action CANNOT be undone.', () => {
-                    const overlay = document.createElement('div');
-                    overlay.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-white/80 backdrop-blur-sm';
-                    overlay.innerHTML = `
-                        <div class="flex flex-col items-center justify-center space-y-4">
-                            <div class="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
-                            <div class="text-red-700 font-black text-lg">Permanently Erasing All Records from Cloud...</div>
-                        </div>
-                    `;
-                    document.body.appendChild(overlay);
+                    // 1. INSTANT LOCAL CLEANUP (0 delay, never hangs)
+                    db = [];
+                    bin = [];
+                    currentRenderedRecords = [];
+                    try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
+                    lastFetchedSn = null;
+                    try { localStorage.setItem(SN_KEY, '0'); } catch(e){}
+                    try { localStorage.removeItem(ACTIVITY_KEY); } catch(e){}
+                    try { if (window.SchoolLocalDB && SchoolLocalDB.clearQueue) SchoolLocalDB.clearQueue(); } catch(e){}
+                    persistLocalUnverified();
+                    
+                    try { if (window.idbClear) idbClear(IDB_STORE_RECORDS).catch(()=>{}); } catch(e){}
 
-                    serverCallSilent('deleteAllRecords', [], async () => {
-                        db = [];
-                        bin = [];
-                        currentRenderedRecords = [];
-                        try { localStorage.removeItem('deleted_record_ids'); } catch(e){}
-                        lastFetchedSn = null;
-                        try { localStorage.setItem(SN_KEY, '0'); } catch(e){}
-                        try { localStorage.removeItem(ACTIVITY_KEY); } catch(e){}
-                        try { if (window.SchoolLocalDB && SchoolLocalDB.clearQueue) SchoolLocalDB.clearQueue(); } catch(e){}
-                        persistLocalUnverified();
-                        
-                        try { if (window.idbClear) await idbClear(IDB_STORE_RECORDS).catch(()=>{}); } catch(e){}
+                    if (typeof saveSchoolSn === 'function') {
+                        saveSchoolSn(0);
+                    }
+                    if (typeof syncMaxSnAfterDeletion === 'function') {
+                        syncMaxSnAfterDeletion();
+                    }
+
+                    // 2. INSTANT UI UPDATE
+                    showToast('All records cleared from app. Cloud cleanup in background...', { duration: 4000 });
+                    renderHomeAnalysis();
+                    filterRecords();
+                    updateBinBadge();
+                    setBlankRecordMode('none');
+                    if (typeof renderClassTabs === 'function') {
+                        renderClassTabs();
+                    }
+
+                    // 3. ASYNCHRONOUS BACKGROUND CLOUD CLEANUP (runs non-blocking)
+                    setTimeout(async () => {
+                        try {
+                            serverCallSilent('deleteAllRecords', [schoolConfig], () => {}, () => {});
+                        } catch(e) {}
 
                         try {
                             if (window.db && window.firebaseAPI && schoolConfig && schoolConfig.id) {
@@ -7014,21 +7031,17 @@
                         try {
                             if (window.db && window.firebaseAPI && typeof window.firebaseAPI.getDocs === "function") {
                                 const actSnap = await window.firebaseAPI.getDocs(window.firebaseAPI.collection(window.db, "activityLogs"));
+                                const delPromises = [];
                                 for (const d of actSnap.docs) {
-                                    await window.firebaseAPI.deleteDoc(d.ref).catch(()=>{});
+                                    delPromises.push(window.firebaseAPI.deleteDoc(d.ref).catch(()=>{}));
                                 }
+                                await Promise.race([
+                                    Promise.all(delPromises),
+                                    new Promise(res => setTimeout(res, 4000))
+                                ]);
                             }
                         } catch(e){}
-
-                        if (overlay && overlay.parentNode) overlay.remove();
-                        showToast('All System & Cloud Records Permanently Erased ✓');
-                        renderHomeAnalysis();
-                        filterRecords();
-                        setBlankRecordMode('none');
-                    }, (err) => {
-                        if (overlay && overlay.parentNode) overlay.remove();
-                        showModal('error', 'Error Deleting Data', 'An error occurred while deleting data: ' + (err.message || 'Unknown error'));
-                    });
+                    }, 50);
                 }, 'Delete All');
             }
 
@@ -7732,8 +7745,12 @@
                 if (input) input.click();
             }
             function triggerPhotoCapture() {
-                const input = document.getElementById('photo-capture');
-                if (input) input.click();
+                if (typeof triggerSmartPhotoCapture === 'function') {
+                    triggerSmartPhotoCapture('student_photo');
+                } else {
+                    const input = document.getElementById('photo-capture');
+                    if (input) input.click();
+                }
             }
             function syncBlankField(fieldId, value, el) {
                 let finalValue = value;
@@ -10079,7 +10096,7 @@
                         <div class="system-card p-5 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
                             <div class="flex items-center gap-3">
                                 <button type="button" onclick="openDevPhoto()" class="w-10 h-10 rounded-xl overflow-hidden bg-indigo-50 flex items-center justify-center border border-slate-200 shrink-0 transition-all hover:scale-105 active:scale-95" aria-label="Open developer photo">
-                                    <img src="${schoolConfig.adminPhoto || 'idapplogo.png'}" alt="Admin Photo" class="w-full h-full object-cover">
+                                    <img src="${schoolConfig.adminPhoto || 'Newicon.png'}" alt="Admin Photo" class="w-full h-full object-cover">
                                 </button>
                                 <div>
                                     <h4 class="text-sm font-normal">
@@ -14701,7 +14718,7 @@
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./idapplogo.png?v=231026_4" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./icon_192.png?v=231026_4'">
+                <img src="./Newicon.png?v=231026_6" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./Newicon.png'">
             </div>
             <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">

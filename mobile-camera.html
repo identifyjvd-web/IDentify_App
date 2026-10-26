@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Live Mobile Camera Sync</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #0b0f19; color: white; touch-action: manipulation; }
+        .shutter-btn {
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.3), 0 0 20px rgba(16, 185, 129, 0.4);
+        }
+        .shutter-btn:active {
+            transform: scale(0.92);
+        }
+        .guideline-oval {
+            border: 2px dashed rgba(255, 255, 255, 0.7);
+            border-radius: 50% / 60%;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col justify-between select-none">
+    <!-- Top Header Bar -->
+    <header class="z-20 px-4 py-3 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400">
+                <i class="fa-solid fa-camera"></i>
+            </div>
+            <div>
+                <h1 class="text-xs font-black tracking-wide text-white" id="header-school-name">Identify App Camera</h1>
+                <p class="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Live PC Sync Active
+                </p>
+            </div>
+        </div>
+        <button type="button" id="btn-switch-camera" onclick="switchCameraFacing()" class="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 border border-white/20 flex items-center justify-center text-white transition">
+            <i class="fa-solid fa-camera-rotate text-sm"></i>
+        </button>
+    </header>
+
+    <!-- Camera Viewport with Guideline Overlay -->
+    <main class="relative flex-1 flex items-center justify-center overflow-hidden bg-black">
+        <video id="mobile-video" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover"></video>
+        <canvas id="snapshot-canvas" class="hidden"></canvas>
+
+        <!-- Passport Guideline Overlay -->
+        <div id="camera-guidelines" class="relative pointer-events-none z-10 w-64 h-80 flex flex-col items-center justify-center">
+            <div class="w-56 h-72 guideline-oval relative flex items-center justify-center">
+                <div class="text-[11px] font-bold text-white/90 bg-black/60 px-3 py-1 rounded-full backdrop-blur-xs mb-20">
+                    Fit Face Inside Frame
+                </div>
+            </div>
+        </div>
+
+        <!-- Captured Preview Overlay (shown after click) -->
+        <div id="preview-container" class="hidden absolute inset-0 z-30 bg-black flex flex-col items-center justify-center p-4">
+            <img id="captured-img" src="" alt="Captured Photo" class="max-h-[70vh] max-w-full rounded-2xl shadow-2xl object-contain border border-white/20">
+            
+            <div class="flex items-center gap-4 mt-6 w-full max-w-xs">
+                <button type="button" onclick="retakePhoto()" class="flex-1 py-3.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-black text-xs rounded-xl flex items-center justify-center gap-2 border border-slate-700 transition">
+                    <i class="fa-solid fa-arrow-rotate-left"></i> Retake
+                </button>
+                <button type="button" id="btn-send-photo" onclick="sendPhotoToPC()" class="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition">
+                    <i class="fa-solid fa-paper-plane"></i> Send to PC
+                </button>
+            </div>
+        </div>
+
+        <!-- Uploading / Sync State Overlay -->
+        <div id="syncing-overlay" class="hidden absolute inset-0 z-40 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
+            <div id="sync-spinner" class="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <div id="sync-success-icon" class="hidden w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-400 text-3xl mb-4 animate-bounce">
+                <i class="fa-solid fa-check"></i>
+            </div>
+            <h3 id="sync-title" class="text-base font-black tracking-wide text-white">Sending to Desktop...</h3>
+            <p id="sync-subtitle" class="text-xs text-slate-300 mt-1 max-w-xs leading-relaxed">
+                Photo is being transferred to the open registration form on your PC.
+            </p>
+        </div>
+    </main>
+
+    <!-- Bottom Controls Bar -->
+    <footer id="bottom-controls" class="z-20 pb-8 pt-4 px-6 flex items-center justify-around bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+        <!-- Gallery Upload Fallback -->
+        <label class="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 border border-white/20 flex items-center justify-center text-white cursor-pointer transition">
+            <i class="fa-solid fa-image text-sm"></i>
+            <input type="file" id="gallery-input" accept="image/*" class="hidden" onchange="handleGalleryUpload(this)">
+        </label>
+
+        <!-- Main Shutter Button -->
+        <button type="button" id="shutter-button" onclick="takeSnapshot()" class="w-18 h-18 rounded-full bg-white flex items-center justify-center p-1.5 shutter-btn transition-transform">
+            <div class="w-full h-full rounded-full bg-emerald-500 flex items-center justify-center text-white text-2xl shadow-inner">
+                <i class="fa-solid fa-camera"></i>
+            </div>
+        </button>
+
+        <!-- Flash / Torch Toggle -->
+        <button type="button" id="btn-torch" onclick="toggleTorch()" class="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 border border-white/20 flex items-center justify-center text-white transition">
+            <i class="fa-solid fa-bolt text-sm"></i>
+        </button>
+    </footer>
+
+    <!-- Firebase SDK Scripts -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBMZ3LUNSQubKjanv4MNyDNsvKwPmsKQY8",
+            authDomain: "id3files.firebaseapp.com",
+            projectId: "id3files",
+            storageBucket: "id3files.firebasestorage.app",
+            messagingSenderId: "839961631978",
+            appId: "1:839961631978:web:4300cbe1fcb1461878cb93"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        window.firebaseDb = db;
+        window.firebaseDoc = doc;
+        window.firebaseSetDoc = setDoc;
+
+        // Auto-authenticate so this mobile device can safely sync to Firestore
+        signInWithEmailAndPassword(auth, "public.identify.sync@gmail.com", "PublicSync#2026App")
+            .then(() => console.log("Mobile camera authenticated successfully"))
+            .catch(err => console.warn("Mobile camera auth notice:", err));
+    </script>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionId = urlParams.get('session') || '';
+        const schoolCode = urlParams.get('school') || '';
+
+        if (schoolCode) {
+            const h = document.getElementById('header-school-name');
+            if (h) h.innerText = schoolCode.toUpperCase() + ' Camera';
+        }
+
+        let mediaStream = null;
+        let currentFacingMode = 'environment'; // default to back camera
+        let torchActive = false;
+        let lastCapturedDataUrl = null;
+
+        async function initCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+            }
+            try {
+                const constraints = {
+                    video: {
+                        facingMode: { ideal: currentFacingMode },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                };
+                mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+                const videoEl = document.getElementById('mobile-video');
+                videoEl.srcObject = mediaStream;
+            } catch (err) {
+                console.warn("Could not start environment camera, falling back to any camera:", err);
+                try {
+                    mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    const videoEl = document.getElementById('mobile-video');
+                    videoEl.srcObject = mediaStream;
+                } catch(e) {
+                    alert("Please allow camera access on your mobile device to capture live photo.");
+                }
+            }
+        }
+
+        function switchCameraFacing() {
+            currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
+            initCamera();
+        }
+
+        async function toggleTorch() {
+            if (!mediaStream) return;
+            const track = mediaStream.getVideoTracks()[0];
+            if (!track) return;
+            try {
+                torchActive = !torchActive;
+                await track.applyConstraints({
+                    advanced: [{ torch: torchActive }]
+                });
+                const icon = document.querySelector('#btn-torch i');
+                if (icon) {
+                    icon.className = torchActive ? "fa-solid fa-bolt text-amber-400" : "fa-solid fa-bolt text-sm";
+                }
+            } catch (e) {
+                console.warn("Torch not supported on this device/camera");
+            }
+        }
+
+        function takeSnapshot() {
+            const video = document.getElementById('mobile-video');
+            const canvas = document.getElementById('snapshot-canvas');
+            if (!video || !canvas) return;
+
+            const w = video.videoWidth || 1280;
+            const h = video.videoHeight || 720;
+            canvas.width = w;
+            canvas.height = h;
+
+            const ctx = canvas.getContext('2d');
+            // If front camera, mirror image
+            if (currentFacingMode === 'user') {
+                ctx.translate(w, 0);
+                ctx.scale(-1, 1);
+            }
+            ctx.drawImage(video, 0, 0, w, h);
+
+            lastCapturedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+            // Show captured photo preview
+            const previewImg = document.getElementById('captured-img');
+            const previewCont = document.getElementById('preview-container');
+            const bottomControls = document.getElementById('bottom-controls');
+
+            if (previewImg) previewImg.src = lastCapturedDataUrl;
+            if (previewCont) previewCont.classList.remove('hidden');
+            if (bottomControls) bottomControls.classList.add('hidden');
+        }
+
+        function retakePhoto() {
+            lastCapturedDataUrl = null;
+            const previewCont = document.getElementById('preview-container');
+            const bottomControls = document.getElementById('bottom-controls');
+            if (previewCont) previewCont.classList.add('hidden');
+            if (bottomControls) bottomControls.classList.remove('hidden');
+        }
+
+        function handleGalleryUpload(input) {
+            if (!input || !input.files || !input.files[0]) return;
+            const file = input.files[0];
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                lastCapturedDataUrl = e.target.result;
+                const previewImg = document.getElementById('captured-img');
+                const previewCont = document.getElementById('preview-container');
+                const bottomControls = document.getElementById('bottom-controls');
+
+                if (previewImg) previewImg.src = lastCapturedDataUrl;
+                if (previewCont) previewCont.classList.remove('hidden');
+                if (bottomControls) bottomControls.classList.add('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function sendPhotoToPC() {
+            if (!lastCapturedDataUrl) return;
+            if (!sessionId) {
+                alert("Session ID missing from URL. Please scan the QR code from the PC again.");
+                return;
+            }
+
+            const syncOverlay = document.getElementById('syncing-overlay');
+            const syncSpinner = document.getElementById('sync-spinner');
+            const syncSuccessIcon = document.getElementById('sync-success-icon');
+            const syncTitle = document.getElementById('sync-title');
+            const syncSubtitle = document.getElementById('sync-subtitle');
+            const btnSend = document.getElementById('btn-send-photo');
+
+            if (btnSend) btnSend.disabled = true;
+            if (syncOverlay) syncOverlay.classList.remove('hidden');
+
+            try {
+                // Resize / compress to passport max resolution (e.g. max 900x1200) to ensure lightning fast Firestore sync
+                const img = new Image();
+                img.src = lastCapturedDataUrl;
+                await new Promise((resolve) => { img.onload = resolve; });
+
+                const maxDimension = 1000;
+                let cw = img.width;
+                let ch = img.height;
+                if (cw > maxDimension || ch > maxDimension) {
+                    if (cw > ch) {
+                        ch = Math.round((ch * maxDimension) / cw);
+                        cw = maxDimension;
+                    } else {
+                        cw = Math.round((cw * maxDimension) / ch);
+                        ch = maxDimension;
+                    }
+                }
+                const resizeCanvas = document.createElement('canvas');
+                resizeCanvas.width = cw;
+                resizeCanvas.height = ch;
+                const rctx = resizeCanvas.getContext('2d');
+                rctx.drawImage(img, 0, 0, cw, ch);
+                const compressedDataUrl = resizeCanvas.toDataURL('image/jpeg', 0.82);
+
+                // Wait for firebase to be available
+                let waitCount = 0;
+                while ((!window.firebaseDb || !window.firebaseDoc || !window.firebaseSetDoc) && waitCount < 40) {
+                    await new Promise(r => setTimeout(r, 100));
+                    waitCount++;
+                }
+
+                if (window.firebaseDb && window.firebaseDoc && window.firebaseSetDoc) {
+                    const docRef = window.firebaseDoc(window.firebaseDb, "camera_sync", sessionId);
+                    await window.firebaseSetDoc(docRef, {
+                        photoData: compressedDataUrl,
+                        status: "captured",
+                        schoolCode: schoolCode,
+                        timestamp: Date.now()
+                    }, { merge: true });
+                } else {
+                    throw new Error("Cloud sync service initializing. Please retry in 2 seconds.");
+                }
+
+                // Success UI
+                if (syncSpinner) syncSpinner.classList.add('hidden');
+                if (syncSuccessIcon) syncSuccessIcon.classList.remove('hidden');
+                if (syncTitle) syncTitle.innerText = "Photo Sent to PC! ✓";
+                if (syncSubtitle) syncSubtitle.innerHTML = "Your photo has been transferred directly into the form on your computer.<br><br><span class='text-emerald-400 font-bold'>You can close this tab now.</span>";
+
+                // Stop camera stream to free resources
+                if (mediaStream) {
+                    mediaStream.getTracks().forEach(t => t.stop());
+                }
+            } catch (err) {
+                console.error("Error sending photo to PC:", err);
+                alert("Failed to send photo: " + (err.message || "Network error. Please try again."));
+                if (syncOverlay) syncOverlay.classList.add('hidden');
+                if (btnSend) btnSend.disabled = false;
+            }
+        }
+
+        window.onload = () => {
+            initCamera();
+        };
+
+        window.onbeforeunload = () => {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+            }
+        };
+    </script>
+</body>
+</html>
