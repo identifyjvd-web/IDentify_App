@@ -28,7 +28,7 @@
                 if (isCam) {
                     const sessionId = p.get('session') || p.get('cam') || '';
                     const schoolCode = p.get('school') || 'DPS';
-                    window.location.replace(mobile-camera.html?session=&school=&_t=);
+                    window.location.replace("mobile-camera.html?session=" + encodeURIComponent(sessionId) + "&school=" + encodeURIComponent(schoolCode) + "&_t=" + Date.now());
                     return;
                 } else {
                     const formCode = p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' ? (p.get('school') || p.get('code')) : null);
@@ -2739,17 +2739,39 @@
                         const serverFiltered = filterDeletedFromList([...serverDb]);
                         const mergedDb = serverFiltered.map(sRec => {
                             const lRec = pendingLocal.find(l => String(l.id) === String(sRec.id) || (l.oldId && String(l.oldId) === String(sRec.id)));
-                            if (lRec) return { ...sRec, ...lRec };
-                            const memRec = currentLocalDb.find(l => l && String(l.id) === String(sRec.id));
-                            if (memRec && (!sRec.updatedAt || (memRec.updatedAt && memRec.updatedAt >= sRec.updatedAt))) {
-                                const memVerified = memRec.verified === true || String(memRec.verified).toLowerCase() === 'true';
-                                const memHasPhoto = !!(memRec.photoData || memRec.docUrl);
-                                const sHasPhoto = !!(sRec.photoData || sRec.docUrl);
-                                if ((memVerified && !sRec.verified && !sRec.returned) || (memHasPhoto && !sHasPhoto)) {
-                                    const res = { ...sRec, ...memRec };
-                                    if (sRec.sn) res.sn = sRec.sn;
-                                    return res;
+                            if (lRec) {
+                                const res = { ...sRec, ...lRec };
+                                if (sRec.sn) res.sn = sRec.sn;
+                                if ((sRec.photoData || sRec.docUrl) && !lRec.photoData && !lRec.docUrl) {
+                                    res.photoData = sRec.photoData;
+                                    res.docUrl = sRec.docUrl;
+                                    res.fileName = sRec.fileName;
                                 }
+                                return res;
+                            }
+                            const memRec = currentLocalDb.find(l => l && String(l.id) === String(sRec.id));
+                            if (memRec) {
+                                const sHasPhoto = !!(sRec.photoData || sRec.docUrl);
+                                const memHasPhoto = !!(memRec.photoData || memRec.docUrl);
+                                const sVerified = sRec.verified === true || String(sRec.verified).toLowerCase() === 'true' || sRec.verified === 'Completed';
+                                const memVerified = memRec.verified === true || String(memRec.verified).toLowerCase() === 'true' || memRec.verified === 'Completed';
+                                
+                                const res = { ...sRec };
+                                if (memVerified && !sVerified) {
+                                    res.verified = memRec.verified;
+                                    res.status = memRec.status;
+                                }
+                                if (memHasPhoto && !sHasPhoto) {
+                                    res.photoData = memRec.photoData;
+                                    res.docUrl = memRec.docUrl;
+                                    res.fileName = memRec.fileName;
+                                } else if (sHasPhoto) {
+                                    res.photoData = sRec.photoData;
+                                    res.docUrl = sRec.docUrl;
+                                    res.fileName = sRec.fileName;
+                                }
+                                if (sRec.sn) res.sn = sRec.sn;
+                                return res;
                             }
                             return sRec;
                         });
@@ -2760,6 +2782,22 @@
                         });
                         db = mergedDb;
                         demoFallbackLoaded = false;
+                        let canonicalMaxSn = 0;
+                        db.forEach(r => {
+                            if (!r || r.isDeleted) return;
+                            const num = extractSnNumber(r.sn);
+                            if (num > canonicalMaxSn && num < 1000000000) canonicalMaxSn = num;
+                        });
+                        if (typeof saveSchoolSn === 'function') {
+                            saveSchoolSn(canonicalMaxSn);
+                        }
+                        try {
+                            if (window.idbPut && Array.isArray(db)) {
+                                db.forEach(r => {
+                                    if (r && r.id) idbPut(IDB_STORE_RECORDS, r).catch(()=>{});
+                                });
+                            }
+                        } catch(e) {}
                         refreshUiAfterLoad();
                     }
                     if (typeof done === 'function') done();
@@ -2777,6 +2815,15 @@
                     if (typeof setupExpandableCards === "function") setupExpandableCards();
                     updateActivityBadge();
                     lucide.createIcons();
+
+                    // Live-update open preview modal/card when fresh photo arrives
+                    if (blankRecordMode === 'preview' && previewRecord && previewRecord.id) {
+                        const freshRec = db.find(r => String(r.id) === String(previewRecord.id));
+                        if (freshRec) {
+                            previewRecord = { ...freshRec };
+                            renderCurrentRecordsPage();
+                        }
+                    }
                 } catch (e) {
                     console.error('refreshUiAfterLoad error:', e);
                 }
@@ -8839,7 +8886,8 @@
                         for (const id of toSyncIds) {
                             const rec = db.find(x => x && String(x.id) === String(id));
                             if (!rec) continue;
-                            if (!rec.sn || Number(rec.sn) >= 1000000000) {
+                            const recNum = extractSnNumber(rec.sn);
+                            if (!rec.sn || recNum <= 0 || recNum >= 1000000000) {
                                 const nextSn = getHighestVerifiedSn() + 1;
                                 rec.sn = nextSn;
                                 rec.verified = true;
@@ -12580,7 +12628,8 @@
                 setTimeout(async () => {
                     let finalRec = { ...localRec, ...vPatch };
                     
-                    if (!finalRec.sn) {
+                    const finalRecNum = extractSnNumber(finalRec.sn);
+                    if (!finalRec.sn || finalRecNum <= 0 || finalRecNum >= 1000000000) {
                         const nextSn = await fetchAtomicNextSn();
                         finalRec.sn = nextSn;
                         finalRec.draftSn = nextSn;

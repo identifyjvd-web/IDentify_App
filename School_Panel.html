@@ -28,7 +28,7 @@
                 if (isCam) {
                     const sessionId = p.get('session') || p.get('cam') || '';
                     const schoolCode = p.get('school') || 'DPS';
-                    window.location.replace(mobile-camera.html?session=&school=&_t=);
+                    window.location.replace("mobile-camera.html?session=" + encodeURIComponent(sessionId) + "&school=" + encodeURIComponent(schoolCode) + "&_t=" + Date.now());
                     return;
                 } else if (p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' && (p.get('school') || p.get('code') || p.get('id'))) || p.get('school')) {
                     document.documentElement.classList.add('is-public-form');
@@ -3681,19 +3681,41 @@
                             const serverFiltered = filterDeletedFromList([...serverDb]);
                             const mergedDb = serverFiltered.map(sRec => {
                                 const lRec = pendingLocal.find(l => String(l.id) === String(sRec.id) || (l.oldId && String(l.oldId) === String(sRec.id)));
-                                if (lRec) return { ...sRec, ...lRec };
-                                // Protect against race condition where local record was JUST verified or had a photo added in memory and an older addRecord snapshot arrives
+                                if (lRec) {
+                                    const res = { ...sRec, ...lRec };
+                                    if (sRec.sn) res.sn = sRec.sn;
+                                    // Critical: Never allow a local record with NO photo to erase a photo that exists on server!
+                                    if ((sRec.photoData || sRec.docUrl) && !lRec.photoData && !lRec.docUrl) {
+                                        res.photoData = sRec.photoData;
+                                        res.docUrl = sRec.docUrl;
+                                        res.fileName = sRec.fileName;
+                                    }
+                                    return res;
+                                }
                                 const memRec = currentLocalDb.find(l => l && String(l.id) === String(sRec.id));
                                 if (memRec) {
-                                    const isMemNewer = !sRec.updatedAt || (memRec.updatedAt && memRec.updatedAt >= sRec.updatedAt);
-                                    const memVerified = memRec.verified === true || String(memRec.verified).toLowerCase() === 'true';
-                                    const memHasPhoto = !!(memRec.photoData || memRec.docUrl);
                                     const sHasPhoto = !!(sRec.photoData || sRec.docUrl);
-                                    if (isMemNewer || (memVerified && !sRec.verified && !sRec.returned) || (memHasPhoto && !sHasPhoto)) {
-                                        const res = { ...sRec, ...memRec };
-                                        if (sRec.sn) res.sn = sRec.sn;
-                                        return res;
+                                    const memHasPhoto = !!(memRec.photoData || memRec.docUrl);
+                                    const memVerified = memRec.verified === true || String(memRec.verified).toLowerCase() === 'true' || memRec.verified === 'Completed';
+                                    const sVerified = sRec.verified === true || String(sRec.verified).toLowerCase() === 'true' || sRec.verified === 'Completed';
+                                    
+                                    const res = { ...sRec };
+                                    if (memVerified && !sVerified) {
+                                        res.verified = memRec.verified;
+                                        res.status = memRec.status;
                                     }
+                                    // Server photo always wins unless local has a fresh unsynced photo
+                                    if (memHasPhoto && !sHasPhoto) {
+                                        res.photoData = memRec.photoData;
+                                        res.docUrl = memRec.docUrl;
+                                        res.fileName = memRec.fileName;
+                                    } else if (sHasPhoto) {
+                                        res.photoData = sRec.photoData;
+                                        res.docUrl = sRec.docUrl;
+                                        res.fileName = sRec.fileName;
+                                    }
+                                    if (sRec.sn) res.sn = sRec.sn;
+                                    return res;
                                 }
                                 return sRec;
                             });
@@ -3720,7 +3742,22 @@
                             }
                             db = mergedDb;
                             demoFallbackLoaded = false;
-                            try { ie_ensureSequentialRecordSns(); } catch(e){}
+                            let canonicalMaxSn = 0;
+                            db.forEach(r => {
+                                if (!r || r.isDeleted) return;
+                                const num = extractSnNumber(r.sn);
+                                if (num > canonicalMaxSn && num < 1000000000) canonicalMaxSn = num;
+                            });
+                            if (typeof saveSchoolSn === 'function') {
+                                saveSchoolSn(canonicalMaxSn);
+                            }
+                            try {
+                                if (window.idbPut && Array.isArray(db)) {
+                                    db.forEach(r => {
+                                        if (r && r.id) idbPut(IDB_STORE_RECORDS, r).catch(()=>{});
+                                    });
+                                }
+                            } catch(e) {}
                             persistLocalUnverified();
                             refreshUiAfterLoad();
                             if (unsyncedLocalToPush.length > 0) {
@@ -3758,6 +3795,15 @@
                     if (typeof setupExpandableCards === "function") setupExpandableCards();
                     updateActivityBadge();
                     lucide.createIcons();
+
+                    // Live-update open preview modal/card when fresh photo or data arrives from cloud
+                    if (blankRecordMode === 'preview' && previewRecord && previewRecord.id) {
+                        const freshRec = db.find(r => String(r.id) === String(previewRecord.id));
+                        if (freshRec) {
+                            previewRecord = { ...freshRec };
+                            renderCurrentRecordsPage();
+                        }
+                    }
                 } catch (e) {
                     console.error('refreshUiAfterLoad error:', e);
                 }
@@ -8023,7 +8069,8 @@
 
                     // Calculate clean Sequential SN if missing
                     let nextSn = existing ? (existing.sn || existing.draftSn) : null;
-                    if (!nextSn || Number(nextSn) >= 1000000000 || Number(nextSn) <= 0) {
+                    const existingSnVal = extractSnNumber(nextSn);
+                    if (!nextSn || existingSnVal >= 1000000000 || existingSnVal <= 0) {
                         nextSn = getHighestSchoolSn() + 1;
                         saveSchoolSn(nextSn);
                     }
@@ -8493,10 +8540,12 @@
                         for (const id of toSyncIds) {
                             const rec = db.find(x => x && String(x.id) === String(id));
                             if (!rec) continue;
-                            if (!rec.sn || Number(rec.sn) >= 1000000000) {
+                            const recSnNum = extractSnNumber(rec.sn);
+                            if (!rec.sn || recSnNum <= 0 || recSnNum >= 1000000000) {
                                 let localMaxSn = 0;
                                 db.forEach(r => {
-                                    if (r && r.sn && Number(r.sn) < 1000000000 && Number(r.sn) > localMaxSn) {
+                                    const rNum = extractSnNumber(r.sn);
+                                    if (rNum > 0 && rNum < 1000000000 && rNum > localMaxSn) localMaxSn = rNum;
                                         localMaxSn = Number(r.sn);
                                     }
                                 });
@@ -11577,10 +11626,12 @@
                     try {
                         let finalRec = { ...verifiedLocalRec };
                         
-                        if (!finalRec.sn || Number(finalRec.sn) >= 1000000000) {
+                        const curSnNum = extractSnNumber(finalRec.sn);
+                        if (!finalRec.sn || curSnNum <= 0 || curSnNum >= 1000000000) {
                             let localMaxSn = 0;
                             db.forEach(r => {
-                                if (r.sn && Number(r.sn) < 1000000000 && Number(r.sn) > localMaxSn) {
+                                const rNum = extractSnNumber(r.sn);
+                                if (rNum > 0 && rNum < 1000000000 && rNum > localMaxSn) localMaxSn = rNum;
                                     localMaxSn = Number(r.sn);
                                 }
                             });
@@ -13334,11 +13385,7 @@
             }
         });
 
-        // 3. LocalStorage SN_KEY
-        try {
-            const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
-            if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
-        } catch (e) {}
+        // 3. LocalStorage SN_KEY skipped to avoid inflating from stale cache
 
         // 4. IndexedDB store records
         try {
@@ -13358,55 +13405,47 @@
 
     function ie_ensureSequentialRecordSns() {
         if (typeof db === 'undefined' || !Array.isArray(db)) return;
-        let maxSn = 0;
+        const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.code ? schoolConfig.code : 'DPS').trim().toUpperCase() || 'DPS';
 
-        // 1. Find maxSn among existing records
+        // 1. Calculate max valid SN from active non-deleted records
+        let maxSn = 0;
         db.forEach(r => {
-            if (!r) return;
+            if (!r || r.isDeleted || String(r.isDeleted).toLowerCase() === 'true') return;
             const val = extractSnNumber(r.sn);
             if (!isNaN(val) && val > 0 && val < 1000000000) {
                 if (val > maxSn) maxSn = val;
             }
         });
 
-        (Array.isArray(bin) ? bin : []).forEach(r => {
-            if (!r) return;
-            const val = parseInt(r.sn, 10);
-            if (!isNaN(val) && val > 0 && val < 1000000000) {
-                if (val > maxSn) maxSn = val;
-            }
-        });
-
-        try {
-            const savedSn = parseInt(localStorage.getItem(SN_KEY), 10) || 0;
-            if (!isNaN(savedSn) && savedSn > maxSn && savedSn < 1000000000) maxSn = savedSn;
-        } catch (e) {}
-
         // 2. Claim existing valid unique SNs from oldest to newest
         const claimedSns = new Set();
+        db.forEach(r => {
+            if (!r) return;
+            const val = extractSnNumber(r.sn);
+            if (val > 0) claimedSns.add(val);
+        });
+
+        // 3. Only assign SN to records that truly have NO SN at all
         let hasUpdated = false;
+        db.forEach((r, idx) => {
+            if (!r || r.isDeleted || String(r.isDeleted).toLowerCase() === 'true') return;
+            const val = extractSnNumber(r.sn);
+            // If already has valid SN, do NOT touch it!
+            if (val > 0 && val < 1000000000) return;
 
-        for (let i = db.length - 1; i >= 0; i--) {
-            const r = db[i];
-            if (!r) continue;
-            if (r.id && String(r.id).startsWith('draft_')) continue;
-
-            const val = parseInt(r.sn, 10);
-            const isValid = !isNaN(val) && val > 0 && val < 1000000000;
-
-            if (isValid && !claimedSns.has(val)) {
-                claimedSns.add(val);
-            } else {
+            // Missing SN: assign next sequential
+            maxSn++;
+            while (claimedSns.has(maxSn)) {
                 maxSn++;
-                r.sn = maxSn;
-                claimedSns.add(maxSn);
-                hasUpdated = true;
             }
-        }
+            claimedSns.add(maxSn);
+            const year = new Date(r.createdAt || Date.now()).getFullYear().toString().slice(-2);
+            r.sn = `${schoolCode}${year}${String(maxSn).padStart(4, '0')}`;
+            hasUpdated = true;
+        });
 
-        if (hasUpdated) {
-            try { localStorage.setItem(SN_KEY, maxSn); } catch (e) {}
-            try { if (typeof persistLocalUnverified === 'function') persistLocalUnverified(); } catch (e) {}
+        if (typeof saveSchoolSn === 'function') {
+            saveSchoolSn(maxSn);
         }
     }
 

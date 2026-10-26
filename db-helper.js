@@ -541,7 +541,7 @@ function prepareRecordForFirestore(data) {
     delete cleanData._eid;
     delete cleanData.draftSn;
     delete cleanData.draftStatus;
-    delete cleanData.updatedAt;
+    // cleanData.updatedAt preserved for multi-device sync
     delete cleanData.deviceInfo;
     delete cleanData.location;
     delete cleanData.timestamp;
@@ -681,8 +681,23 @@ async function handleFirebaseCall(fn, args, onSuccess, onFailure) {
             const schoolInfo = resolveRecordSchoolInfo(data);
             const schoolId = String(schoolInfo.schoolId || 'school_dps');
             const cleanData = prepareRecordForFirestore(data);
+            cleanData.updatedAt = Date.now();
             const schoolDocRef = doc(window.db, "schools", schoolId, "records", String(cleanData.id));
             const rootDocRef = doc(window.db, "records", String(cleanData.id));
+            
+            // Guard: If update has no photo and user did NOT explicitly remove it, keep existing server photo
+            if (!cleanData.photoData && !cleanData.docUrl && !data.removeExistingDocument) {
+                try {
+                    const snap = await getDoc(rootDocRef);
+                    if (snap.exists()) {
+                        const ex = snap.data();
+                        if (ex.photoData) cleanData.photoData = ex.photoData;
+                        if (ex.docUrl) cleanData.docUrl = ex.docUrl;
+                        if (ex.fileName) cleanData.fileName = ex.fileName;
+                    }
+                } catch(e) {}
+            }
+            
             await Promise.all([
                 setDoc(schoolDocRef, cleanData),
                 setDoc(rootDocRef, cleanData)
