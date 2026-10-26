@@ -18,14 +18,22 @@
     <script>
         (function() {
             try {
-                const p = new URLSearchParams(window.location.search);
-                if (p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam')) {
-                    window.location.replace('mobile-camera.html' + window.location.search);
+                let searchStr = window.location.search || '';
+                const hash = window.location.hash || '';
+                if (!searchStr && hash.includes('?')) {
+                    searchStr = hash.slice(hash.indexOf('?'));
+                }
+                const p = new URLSearchParams(searchStr);
+                if (p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam') || hash.includes('mobile-camera.html') || hash.includes('session=')) {
+                    const sessionId = p.get('session') || p.get('cam') || '';
+                    const schoolCode = p.get('school') || 'DPS';
+                    window.location.replace(`mobile-camera.html?session=${encodeURIComponent(sessionId)}&school=${encodeURIComponent(schoolCode)}&_t=${Date.now()}`);
                     return;
                 }
                 const formCode = p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' ? (p.get('school') || p.get('code')) : null);
                 if (formCode) {
                     window.location.replace('School_Panel.html?form=' + encodeURIComponent(formCode));
+                    return;
                 }
             } catch(e){}
         })();

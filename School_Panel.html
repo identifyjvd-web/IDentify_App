@@ -18,10 +18,17 @@
     <script>
         (function() {
             try {
-                const p = new URLSearchParams(window.location.search);
-                const isCam = p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam');
+                let searchStr = window.location.search || '';
+                const hash = window.location.hash || '';
+                if (!searchStr && hash.includes('?')) {
+                    searchStr = hash.slice(hash.indexOf('?'));
+                }
+                const p = new URLSearchParams(searchStr);
+                const isCam = p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam') || hash.includes('mobile-camera.html') || hash.includes('session=');
                 if (isCam) {
-                    window.location.replace('mobile-camera.html' + window.location.search);
+                    const sessionId = p.get('session') || p.get('cam') || '';
+                    const schoolCode = p.get('school') || 'DPS';
+                    window.location.replace(mobile-camera.html?session=&school=&_t=);
                     return;
                 } else if (p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' && (p.get('school') || p.get('code') || p.get('id'))) || p.get('school')) {
                     document.documentElement.classList.add('is-public-form');
@@ -871,30 +878,13 @@
             function getHighestSchoolSn() {
                 let maxSn = 0;
                 (Array.isArray(db) ? db : []).forEach(r => {
-                    if (!r || r.isDeleted) return;
+                    if (!r || r.isDeleted || String(r.isDeleted).toLowerCase() === 'true') return;
                     if (typeof recordBelongsToSchool === 'function' && typeof schoolConfig !== 'undefined' && schoolConfig) {
                         if (!recordBelongsToSchool(r, schoolConfig)) return;
                     }
                     const val = extractSnNumber(r.sn);
                     if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
-                    const dVal = extractSnNumber(r.draftSn);
-                    if (!isNaN(dVal) && dVal > maxSn && dVal < 1000000000) maxSn = dVal;
                 });
-                (Array.isArray(bin) ? bin : []).forEach(r => {
-                    if (!r || r.isDeleted) return;
-                    if (typeof recordBelongsToSchool === 'function' && typeof schoolConfig !== 'undefined' && schoolConfig) {
-                        if (!recordBelongsToSchool(r, schoolConfig)) return;
-                    }
-                    const val = extractSnNumber(r.sn);
-                    if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
-                    const dVal = extractSnNumber(r.draftSn);
-                    if (!isNaN(dVal) && dVal > maxSn && dVal < 1000000000) maxSn = dVal;
-                });
-                try {
-                    const k = getSchoolSnKey();
-                    const savedSn = parseInt(localStorage.getItem(k), 10) || 0;
-                    if (!isNaN(savedSn) && savedSn <= maxSn && savedSn < 1000000000) maxSn = Math.max(maxSn, savedSn);
-                } catch(e) {}
                 return maxSn;
             }
 
@@ -3700,7 +3690,9 @@
                                     const memHasPhoto = !!(memRec.photoData || memRec.docUrl);
                                     const sHasPhoto = !!(sRec.photoData || sRec.docUrl);
                                     if (isMemNewer || (memVerified && !sRec.verified && !sRec.returned) || (memHasPhoto && !sHasPhoto)) {
-                                        return { ...sRec, ...memRec };
+                                        const res = { ...sRec, ...memRec };
+                                        if (sRec.sn) res.sn = sRec.sn;
+                                        return res;
                                     }
                                 }
                                 return sRec;
@@ -6283,12 +6275,7 @@
                 if (db.length === 0) { showModal('error', 'Empty', 'No data to export'); return; }
                 const exportData = getSortedRecords(db).map((r, index) => {
                     const row = {
-                        'Sn': (() => {
-                            const si = (r.schoolCode || schoolConfig.code || (schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('')).toUpperCase() || "DPS";
-                            const snVal = (r.sn && Number(r.sn) < 1000000000 && Number(r.sn) > 0) ? r.sn : (r.draftSn || (index + 1));
-                            const year = new Date(r.createdAt || Date.now()).getFullYear().toString().slice(-2);
-                            return si + year + String(snVal).padStart(3, '0');
-                        })(),
+                        'Sn': typeof formatRecordSn === 'function' ? formatRecordSn(r) : (r.sn || ''),
                         'Id No': r.id || '',
                         'Student Name': r.studentName || '',
                         'Father Name': r.fatherName || '',
@@ -8674,9 +8661,7 @@
                                         val = rec.id || '';
                                     } else if (f === 'sn') {
                                         label = 'SN';
-                                        const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
-                                        const snVal = (rec.sn && Number(rec.sn) < 1000000000 && Number(rec.sn) > 0) ? rec.sn : '1';
-                                        val = `${schoolCode}${year}${String(snVal).padStart(3, '0')}`;
+                                        val = typeof formatRecordSn === 'function' ? formatRecordSn(rec) : (rec.sn || '');
                                     } else if (typeof FB_STANDARD_FIELDS !== 'undefined' && FB_STANDARD_FIELDS.some(sf => sf.id === f)) {
                                         label = typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel(f, FB_STANDARD_FIELDS.find(sf => sf.id === f).label) : FB_STANDARD_FIELDS.find(sf => sf.id === f).label;
                                         val = rec[f] || '';
@@ -8862,9 +8847,8 @@
                     const s = (v) => (v ? String(v) : '').toLowerCase();
                     const schoolCode = (typeof schoolConfig !== 'undefined' && schoolConfig.code ? schoolConfig.code : 'DPS').toLowerCase();
                     const year = new Date(x.createdAt || Date.now()).getFullYear().toString().slice(-2);
-                    const snVal = (x.sn && Number(x.sn) < 1000000000) ? x.sn : '';
-                    const fullSn = snVal ? (schoolCode + year + String(snVal).padStart(3, '0')) : '';
-                    const paddedSn = snVal ? String(snVal).padStart(3, '0') : '';
+                    const fullSn = (typeof formatRecordSn === 'function' ? formatRecordSn(x) : (x.sn || '')).toLowerCase();
+                    const paddedSn = String(typeof extractSnNumber === 'function' ? extractSnNumber(fullSn) : '');
 
                     const matchesText = !q || (
                         s(x.sclass).includes(q) || 
@@ -9867,12 +9851,9 @@
                             <div class="flex items-center justify-between px-1">
                                 <div class="flex items-center gap-2">
                                     <i class="fa-solid fa-hashtag text-[#05996c] text-[10px]"></i>
-                                    <div class="text-[10px] font-bold text-slate-400 uppercase tracking-tight">SN: ${ (() => {
-                                        const si = (schoolConfig.code || (schoolConfig.name || "DPS").trim().split(/\s+/).map(w=>w[0]).join('')).toUpperCase() || "DPS";
-                                        const snVal = (rec.sn && Number(rec.sn) < 1000000000 && Number(rec.sn) > 0) ? rec.sn : (rec.draftSn || '1');
-                                        const year = new Date(rec.createdAt || Date.now()).getFullYear().toString().slice(-2);
-                                        const fullSn = si + year + String(snVal).padStart(3, '0');
-                                        return fullSn;
+                                    <div class="text-[10px] font-bold text-slate-400 uppercase tracking-tight flex items-center gap-1.5">SN: ${ (() => {
+                                        const snText = typeof formatRecordSn === 'function' ? formatRecordSn(rec) : (rec.sn || '');
+                                        return `<span class="font-bold text-emerald-700">${snText}</span>`;
                                     })() }</div>
                                 </div>
                                 <div class="flex items-center gap-2">

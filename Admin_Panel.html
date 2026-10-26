@@ -18,10 +18,17 @@
     <script>
         (function() {
             try {
-                const p = new URLSearchParams(window.location.search);
-                const isCam = p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam');
+                let searchStr = window.location.search || '';
+                const hash = window.location.hash || '';
+                if (!searchStr && hash.includes('?')) {
+                    searchStr = hash.slice(hash.indexOf('?'));
+                }
+                const p = new URLSearchParams(searchStr);
+                const isCam = p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam') || hash.includes('mobile-camera.html') || hash.includes('session=');
                 if (isCam) {
-                    window.location.replace('mobile-camera.html' + window.location.search);
+                    const sessionId = p.get('session') || p.get('cam') || '';
+                    const schoolCode = p.get('school') || 'DPS';
+                    window.location.replace(mobile-camera.html?session=&school=&_t=);
                     return;
                 } else {
                     const formCode = p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' ? (p.get('school') || p.get('code')) : null);
@@ -852,31 +859,14 @@
 
             function getHighestSchoolSn() {
                 let maxSn = 0;
-                (Array.isArray(typeof db !== 'undefined' ? db : [])).forEach(r => {
-                    if (!r || r.isDeleted) return;
+                (Array.isArray(db) ? db : []).forEach(r => {
+                    if (!r || r.isDeleted || String(r.isDeleted).toLowerCase() === 'true') return;
                     if (typeof recordBelongsToSchool === 'function' && typeof schoolConfig !== 'undefined' && schoolConfig) {
                         if (!recordBelongsToSchool(r, schoolConfig)) return;
                     }
                     const val = extractSnNumber(r.sn);
                     if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
-                    const dVal = extractSnNumber(r.draftSn);
-                    if (!isNaN(dVal) && dVal > maxSn && dVal < 1000000000) maxSn = dVal;
                 });
-                (Array.isArray(typeof bin !== 'undefined' ? bin : [])).forEach(r => {
-                    if (!r || r.isDeleted) return;
-                    if (typeof recordBelongsToSchool === 'function' && typeof schoolConfig !== 'undefined' && schoolConfig) {
-                        if (!recordBelongsToSchool(r, schoolConfig)) return;
-                    }
-                    const val = extractSnNumber(r.sn);
-                    if (!isNaN(val) && val > maxSn && val < 1000000000) maxSn = val;
-                    const dVal = extractSnNumber(r.draftSn);
-                    if (!isNaN(dVal) && dVal > maxSn && dVal < 1000000000) maxSn = dVal;
-                });
-                try {
-                    const k = getSchoolSnKey();
-                    const savedSn = parseInt(localStorage.getItem(k), 10) || 0;
-                    if (!isNaN(savedSn) && savedSn <= maxSn && savedSn < 1000000000) maxSn = Math.max(maxSn, savedSn);
-                } catch(e) {}
                 return maxSn;
             }
 
@@ -2756,7 +2746,9 @@
                                 const memHasPhoto = !!(memRec.photoData || memRec.docUrl);
                                 const sHasPhoto = !!(sRec.photoData || sRec.docUrl);
                                 if ((memVerified && !sRec.verified && !sRec.returned) || (memHasPhoto && !sHasPhoto)) {
-                                    return { ...sRec, ...memRec };
+                                    const res = { ...sRec, ...memRec };
+                                    if (sRec.sn) res.sn = sRec.sn;
+                                    return res;
                                 }
                             }
                             return sRec;

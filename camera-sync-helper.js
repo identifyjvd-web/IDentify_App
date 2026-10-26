@@ -41,7 +41,9 @@
 
         const isHttp = window.location.protocol.startsWith('http');
         if (isHttp) {
-            let baseUrl = window.location.href.split('?')[0].replace(/(?:Admin|School)_Panel\.html/i, '');
+            // Strip hash fragments (#...) and query parameters (?...) completely to prevent hash routing contamination
+            let cleanHref = window.location.href.split('#')[0].split('?')[0];
+            let baseUrl = cleanHref.replace(/(?:Admin|School)_Panel\.html/i, '');
             // When opened on localhost or 127.0.0.1, convert to local Wi-Fi IP so mobile phone on same network can reach it
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                 baseUrl = baseUrl.replace(window.location.hostname, '192.168.29.177');
@@ -49,8 +51,8 @@
             const cleanBase = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
             return `${cleanBase}mobile-camera.html?session=${encodeURIComponent(sessionId)}&school=${encodeURIComponent(schoolCode)}&_t=${Date.now()}`;
         } else {
-            // Local file:/// mode fallback to local LAN server (port 8080)
-            return `http://192.168.29.177:8080/mobile-camera.html?session=${encodeURIComponent(sessionId)}&school=${encodeURIComponent(schoolCode)}&_t=${Date.now()}`;
+            // Live hosted service fallback on GitHub Pages for file:/// mode
+            return `https://identifyjvd-web.github.io/IDentify_App/mobile-camera.html?session=${encodeURIComponent(sessionId)}&school=${encodeURIComponent(schoolCode)}&_t=${Date.now()}`;
         }
     }
     window.getMobileCameraSyncUrl = getMobileCameraSyncUrl;
