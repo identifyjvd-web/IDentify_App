@@ -708,9 +708,34 @@
 
                         // Ensure Firebase Firestore ready
                         let waitCount = 0;
-                        while ((!window.db || !window.firebaseAPI || !window.firebaseAPI.setDoc) && waitCount < 50) {
+                        while ((!window.db || !window.firebaseAPI || !window.firebaseAPI.setDoc) && waitCount < 20) {
                             await new Promise(r => setTimeout(r, 100));
                             waitCount++;
+                        }
+
+                        if (!window.db || !window.firebaseAPI || !window.firebaseAPI.setDoc) {
+                            try {
+                                const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js");
+                                const { getAuth, signInWithEmailAndPassword } = await import("https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js");
+                                const { getFirestore, doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js");
+                                const firebaseConfig = {
+                                    apiKey: "AIzaSyBMZ3LUNSQubKjanv4MNyDNsvKwPmsKQY8",
+                                    authDomain: "id3files.firebaseapp.com",
+                                    projectId: "id3files",
+                                    storageBucket: "id3files.firebasestorage.app",
+                                    messagingSenderId: "839961631978",
+                                    appId: "1:839961631978:web:4300cbe1fcb1461878cb93"
+                                };
+                                const app = initializeApp(firebaseConfig, "camera-sync-auto-" + Date.now());
+                                const auth = getAuth(app);
+                                const db = getFirestore(app);
+                                await signInWithEmailAndPassword(auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
+                                window.db = db;
+                                window.auth = auth;
+                                window.firebaseAPI = { doc, setDoc, signInWithEmailAndPassword };
+                            } catch(e) {
+                                console.warn("Dynamic Firebase fallback notice:", e);
+                            }
                         }
 
                         if (window.auth && (!window.auth.currentUser || !window.auth.currentUser.email) && window.firebaseAPI && window.firebaseAPI.signInWithEmailAndPassword) {

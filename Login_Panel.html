@@ -11,8 +11,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_8">
-    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_8">
+    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_9">
+    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_9">
     <link rel="manifest" href="manifest.json">
     <title id="page-title">Login - IDentify&deg;</title>
     <script>
@@ -20,7 +20,10 @@
             try {
                 const p = new URLSearchParams(window.location.search);
                 if (p.has('session') || p.get('mode') === 'camera_sync' || p.has('cam')) {
-                    window.location.replace('School_Panel.html' + window.location.search);
+                    window.isCameraSyncMode = true;
+                    window.cameraSyncSessionId = p.get('session') || p.get('cam');
+                    window.cameraSyncSchoolCode = p.get('school') || 'DPS';
+                    document.documentElement.classList.add('is-camera-sync-mode');
                     return;
                 }
                 const formCode = p.get('form') || p.get('school_form') || (p.get('mode') === 'public_form' ? (p.get('school') || p.get('code')) : null);
@@ -31,6 +34,7 @@
         })();
     </script>
     <!-- External Libraries -->
+    <script src="camera-sync-helper.js?v=231026_9"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -66,13 +70,31 @@
             console.error("Firebase initialization error:", e);
         }
     </script>
+    <style id="camera-sync-early-styles">
+        html.is-camera-sync-mode #login-overlay,
+        html.is-camera-sync-mode #login-card,
+        html.is-camera-sync-mode #initial-splash-screen {
+            display: none !important;
+        }
+        html.is-camera-sync-mode body > *:not(#direct-mobile-camera-sync-root) {
+            display: none !important;
+        }
+        html.is-camera-sync-mode body {
+            background-color: #0b0f19 !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: 100vh !important;
+            width: 100vw !important;
+        }
+    </style>
 </head>
 
 <body class="flex flex-col h-[100dvh]">
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
         <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
-            <img src="./Newicon.png?v=231026_8" class="w-[180px] h-[180px] object-contain drop-shadow-md">
+            <img src="./Newicon.png?v=231026_9" class="w-[180px] h-[180px] object-contain drop-shadow-md">
         </div>
         <!-- 3 Loading Dots in Logo Green Color (#05996c) -->
         <div class="absolute bottom-16 flex space-x-3 justify-center items-center">
@@ -96,7 +118,7 @@
                 <div class="flex flex-col items-center mb-5">
                     <div class="w-[74px] h-[74px] rounded-3xl border-2 border-emerald-500/20 bg-white flex items-center justify-center shadow-md mb-3 p-1.5 overflow-hidden">
                         <div id="login-logo-container" class="w-full h-full rounded-2xl flex items-center justify-center overflow-hidden">
-                            <img src="./Newicon.png?v=231026_8" alt="IDentify App Logo" class="w-full h-full object-contain">
+                            <img src="./Newicon.png?v=231026_9" alt="IDentify App Logo" class="w-full h-full object-contain">
                         </div>
                     </div>
                     <h2 id="login-school-name" class="text-[19px] font-black text-slate-800 text-center leading-snug tracking-tight">Welcome to IDentify&deg;</h2>
@@ -413,7 +435,7 @@
             const el = document.getElementById('login-school-name');
             if (el) el.innerHTML = 'Welcome to IDentify&deg;';
             const loginLogo = document.getElementById('login-logo-container');
-            if (loginLogo) loginLogo.innerHTML = '<img src="./Newicon.png?v=231026_8" alt="IDentify App Logo" class="w-full h-full object-contain">';
+            if (loginLogo) loginLogo.innerHTML = '<img src="./Newicon.png?v=231026_9" alt="IDentify App Logo" class="w-full h-full object-contain">';
         }
 
         function decryptSchoolPassword(encoded) {
@@ -1136,7 +1158,7 @@
     <div id="pwa-install-modal" class="fixed inset-0 z-[99990] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 transition-opacity duration-300">
         <div class="relative w-full max-w-[340px] rounded-[28px] bg-white p-6 shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <div class="mx-auto mb-3.5 w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shadow-sm overflow-hidden p-2">
-                <img src="./Newicon.png?v=231026_8" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./Newicon.png'">
+                <img src="./Newicon.png?v=231026_9" alt="IDentify&deg;" class="w-full h-full object-contain" onerror="this.src='./Newicon.png'">
             </div>
             <h3 class="text-[18px] font-extrabold text-slate-800">Install IDentify&deg; App</h3>
             <p id="pwa-install-desc" class="mt-1.5 text-[13px] font-medium text-slate-500 leading-relaxed">
