@@ -11,8 +11,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_9">
-    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_9">
+    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_10">
+    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_10">
     <link rel="manifest" href="manifest.json">
     <title id="page-title">Login - IDentify&deg;</title>
     <script>
@@ -98,14 +98,14 @@
 <body class="flex flex-col h-[100dvh]">
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
-        <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
-            <img src="./Newicon.png?v=231026_9" class="w-[180px] h-[180px] object-contain drop-shadow-md">
+        <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-36">
+            <img src="./Newicon.png?v=231026_10" class="w-[180px] h-[180px] object-contain drop-shadow-md">
         </div>
         <!-- 3 Loading Dots in Logo Green Color (#05996c) -->
         <div class="absolute bottom-16 flex space-x-3 justify-center items-center">
-            <div class="h-5 w-5 bg-[#05996c] rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-            <div class="h-5 w-5 bg-[#05996c] rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-            <div class="h-5 w-5 bg-[#05996c] rounded-full animate-bounce"></div>
+            <div class="h-4 w-4 bg-[#05996c] rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+            <div class="h-4 w-4 bg-[#05996c] rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+            <div class="h-4 w-4 bg-[#05996c] rounded-full animate-bounce"></div>
         </div>
     </div>
 
@@ -123,7 +123,7 @@
                 <div class="flex flex-col items-center mb-5">
                     <div class="w-[74px] h-[74px] rounded-3xl border-2 border-emerald-500/20 bg-white flex items-center justify-center shadow-md mb-3 p-1.5 overflow-hidden">
                         <div id="login-logo-container" class="w-full h-full rounded-2xl flex items-center justify-center overflow-hidden">
-                            <img src="./Newicon.png?v=231026_9" alt="IDentify App Logo" class="w-full h-full object-contain">
+                            <img src="./Newicon.png?v=231026_10" alt="IDentify App Logo" class="w-full h-full object-contain">
                         </div>
                     </div>
                     <h2 id="login-school-name" class="text-[19px] font-black text-slate-800 text-center leading-snug tracking-tight">Welcome to IDentify&deg;</h2>
@@ -618,12 +618,40 @@
                 btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin w-5 h-5 flex items-center justify-center"></i> Authenticating...';
             }
             
+            async function purgeAllLocalCacheAndDatabases() {
+                try {
+                    localStorage.removeItem(CONFIG_KEY);
+                    localStorage.removeItem('identify_active_school_id');
+                    localStorage.removeItem('identify_db_cache_v1');
+                    localStorage.removeItem('student_updates_v1');
+                    localStorage.removeItem('deleted_record_ids');
+                    localStorage.removeItem('student_form_draft_v1');
+                    localStorage.removeItem('school_sn_v1');
+                    localStorage.removeItem('school_sn_map_v1');
+                    localStorage.removeItem('local_unverified');
+                    saveAuthUser(null);
+                    if (window.indexedDB) {
+                        ['identify_offline_db_v1', 'SchoolSystemDB', 'IDentifyOfflineDB'].forEach(dbName => {
+                            try {
+                                const req = indexedDB.open(dbName);
+                                req.onsuccess = (e) => {
+                                    const idb = e.target.result;
+                                    const storeNames = Array.from(idb.objectStoreNames);
+                                    if (storeNames.length > 0) {
+                                        const tx = idb.transaction(storeNames, 'readwrite');
+                                        storeNames.forEach(s => {
+                                            try { tx.objectStore(s).clear(); } catch(err){}
+                                        });
+                                    }
+                                };
+                            } catch(e){}
+                        });
+                    }
+                } catch(e){}
+            }
+
             // Clean up any lingering previous session data before attempting new login
-            try {
-                localStorage.removeItem(CONFIG_KEY);
-                localStorage.removeItem('identify_active_school_id');
-                saveAuthUser(null);
-            } catch(e){}
+            await purgeAllLocalCacheAndDatabases();
 
             try {
                 const isSysAdmin = isSystemAdmin(rawUserId);
@@ -638,24 +666,41 @@
                     authUser = { userId: 'admin', name: 'Admin', role: 'teacher', viewMode: 'all', email: user.email || adminEmail };
                     saveAuthUser(authUser);
 
-                    // Pre-fetch registered schools so Admin_Panel immediately knows the active school
+                    // Pre-fetch registered schools from all Firestore sources so Admin_Panel immediately knows all schools
                     try {
+                        let list = [];
                         const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
                         const schoolsSnap = await window.firebaseAPI.getDoc(schoolsDocRef);
                         if (schoolsSnap.exists() && Array.isArray(schoolsSnap.data().list)) {
-                            const list = schoolsSnap.data().list;
-                            localStorage.setItem('registered_schools_v1', JSON.stringify(list));
-                            if (list.length > 0) {
-                                const prevActiveId = localStorage.getItem('identify_active_school_id');
-                                const activeSchool = (prevActiveId && list.find(s => s && String(s.id) === String(prevActiveId))) || list[0];
-                                if (activeSchool) {
-                                    localStorage.setItem('identify_active_school_id', String(activeSchool.id));
-                                    localStorage.setItem(CONFIG_KEY, JSON.stringify(activeSchool));
-                                }
-                            } else {
-                                localStorage.removeItem('identify_active_school_id');
-                                localStorage.setItem(CONFIG_KEY, JSON.stringify({ name: '', code: '', address: '', contactPerson: '', mobile: '', email: '', logo: '' }));
+                            list = schoolsSnap.data().list;
+                        }
+                        // Also discover any schools in Firestore 'schools' collection
+                        try {
+                            if (window.firebaseAPI.collection && window.firebaseAPI.getDocs) {
+                                const schoolsCol = window.firebaseAPI.collection(window.db, "schools");
+                                const colSnap = await window.firebaseAPI.getDocs(schoolsCol);
+                                colSnap.forEach(d => {
+                                    const data = d.data() || {};
+                                    const sId = String(d.id || data.id);
+                                    if (!list.some(s => s && String(s.id) === sId)) {
+                                        list.push({ ...data, id: sId });
+                                    }
+                                });
                             }
+                        } catch(e){}
+
+                        if (list.length > 0) {
+                            localStorage.setItem('registered_schools_v1', JSON.stringify(list));
+                            localStorage.setItem('identify_schools_list_v1', JSON.stringify(list));
+                            const prevActiveId = localStorage.getItem('identify_active_school_id');
+                            const activeSchool = (prevActiveId && list.find(s => s && String(s.id) === String(prevActiveId))) || list[0];
+                            if (activeSchool) {
+                                localStorage.setItem('identify_active_school_id', String(activeSchool.id));
+                                localStorage.setItem(CONFIG_KEY, JSON.stringify(activeSchool));
+                            }
+                        } else {
+                            localStorage.removeItem('identify_active_school_id');
+                            localStorage.setItem(CONFIG_KEY, JSON.stringify({ name: '', code: '', address: '', contactPerson: '', mobile: '', email: '', logo: '' }));
                         }
                     } catch(e){}
 
@@ -1000,6 +1045,8 @@
                     email: schoolEmail,
                     schoolId: matchedSchool.id
                 };
+
+                await purgeAllLocalCacheAndDatabases();
 
                 localStorage.setItem(CONFIG_KEY, JSON.stringify(matchedSchool));
                 localStorage.setItem('identify_active_school_id', String(matchedSchool.id));

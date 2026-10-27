@@ -11,8 +11,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_9">
-    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_9">
+    <link rel="icon" type="image/png" href="./Newicon.png?v=231026_10">
+    <link rel="apple-touch-icon" href="./Newicon.png?v=231026_10">
     <link rel="manifest" href="manifest.json">
     <title id="page-title">IDentify&deg;</title>
     <script>
@@ -339,14 +339,14 @@
 <body class="flex flex-col h-screen items-center bg-slate-100">
 
     <div id="initial-splash-screen" class="fixed inset-0 z-[99999] bg-[#f8fafd] flex flex-col items-center justify-center transition-opacity duration-500">
-        <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-16">
-            <img src="./Newicon.png?v=231026_9" class="w-[180px] h-[180px] object-contain drop-shadow-md">
+        <div class="flex flex-col items-center justify-center drop-shadow-2xl -mt-36">
+            <img src="./Newicon.png?v=231026_10" class="w-[180px] h-[180px] object-contain drop-shadow-md">
         </div>
         <!-- 3 Loading Dots -->
         <div class="absolute bottom-16 flex space-x-3 justify-center items-center">
-            <div class="h-5 w-5 bg-[#05996c] rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-            <div class="h-5 w-5 bg-[#05996c] rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-            <div class="h-5 w-5 bg-[#05996c] rounded-full animate-bounce"></div>
+            <div class="h-4 w-4 bg-[#05996c] rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+            <div class="h-4 w-4 bg-[#05996c] rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+            <div class="h-4 w-4 bg-[#05996c] rounded-full animate-bounce"></div>
         </div>
     </div>
 
@@ -878,7 +878,9 @@
                     rec = { sn: rec };
                 }
                 const rawSn = String(rec.sn || rec.draftSn || '').trim();
-                if (/^[A-Za-z]+\d{2}\d{4,}$/.test(rawSn)) {
+                if (!rawSn) return '';
+                // Preserve exact database formatted SN (e.g. DPS26001, DPS260001)
+                if (/^[A-Za-z]+\d+$/.test(rawSn)) {
                     return rawSn.toUpperCase();
                 }
                 const cfg = (typeof window !== 'undefined' && window.schoolConfig) ? window.schoolConfig : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {});
@@ -918,10 +920,39 @@
 
             // --- Local DB helper is imported from db-helper.js ---
 
+            function purgeLocalDraftRecords() {
+                try {
+                    if (window.idbGetAll && window.idbDelete) {
+                        idbGetAll(IDB_STORE_RECORDS).then(rows => {
+                            (rows || []).forEach(r => {
+                                if (r && r.id && (String(r.id).startsWith('draft_') || (!String(r.studentName || '').trim() && !String(r.name || '').trim()))) {
+                                    idbDelete(IDB_STORE_RECORDS, r.id).catch(()=>{});
+                                }
+                            });
+                        }).catch(()=>{});
+                    }
+                    if (typeof SchoolLocalDB !== 'undefined' && SchoolLocalDB.get) {
+                        SchoolLocalDB.get('local_unverified').then(unv => {
+                            if (Array.isArray(unv)) {
+                                const cleaned = unv.filter(x => x && !String(x.id || '').startsWith('draft_') && String(x.studentName || x.name || '').trim().length > 0);
+                                if (cleaned.length !== unv.length) {
+                                    SchoolLocalDB.set('local_unverified', cleaned).catch(()=>{});
+                                }
+                            }
+                        }).catch(()=>{});
+                    }
+                } catch(e){}
+            }
+
             async function persistLocalUnverified() {
                 try {
                     const unverifiedList = (typeof db !== 'undefined' ? db : []).filter(x => {
                         if (!x || x.isDeleted || String(x.isDeleted).toLowerCase() === 'true') return false;
+                        // Never persist unsubmitted drafts or nameless records
+                        const rId = String(x.id || '');
+                        if (rId.startsWith('draft_')) return false;
+                        const rName = String(x.studentName || x.name || '').trim();
+                        if (!rName) return false;
                         // Once a record is saved to Firebase, Firebase is the source of truth; only keep unsynced local records here
                         if (x._serverSaved && x._syncStatus === 'synced') return false;
                         const isReturned = (String(x.verified).toLowerCase() === 'returned' || String(x.status).toLowerCase() === 'returned' || x.returned === true || String(x.returned).toLowerCase() === 'true');
@@ -1980,6 +2011,7 @@
                 hideSplashScreen();
                 const param = (schoolParam || '').trim();
                 console.log("Booting Public Form Mode for school:", param);
+                if (typeof fb_bootFromStorage === 'function') fb_bootFromStorage();
 
                 // 1. Silent Cloud Bridge: Authenticate seamlessly if unauthenticated
                 if (!window.auth || !window.firebaseAPI) {
@@ -2131,8 +2163,9 @@
                         localStorage.setItem('identify_fb_staff_std_meta', JSON.stringify(fbData.staffStandardMeta));
                     }
 
-                    if (typeof blankRecordMode !== 'undefined' && blankRecordMode === 'student' && typeof renderCurrentBlankRecordPage === 'function') {
-                        renderCurrentBlankRecordPage();
+                    if (typeof fb_bootFromStorage === 'function') fb_bootFromStorage();
+                    if (typeof blankRecordMode !== 'undefined' && blankRecordMode === 'student' && typeof renderCurrentRecordsPage === 'function') {
+                        renderCurrentRecordsPage();
                     }
                     applyPublicFormState();
                 }
@@ -2577,8 +2610,9 @@
                     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Submitting...';
                 }
 
-                // Ensure authenticated via bridge account if unauthenticated
-                if (window.auth && (!window.auth.currentUser || !window.auth.currentUser.email) && window.firebaseAPI && window.firebaseAPI.signInWithEmailAndPassword) {
+                // Ensure authenticated via bridge account if unauthenticated (do not overwrite active Admin session)
+                const isCurrentlyAdmin = window.auth && window.auth.currentUser && isSystemAdmin(window.auth.currentUser.email);
+                if (!isCurrentlyAdmin && window.auth && (!window.auth.currentUser || !window.auth.currentUser.email) && window.firebaseAPI && window.firebaseAPI.signInWithEmailAndPassword) {
                     try {
                         await window.firebaseAPI.signInWithEmailAndPassword(window.auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
                     } catch(e) {}
@@ -3316,6 +3350,7 @@
             function init() {
                 try {
                     currentUser = loadAuthUser();
+                    purgeLocalDraftRecords();
                     if (typeof lucide !== 'undefined') {
                         try {
                             lucide.createIcons();
@@ -3494,7 +3529,7 @@
             }
 
             function getPendingLocalRecords() {
-                return idbGetAll(IDB_STORE_RECORDS).then(rows => (rows || []).filter(r => r._pending));
+                return idbGetAll(IDB_STORE_RECORDS).then(rows => (rows || []).filter(r => r && r._pending && !String(r.id || '').startsWith('draft_') && String(r.studentName || r.name || '').trim().length > 0));
             }
 
             function blobToDataUrl(blob) {
@@ -3609,8 +3644,8 @@
                         return;
                     }
 
-                    // Sync all valid pending records (verified, unverified, and pending without photo)
-                    const validPending = (pending || []).filter(r => r && (r.studentName || r.sclass));
+                    // Sync only real valid pending records (verified, unverified, and pending without photo)
+                    const validPending = (pending || []).filter(r => r && !String(r.id || '').startsWith('draft_') && String(r.studentName || r.name || '').trim().length > 0);
                     for (let i = 0; i < validPending.length; i++) {
                         const rec = validPending[i];
                         // If attachment exists, upload first
@@ -3677,11 +3712,16 @@
                     if (typeof done === 'function') done();
                     return;
                 }
-                // Initial fast render from IndexedDB cache if memory db is empty
+                // Initial fast render from IndexedDB cache if memory db is empty (strictly scoped to active school)
                 if ((!db || db.length === 0) && window.idbGetAll) {
                     idbGetAll(IDB_STORE_RECORDS).then(cached => {
                         if (cached && cached.length > 0 && (!db || db.length === 0)) {
-                            db = cached;
+                            const curSchool = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : null;
+                            db = (cached || []).filter(r => {
+                                if (!r) return false;
+                                if (curSchool && typeof recordBelongsToSchool === 'function' && !recordBelongsToSchool(r, curSchool)) return false;
+                                return true;
+                            });
                             refreshUiAfterLoad();
                         }
                     }).catch(()=>{});
@@ -3691,8 +3731,9 @@
                 // Fetch from server directly without local cache
                 serverCallSilent('getRecords', [], (serverDb) => {
                     if (serverDb && Array.isArray(serverDb)) {
-                        // Mark all records fetched from server as successfully synced
-                        serverDb.forEach(r => {
+                        // Mark all valid records fetched from server as successfully synced (drop any drafts)
+                        const cleanServerDb = serverDb.filter(r => r && !String(r.id || '').startsWith('draft_'));
+                        cleanServerDb.forEach(r => {
                             if (r) {
                                 r._syncStatus = 'synced';
                                 r._serverSaved = true;
@@ -3702,8 +3743,18 @@
                         
                         const mergeWithCurrentLocal = (localUnverified) => {
                             const currentLocalDb = typeof db !== 'undefined' && Array.isArray(db) ? db : [];
-                            const pendingLocal = currentLocalDb.filter(r => r && (r._pending || r._verifying || r._syncStatus === 'syncing' || r._syncStatus === 'pending' || r.isDeleted));
-                            const serverFiltered = filterDeletedFromList([...serverDb]);
+                            const curSchool = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : null;
+                            const pendingLocal = currentLocalDb.filter(r => {
+                                if (!r) return false;
+                                if (String(r.id || '').startsWith('draft_')) return false;
+                                const isPending = (r._pending || r._verifying || r._syncStatus === 'syncing' || r._syncStatus === 'pending' || r.isDeleted);
+                                if (!isPending) return false;
+                                if (curSchool && typeof recordBelongsToSchool === 'function' && !recordBelongsToSchool(r, curSchool)) {
+                                    return false;
+                                }
+                                return true;
+                            });
+                            const serverFiltered = filterDeletedFromList([...cleanServerDb]);
                             const mergedDb = serverFiltered.map(sRec => {
                                 const lRec = pendingLocal.find(l => String(l.id) === String(sRec.id) || (l.oldId && String(l.oldId) === String(sRec.id)));
                                 if (lRec) {
@@ -3745,26 +3796,11 @@
                                 return sRec;
                             });
                             pendingLocal.forEach(lRec => {
+                                if (String(lRec.id || '').startsWith('draft_')) return;
                                 if (!mergedDb.some(m => String(m.id) === String(lRec.id) || (m.oldId && String(m.oldId) === String(lRec.id)))) {
                                     mergedDb.push(lRec);
                                 }
                             });
-                            const unsyncedLocalToPush = [];
-                            if (localUnverified && Array.isArray(localUnverified)) {
-                                localUnverified.forEach(uRec => {
-                                    if (!uRec || uRec.isDeleted || (!uRec.studentName && !uRec.sclass)) return;
-                                    // Never resurrect a record that was already synced to server and then deleted, or marked deleted locally
-                                    if (uRec._serverSaved) return;
-                                    if (typeof isLocallyDeleted === 'function' && isLocallyDeleted(uRec.id)) return;
-                                    if (!mergedDb.some(m => String(m.id) === String(uRec.id) || (m.oldId && String(m.oldId) === String(uRec.id)))) {
-                                        uRec._syncStatus = 'syncing';
-                                        uRec._serverSaved = false;
-                                        uRec._pending = true;
-                                        mergedDb.push(uRec);
-                                        unsyncedLocalToPush.push(uRec);
-                                    }
-                                });
-                            }
                             db = mergedDb;
                             demoFallbackLoaded = false;
                             let canonicalMaxSn = 0;
@@ -3785,18 +3821,6 @@
                             } catch(e) {}
                             persistLocalUnverified();
                             refreshUiAfterLoad();
-                            if (unsyncedLocalToPush.length > 0) {
-                                unsyncedLocalToPush.forEach(uRec => {
-                                    serverCallSilent('addRecord', [uRec], () => {
-                                        setRecordSyncState(uRec.id, 'synced');
-                                        persistLocalUnverified();
-                                        renderCurrentRecordsPage();
-                                    }, () => {
-                                        setRecordSyncState(uRec.id, 'pending');
-                                        renderCurrentRecordsPage();
-                                    });
-                                });
-                            }
                             if (typeof done === 'function') done();
                         };
 
@@ -4117,6 +4141,7 @@
 
             function recordBelongsToSchool(rec, activeConfig) {
                 if (!rec) return false;
+                if (rec.id && String(rec.id).startsWith('draft_')) return false;
                 const cfg = activeConfig || (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
                 if (!cfg) return true;
 
@@ -4168,9 +4193,9 @@
                     }
                 }
 
-                // 4. ID prefix match (rec_DPS_... or draft_DPS-... or import_DPS_...)
+                // 4. ID prefix match (rec_DPS_... or import_DPS_...)
                 const idStr = String(rec.id || '');
-                if (targetCode && (idStr.startsWith('rec_' + targetCode + '_') || idStr.startsWith('draft_' + targetCode + '-') || idStr.startsWith('import_' + targetCode + '_'))) {
+                if (targetCode && (idStr.startsWith('rec_' + targetCode + '_') || idStr.startsWith('import_' + targetCode + '_'))) {
                     if (list.length > 0) {
                         const sameCodeCount = list.filter(s => s && s.code && String(s.code).trim().toUpperCase() === targetCode).length;
                         if (sameCodeCount > 1) {
@@ -5315,6 +5340,7 @@
             window.getPreviewDisplayName = getPreviewDisplayName;
 
             function setBlankRecordMode(mode = 'none') {
+                if (typeof fb_bootFromStorage === 'function') fb_bootFromStorage();
                 if (window.isPublicFormMode) {
                     blankRecordMode = (mode === 'preview') ? 'preview' : 'student';
                     showBlankRecordCard = true;
@@ -5897,6 +5923,14 @@
 
                 const nextSn = getHighestSchoolSn() + 1;
                 lastFetchedSn = nextSn;
+                if (typeof getLatestFirebaseSn === 'function') {
+                    getLatestFirebaseSn().then(fbMax => {
+                        if (fbMax >= 0) {
+                            lastFetchedSn = fbMax + 1;
+                            saveSchoolSn(fbMax);
+                        }
+                    }).catch(()=>{});
+                }
                 const structuredId = `rec_${schoolCode}_${nowTs}_${Math.random().toString(36).substr(2, 6)}`;
                 draftServerRecordId = structuredId;
                 
@@ -6106,11 +6140,12 @@
                 let currentVal = '';
 
                 if (type === 'sclass') {
+                    if (typeof fb_bootFromStorage === 'function') fb_bootFromStorage();
                     const isStaffActive = (typeof fb_staff_active !== 'undefined') ? !!fb_staff_active : false;
-                    const classOptions = fb_getStandardSelectOptions('sclass');
-                    currentVal = document.getElementById('in-sclass')?.value || document.getElementById('blank-class')?.value || 'Class 1';
-                    if (!isStaffActive && String(currentVal).trim().toLowerCase() === 'staff') {
-                        currentVal = classOptions[0] || 'Class 1';
+                    const classOptions = fb_getStandardSelectOptions('sclass', isStaffActive);
+                    currentVal = (document.getElementById('blank-class')?.value || document.getElementById('in-sclass')?.value || 'Class 1').trim();
+                    if (!isStaffActive && currentVal.toLowerCase() === 'staff') {
+                        currentVal = classOptions.find(c => c.toLowerCase() !== 'staff') || 'Class 1';
                         const hiddenEl = document.getElementById('blank-class');
                         if (hiddenEl) hiddenEl.value = currentVal;
                         const textEl = document.getElementById('blank-class-text');
@@ -6118,8 +6153,15 @@
                         const inEl = document.getElementById('in-sclass');
                         if (inEl) inEl.value = currentVal;
                     }
-                    let classOptionsWithCurrent = classOptions.includes(currentVal) || !currentVal ? classOptions : [...classOptions, currentVal];
-                    if (!isStaffActive) {
+                    let classOptionsWithCurrent = [...classOptions];
+                    if (currentVal && !classOptionsWithCurrent.some(c => c.toLowerCase() === currentVal.toLowerCase())) {
+                        classOptionsWithCurrent.push(currentVal);
+                    }
+                    if (isStaffActive) {
+                        if (!classOptionsWithCurrent.some(c => String(c).trim().toLowerCase() === 'staff')) {
+                            classOptionsWithCurrent.push('Staff');
+                        }
+                    } else {
                         classOptionsWithCurrent = classOptionsWithCurrent.filter(v => String(v).trim().toLowerCase() !== 'staff');
                     }
 
@@ -6137,7 +6179,7 @@
                         value: opt,
                         label: opt,
                         count: counts[opt] !== undefined ? counts[opt] : 0,
-                        selected: (opt === currentVal)
+                        selected: (opt.toLowerCase() === currentVal.toLowerCase())
                     }));
                 } else if (type === 'gender') {
                     const genderOptions = fb_getStandardSelectOptions('gender');
@@ -8039,7 +8081,7 @@
                 proceedSave();
             }
 
-            function proceedSave() {
+            async function proceedSave() {
                 if (isSavingRecord) return;
                 isSavingRecord = true;
                 try {
@@ -8105,11 +8147,20 @@
                         return;
                     }
 
-                    // Calculate clean Sequential SN if missing
+                    // Calculate clean Sequential SN: for new entries, query live Firebase highest SN
                     let nextSn = existing ? (existing.sn || existing.draftSn) : null;
                     const existingSnVal = extractSnNumber(nextSn);
-                    if (!nextSn || existingSnVal >= 1000000000 || existingSnVal <= 0) {
-                        nextSn = getHighestSchoolSn() + 1;
+                    if (!eid || !nextSn || existingSnVal >= 1000000000 || existingSnVal <= 0) {
+                        let liveMaxSn = 0;
+                        try {
+                            if (typeof getLatestFirebaseSn === 'function') {
+                                liveMaxSn = await getLatestFirebaseSn();
+                            }
+                        } catch(e) {}
+                        if (!liveMaxSn || liveMaxSn <= 0) {
+                            liveMaxSn = getHighestSchoolSn();
+                        }
+                        nextSn = liveMaxSn + 1;
                         saveSchoolSn(nextSn);
                     }
 
@@ -9304,20 +9355,21 @@
             window.shareFormOnWhatsApp = shareFormOnWhatsApp;
 
             function getTimerCountdownString(expiryMs) {
-                if (!expiryMs || Number(expiryMs) <= 0) return 'No timer (Always open)';
+                if (!expiryMs || Number(expiryMs) <= 0) return 'No timer (Always Open)';
                 const diff = Number(expiryMs) - Date.now();
-                if (diff <= 0) return 'Expired (Registration closed)';
-                const mins = Math.floor(diff / (1000 * 60));
-                const hours = Math.floor(mins / 60);
-                const days = Math.floor(hours / 24);
-                if (days > 0) {
-                    return `Closes in ${days}d ${hours % 24}h ${mins % 60}m`;
-                }
-                return `Closes in ${hours}h ${mins % 60}m`;
+                if (diff <= 0) return 'Expired (Form Closed)';
+                const totalSeconds = Math.max(0, Math.floor(diff / 1000));
+                const days = Math.floor(totalSeconds / 86400);
+                const hours = Math.floor((totalSeconds % 86400) / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const seconds = totalSeconds % 60;
+                if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+                if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+                return `${minutes}m ${seconds}s`;
             }
 
             function syncPublicFormConfig(updates) {
-                const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
+                const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
                 let target = sc;
                 let targetSchoolId = sc.id;
                 if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) {
@@ -9350,275 +9402,940 @@
                 }
             }
 
-            function togglePublicFormStatus() {
-                const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
-                let target = sc;
-                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) {
-                    const activeId = localStorage.getItem('identify_active_school_id') || sc.id;
-                    const found = schoolsList.find(s => s && String(s.id) === String(activeId));
-                    if (found) target = found;
-                }
-                const currentStatus = (target.publicFormActive !== false && target.formActive !== false);
-                const newStatus = !currentStatus;
-                syncPublicFormConfig({ publicFormActive: newStatus, formActive: newStatus });
-                showToast(newStatus ? 'Public form link activated ✓' : 'Public form link deactivated');
+            
+        function getActiveShareSchool() {
+            let sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
+            if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) && schoolsList.length > 0) {
+                const activeId = localStorage.getItem('identify_active_school_id') || (sc ? sc.id : null);
+                const found = schoolsList.find(s => s && String(s.id) === String(activeId));
+                if (found) return found;
             }
-            window.togglePublicFormStatus = togglePublicFormStatus;
+            return sc;
+        }
+        window.getActiveShareSchool = getActiveShareSchool;
 
-            function savePublicFormLimit(enabled, maxVal) {
-                const max = parseInt(maxVal, 10);
-                if (isNaN(max) || max < 1) {
-                    showToast('Please enter a valid number of max entries');
-                    return;
-                }
-                syncPublicFormConfig({
-                    publicFormEntryLimitEnabled: !!enabled,
-                    publicFormMaxEntries: max
-                });
-                showToast(enabled ? `Entry limit saved: ${max} entries ✓` : 'Entry limit disabled ✓');
+        function getPublicFormUrl() {
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
+            const code = (sc && (sc.code || sc.id)) ? (sc.code || sc.id) : 'DPS';
+            const loc = window.location;
+            let origin = loc.origin;
+            let path = loc.pathname;
+            if (!origin || origin === 'null') {
+                origin = '';
             }
-            window.savePublicFormLimit = savePublicFormLimit;
-
-            function resetPublicFormCount() {
-                syncPublicFormConfig({ publicFormEntryCount: 0 });
-                showToast('Submission counter reset to 0 ✓');
+            let basePath = path.replace(/(Admin_Panel|Login_Panel|index)\.html/i, 'School_Panel.html');
+            if (!basePath.endsWith('School_Panel.html')) {
+                basePath = basePath.replace(/\/+$/, '') + '/School_Panel.html';
             }
-            window.resetPublicFormCount = resetPublicFormCount;
+            return `${origin}${basePath}?form=${encodeURIComponent(code)}`;
+        }
+        window.getPublicFormUrl = getPublicFormUrl;
 
-            function savePublicFormExpiry(expiryMs, presetName = '') {
-                const exp = Number(expiryMs) || 0;
-                syncPublicFormConfig({
-                    publicFormExpiry: exp,
-                    timerPreset: presetName || (exp > 0 ? 'custom' : 'none')
-                });
-                if (exp > 0) {
-                    showToast(`Timer set: ${getTimerCountdownString(exp)} ✓`);
-                } else {
-                    showToast('Timer cleared (Form is always open) ✓');
-                }
+        function isSchoolPublicFormActive() {
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
+            if (!sc) return false;
+            if (sc.publicFormActive === false) return false;
+            if (sc.formActive === false) return false;
+            if (sc.active === false) return false;
+            if (typeof fb_form_active !== 'undefined' && fb_form_active === false) return false;
+            if (sc.publicFormExpiry && Number(sc.publicFormExpiry) > 0) {
+                if (Date.now() >= Number(sc.publicFormExpiry)) return false;
             }
-            window.savePublicFormExpiry = savePublicFormExpiry;
-
-            function setPresetTimer(hours, presetName) {
-                if (hours <= 0) {
-                    savePublicFormExpiry(0, 'none');
-                    return;
-                }
-                const expiryMs = Date.now() + (hours * 60 * 60 * 1000);
-                savePublicFormExpiry(expiryMs, presetName);
+            const limitEnabled = sc.publicFormEntryLimitEnabled !== false;
+            const maxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
+            const currentEntries = Number(sc.publicFormEntryCount) || 0;
+            if (limitEnabled && maxEntries > 0 && currentEntries >= maxEntries) {
+                return false;
             }
-            window.setPresetTimer = setPresetTimer;
+            return true;
+        }
+        window.isSchoolPublicFormActive = isSchoolPublicFormActive;
 
-            function copyShareFormLink() {
-                const input = document.getElementById('public-share-link-input');
-                if (input) {
-                    input.select();
-                    navigator.clipboard.writeText(input.value).then(() => {
-                        showToast('<i class="fa-solid fa-check text-emerald-500 mr-2"></i> Public Form Link copied to clipboard!');
-                    }).catch(() => {
-                        document.execCommand('copy');
-                        showToast('<i class="fa-solid fa-check text-emerald-500 mr-2"></i> Public Form Link copied!');
-                    });
-                }
+        function getTimerCountdownString(expiryMs) {
+            if (!expiryMs || Number(expiryMs) <= 0) return 'No timer (Always Open)';
+            const diff = Number(expiryMs) - Date.now();
+            if (diff <= 0) return 'Expired (Form Closed)';
+            const totalSeconds = Math.max(0, Math.floor(diff / 1000));
+            const days = Math.floor(totalSeconds / 86400);
+            const hours = Math.floor((totalSeconds % 86400) / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+            if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+            return `${minutes}m ${seconds}s`;
+        }
+        window.getTimerCountdownString = getTimerCountdownString;
+
+        const SHARE_TIMER_OPTIONS = [
+            { value: 'none', label: 'No Timer (Open until off)', desc: 'Open until turned off manually' },
+            { value: '30m', label: 'Auto-off in 30 Min', desc: 'Closes in 30 minutes' },
+            { value: '1h', label: 'Auto-off in 1 Hour', desc: 'Closes in 1 hour' },
+            { value: '2h', label: 'Auto-off in 2 Hours', desc: 'Closes in 2 hours' },
+            { value: '6h', label: 'Auto-off in 6 Hours', desc: 'Closes in 6 hours' },
+            { value: '12h', label: 'Auto-off in 12 Hours', desc: 'Closes in 12 hours' },
+            { value: '24h', label: 'Auto-off in 24 Hours', desc: 'Closes in 24 hours (1 day)' },
+            { value: '48h', label: 'Auto-off in 2 Days', desc: 'Closes in 48 hours (2 days)' },
+            { value: '7d', label: 'Auto-off in 7 Days', desc: 'Closes in 7 days (1 week)' }
+        ];
+
+        function getTimerPresetLabel(val) {
+            const found = SHARE_TIMER_OPTIONS.find(o => o.value === val);
+            return found ? found.label : 'No Timer (Open until off)';
+        }
+
+        function closeShareTimerMenu() {
+            const menu = document.getElementById('shareTimerDropdownMenu');
+            if (menu) {
+                menu.classList.remove('show');
+                menu.style.top = ''; menu.style.bottom = ''; menu.style.left = ''; menu.style.right = '';
+                menu.style.maxHeight = ''; menu.style.minWidth = ''; menu.style.width = '';
+                menu.style.position = '';
             }
-            window.copyShareFormLink = copyShareFormLink;
+        }
 
-            function shareFormOnWhatsApp() {
-                const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
-                const sName = sc.name || 'School';
-                const sCode = (sc.code || 'AS').toUpperCase();
-                const baseUrl = window.location.href.split('?')[0].replace(/(?:Admin|School)_Panel\.html/i, '');
-                const shareUrl = `${baseUrl}index.html?form=${encodeURIComponent(sCode)}`;
-                const msg = `*${sName} - Online Student Registration*\n\nPlease fill out your student registration form using the link below:\n\n🔗 ${shareUrl}\n\nThank you!`;
-                window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
+        function toggleShareTimerMenu(btn, event) {
+            if (event) {
+                event.stopPropagation();
+                event.preventDefault();
             }
-            window.shareFormOnWhatsApp = shareFormOnWhatsApp;
+            let menu = document.getElementById('shareTimerDropdownMenu');
+            if (!menu) {
+                menu = document.createElement('div');
+                menu.id = 'shareTimerDropdownMenu';
+                menu.className = 'filter-menu';
+                document.body.appendChild(menu);
+            }
 
-            function buildShareFormHtml() {
-                const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
-                let activeSchool = sc;
-                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList)) {
-                    const activeId = localStorage.getItem('identify_active_school_id') || (sc ? sc.id : null);
-                    const found = schoolsList.find(s => s && String(s.id) === String(activeId));
-                    if (found) activeSchool = found;
-                }
-                const schoolName = (activeSchool && activeSchool.name) ? activeSchool.name : 'School';
-                const schoolCode = (activeSchool && (activeSchool.code || activeSchool.schoolCode)) ? String(activeSchool.code || activeSchool.schoolCode).trim().toUpperCase() : 'DPS';
-                const isPublicActive = activeSchool ? (activeSchool.publicFormActive !== false && activeSchool.formActive !== false) : true;
-                
-                const isLimitEnabled = activeSchool.publicFormEntryLimitEnabled === true;
-                const maxEntries = activeSchool.publicFormMaxEntries !== undefined ? Number(activeSchool.publicFormMaxEntries) : 60;
-                const currentEntries = Number(activeSchool.publicFormEntryCount) || 0;
-                const percent = Math.min(100, Math.round((currentEntries / Math.max(1, maxEntries)) * 100));
+            if (menu.classList.contains('show')) {
+                closeShareTimerMenu();
+                return;
+            }
 
-                const expiryMs = Number(activeSchool.publicFormExpiry) || 0;
-                const countdownText = getTimerCountdownString(expiryMs);
-                const hasTimer = Boolean(expiryMs > Date.now());
+            if (typeof closeAllMenus === 'function') closeAllMenus();
 
-                const baseUrl = window.location.href.split('?')[0].replace(/(?:Admin|School)_Panel\.html/i, '');
-                const shareUrl = `${baseUrl}index.html?form=${encodeURIComponent(schoolCode)}`;
-                const directFormUrl = `${baseUrl}School_Panel.html?form=${encodeURIComponent(schoolCode)}`;
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
+            const hasTimer = Boolean(sc.publicFormExpiry && Number(sc.publicFormExpiry) > Date.now());
+            const currentVal = hasTimer ? (sc.timerPreset || 'active') : 'none';
 
-                let expiryInputVal = '';
-                if (expiryMs > 0) {
-                    try {
-                        const expDate = new Date(expiryMs);
-                        const localISO = new Date(expDate.getTime() - (expDate.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
-                        expiryInputVal = localISO;
-                    } catch(e) {}
-                }
-
+            menu.innerHTML = SHARE_TIMER_OPTIONS.map(opt => {
+                const isSelected = (currentVal === opt.value) || (!hasTimer && opt.value === 'none');
                 return `
-                <div class="p-6 bg-white rounded-3xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300 system-card max-w-xl mx-auto shadow-sm">
-                    <!-- School Header -->
-                    <div class="flex items-center gap-4 pb-4 border-b border-slate-100">
-                        <div class="w-14 h-14 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-600 shadow-sm overflow-hidden shrink-0">
-                            ${activeSchool && activeSchool.logo ? `<img src="${activeSchool.logo}" class="w-full h-full object-cover">` : `<i class="fa-solid fa-school text-2xl"></i>`}
+                    <div class="menu-item ${isSelected ? '!bg-emerald-50 !text-emerald-800' : ''}" onclick="selectShareTimerOption('${opt.value}', '${opt.label.replace(/'/g, "\\'")}')">
+                        <i class="fa-regular fa-clock ${isSelected ? 'text-emerald-600' : 'text-slate-400'} text-xs shrink-0"></i>
+                        <div class="flex flex-col flex-1 min-w-0">
+                            <span class="menu-item-label font-bold ${isSelected ? '!text-emerald-700' : 'text-slate-700'}">${opt.label}</span>
+                            <span class="text-[10px] text-slate-400 font-medium">${opt.desc}</span>
                         </div>
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-2">
-                                <h3 class="text-base font-black text-slate-800 truncate">${sanitizeHTML(schoolName)}</h3>
-                                <span class="text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 uppercase tracking-wider">${sanitizeHTML(schoolCode)}</span>
-                            </div>
-                            <p class="text-[11px] font-bold text-slate-400 mt-0.5">Online Student Registration Portal</p>
-                        </div>
-                        <span class="text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${isPublicActive ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-rose-100 text-rose-700 border border-rose-200'}">
-                            ${isPublicActive ? 'Live' : 'Paused'}
-                        </span>
+                        ${isSelected ? '<i class="fa-solid fa-check text-emerald-600 text-xs shrink-0 ml-2"></i>' : ''}
                     </div>
+                `;
+            }).join('');
 
-                    <!-- Master Status Card with Toggle -->
-                    <div class="p-4 rounded-2xl border transition-all ${isPublicActive ? 'border-emerald-200 bg-emerald-50/60' : 'border-rose-200 bg-rose-50/60'} flex items-center justify-between gap-3">
-                        <div class="flex items-center gap-3 min-w-0">
-                            <div class="w-10 h-10 rounded-xl ${isPublicActive ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'} flex items-center justify-center shrink-0">
-                                <i class="fa-solid ${isPublicActive ? 'fa-circle-check' : 'fa-circle-xmark'} text-lg"></i>
-                            </div>
-                            <div class="min-w-0">
-                                <h4 class="text-xs font-black ${isPublicActive ? 'text-emerald-900' : 'text-rose-900'}">${isPublicActive ? 'Public Form is Active' : 'Public Form is Deactivated'}</h4>
-                                <p class="text-[10px] font-bold ${isPublicActive ? 'text-emerald-700' : 'text-rose-600'} truncate">${isPublicActive ? 'Anyone with link can submit registration' : 'New submissions are currently blocked'}</p>
-                            </div>
-                        </div>
-                        <button type="button" onclick="togglePublicFormStatus()" class="px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition active:scale-95 shrink-0 ${isPublicActive ? 'bg-rose-500 hover:bg-rose-600 text-white shadow-xs' : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'}">
-                            ${isPublicActive ? 'Deactivate' : 'Activate'}
-                        </button>
-                    </div>
+            menu.classList.add('show');
+            if (typeof positionFloatingMenu === 'function') {
+                positionFloatingMenu(menu, btn, { align: 'center', gap: 6, minWidth: btn.offsetWidth, fixed: true });
+            }
+            if (btn.offsetWidth) menu.style.width = btn.offsetWidth + 'px';
+        }
+        window.toggleShareTimerMenu = toggleShareTimerMenu;
 
-                    <!-- Submission Limit (Auto-Off) Card -->
-                    <div class="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/50 space-y-3">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <div class="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-black">
-                                    <i class="fa-solid fa-list-check"></i>
+        function selectShareTimerOption(val, label) {
+            closeShareTimerMenu();
+            const btnText = document.getElementById('share-timer-btn-text');
+            if (btnText) btnText.innerText = label;
+            const hidden = document.getElementById('page-share-timer-select');
+            if (hidden) hidden.value = val;
+            applyPublicFormTimer(val, label);
+        }
+        window.selectShareTimerOption = selectShareTimerOption;
+
+        async function toggleShareFormActiveStatus() {
+            const currentActive = isSchoolPublicFormActive();
+            await togglePublicFormActiveFromPage(!currentActive);
+        }
+        window.toggleShareFormActiveStatus = toggleShareFormActiveStatus;
+        window.togglePublicFormStatus = toggleShareFormActiveStatus;
+
+        function buildShareFormHtml() {
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
+            const isActive = isSchoolPublicFormActive();
+            const expiry = Number(sc.publicFormExpiry) || 0;
+            const hasTimer = Boolean(expiry > Date.now());
+            const publicUrl = getPublicFormUrl();
+            const qrDataUrl = (typeof generateStandardQRCodeDataURL === 'function') ? generateStandardQRCodeDataURL(publicUrl, 260, 'M') : `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(publicUrl)}`;
+            const timerLabel = hasTimer && sc.timerPresetLabel ? sc.timerPresetLabel : (hasTimer ? 'Timer Active' : 'No Timer (Open until off)');
+
+            const maxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
+            const currentEntries = Number(sc.publicFormEntryCount) || 0;
+            const isLimitEnabled = (sc.publicFormEntryLimitEnabled !== false);
+            const isLimitReached = (isLimitEnabled && maxEntries > 0 && currentEntries >= maxEntries);
+            const progressPct = maxEntries > 0 ? Math.min(100, Math.round((currentEntries / maxEntries) * 100)) : 0;
+
+            return `
+                <div class="p-5 md:p-6 bg-white rounded-3xl system-card flex flex-col items-start w-full max-w-xl mx-auto space-y-5 animate-in fade-in duration-200">
+                    <!-- Form Link Active / Deactivate Badge + Timer + Limit Row -->
+                    <div class="w-full bg-slate-50/90 border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-xs">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-3">
+                                <div id="page-share-status-icon" class="w-10 h-10 rounded-2xl ${isActive ? 'bg-emerald-100 text-emerald-600 border border-emerald-300' : 'bg-rose-100 text-rose-600 border border-rose-300'} flex items-center justify-center font-bold text-base shadow-xs shrink-0 transition-colors">
+                                    <i class="fa-solid fa-power-off"></i>
                                 </div>
                                 <div>
-                                    <h4 class="text-xs font-black text-slate-800">Submission Limit (Auto-Off)</h4>
-                                    <p class="text-[10px] font-bold text-slate-400">Auto close form when entry target is reached</p>
+                                    <div class="text-xs sm:text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                        <span>Form Link Status</span>
+                                    </div>
                                 </div>
                             </div>
-                            <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" id="pf-limit-toggle" class="sr-only peer" ${isLimitEnabled ? 'checked' : ''} onchange="savePublicFormLimit(this.checked, document.getElementById('pf-max-entries').value)">
-                                <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                            </label>
+                            <!-- Single On/Off Toggle Switch -->
+                            <div class="flex items-center gap-2 select-none shrink-0">
+                                <span id="page-share-status-toggle-text" class="text-xs font-black ${isActive ? 'text-emerald-700' : 'text-slate-400'}">${isActive ? 'ON' : 'OFF'}</span>
+                                <label class="relative inline-flex items-center cursor-pointer select-none" title="Turn Registration Form Link ON / OFF">
+                                    <input type="checkbox" id="page-share-status-toggle" ${isActive ? 'checked' : ''} onchange="handleShareFormStatusToggle(this.checked)" class="sr-only peer">
+                                    <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                                </label>
+                            </div>
                         </div>
 
-                        <!-- Progress Bar & Counter -->
-                        <div class="space-y-1.5 pt-1">
-                            <div class="flex items-center justify-between text-xs font-black">
-                                <span class="text-slate-600">Responses Submitted:</span>
-                                <span class="text-indigo-600 font-extrabold">${currentEntries} / ${isLimitEnabled ? maxEntries : '∞'}</span>
+                        <!-- Timer Settings (Only visible when Form Link is Active) -->
+                        <div id="page-share-timer-container" class="${isActive ? 'block' : 'hidden'} pt-3 border-t border-slate-200/80 space-y-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-7 h-7 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xs border border-amber-200/70 shrink-0">
+                                        <i class="fa-solid fa-stopwatch"></i>
+                                    </div>
+                                    <span class="text-[11px] font-black uppercase tracking-wider text-slate-700">Auto-Off Timer:</span>
+                                </div>
+                                <span id="page-share-timer-countdown" class="text-xs font-bold text-amber-700 font-mono bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200 shrink-0">
+                                    ${hasTimer ? getTimerCountdownString(expiry) : 'No timer (Always Open)'}
+                                </span>
                             </div>
-                            ${isLimitEnabled ? `
-                            <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                                <div class="h-full ${percent >= 100 ? 'bg-rose-500' : (percent >= 80 ? 'bg-amber-500' : 'bg-indigo-600')} transition-all duration-300" style="width: ${percent}%;"></div>
+                            <div class="w-full flex items-center gap-2 relative">
+                                <button type="button" id="share-timer-btn" onclick="toggleShareTimerMenu(this, event)" class="w-full premium-input flex items-center justify-between text-left cursor-pointer active:scale-[0.99] transition-all bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-700 shadow-xs hover:border-emerald-500">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <i class="fa-regular fa-clock text-amber-600 text-xs shrink-0"></i>
+                                        <span id="share-timer-btn-text" class="font-bold text-slate-700 text-xs truncate">${timerLabel}</span>
+                                    </div>
+                                    <i class="fa-solid fa-chevron-down text-slate-400 text-[10px] shrink-0 ml-2"></i>
+                                </button>
+                                <input type="hidden" id="page-share-timer-select" value="${hasTimer && sc.timerPreset ? sc.timerPreset : (hasTimer ? 'active' : 'none')}">
+                                <div id="share-timer-clear-btn-wrap" class="shrink-0">
+                                    ${hasTimer ? `<button type="button" onclick="clearPublicFormTimer()" class="text-xs text-red-600 font-black px-3 py-2.5 rounded-xl hover:bg-red-50 border border-red-200 transition cursor-pointer" title="Clear Timer"><i class="fa-solid fa-xmark"></i></button>` : ''}
+                                </div>
                             </div>
-                            ` : ''}
                         </div>
 
-                        <!-- Limit Settings Controls -->
-                        <div class="flex items-center gap-2 pt-1">
-                            <span class="text-[11px] font-black uppercase text-slate-500 shrink-0">Max Entries:</span>
-                            <input id="pf-max-entries" type="number" min="1" max="10000" value="${maxEntries}" class="w-24 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-800 outline-none focus:border-indigo-500" />
-                            <button type="button" onclick="savePublicFormLimit(document.getElementById('pf-limit-toggle').checked, document.getElementById('pf-max-entries').value)" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black active:scale-95 transition">
-                                Save Limit
-                            </button>
-                            <button type="button" onclick="resetPublicFormCount()" class="ml-auto px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-[11px] font-bold active:scale-95 transition" title="Reset submission counter">
-                                Reset Count
-                            </button>
+                        <!-- Auto-Off Entry Limit Settings (Anti-Hack / Spam Protection) -->
+                        <div id="page-share-limit-container" class="${isActive ? 'block' : 'hidden'} pt-3 border-t border-slate-200/80 space-y-2">
+                            <!-- Top Row: Title on Left, Enable/Disable Toggle on Right (where 0/60 was) -->
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-7 h-7 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xs border border-blue-200/70 shrink-0">
+                                        <i class="fa-solid fa-shield-halved"></i>
+                                    </div>
+                                    <span class="text-[11px] font-black uppercase tracking-wider text-slate-700">Auto-Off Entry Limit:</span>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer select-none" title="Enable / Disable Auto-Off Entry Limit">
+                                    <input type="checkbox" id="page-share-limit-toggle" ${isLimitEnabled ? 'checked' : ''} onchange="toggleShareEntryLimitEnabled(this.checked)" class="sr-only peer">
+                                    <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+
+                            <!-- Controls Row: [0/60 Entries] badge BEFORE Reset button, and Reset button JUST BEFORE [- +] -->
+                            <div class="w-full flex items-center justify-between gap-2 pt-0.5">
+                                <!-- Slash badge placed before Reset -->
+                                <span id="page-share-limit-badge" class="text-[10px] font-black px-2.5 py-1.5 rounded-xl ${!isLimitEnabled ? 'bg-slate-100 text-slate-400 border border-slate-200' : (isLimitReached ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200')} shrink-0 font-mono">
+                                    ${currentEntries} / ${isLimitEnabled ? maxEntries : '∞'} Entries
+                                </span>
+
+                                <div class="flex items-center gap-1.5 shrink-0">
+                                    <!-- Reset button just before [- +] -->
+                                    <button type="button" onclick="resetShareEntryCount()" class="px-2.5 py-1.5 text-[11px] font-black text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl active:scale-95 transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0" title="Reset submitted entries counter to 0">
+                                        <i class="fa-solid fa-rotate-left text-[11px]"></i>
+                                        <span>Reset</span>
+                                    </button>
+
+                                    <!-- Stepper and +50 -->
+                                    <div class="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
+                                        <button type="button" onclick="adjustShareEntryLimit(-10)" class="px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-100 active:scale-95 transition cursor-pointer" title="-10 Entries"><i class="fa-solid fa-minus"></i></button>
+                                        <input type="number" id="page-share-entry-limit-input" min="0" max="99999" value="${maxEntries}" onchange="saveShareEntryLimitFromInput(this.value)" class="w-14 text-center text-xs font-black text-slate-800 outline-none border-x border-slate-200 py-1.5" title="Click to manually set limit">
+                                        <button type="button" onclick="adjustShareEntryLimit(10)" class="px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-100 active:scale-95 transition cursor-pointer" title="+10 Entries"><i class="fa-solid fa-plus"></i></button>
+                                    </div>
+                                    <button type="button" onclick="adjustShareEntryLimit(50)" class="px-3 py-2 text-[11px] font-black text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl active:scale-95 transition shadow-xs cursor-pointer shrink-0" title="Add 50 to entry limit">+50</button>
+                                </div>
+                            </div>
+
+                            <!-- Progress Bar -->
+                            <div class="w-full bg-slate-200/70 rounded-full h-1.5 mt-1 overflow-hidden">
+                                <div id="page-share-limit-progress" class="h-full rounded-full transition-all duration-300 ${!isLimitEnabled ? 'bg-slate-300' : (isLimitReached ? 'bg-rose-500' : 'bg-blue-500')}" style="width: ${isLimitEnabled ? progressPct : 0}%;"></div>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Auto-Close Timer / Expiry Card -->
-                    <div class="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/50 space-y-3">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <div class="w-7 h-7 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-black">
-                                    <i class="fa-solid fa-clock"></i>
-                                </div>
-                                <div>
-                                    <h4 class="text-xs font-black text-slate-800">Auto-Close Timer / Expiry</h4>
-                                    <p class="text-[10px] font-bold text-slate-400">${countdownText}</p>
-                                </div>
-                            </div>
-                            ${hasTimer ? `
-                            <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">Timer Active</span>
-                            ` : `
-                            <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">No Timer</span>
-                            `}
-                        </div>
-
-                        <!-- Presets -->
-                        <div class="flex flex-wrap gap-1.5 pt-1">
-                            <button type="button" onclick="setPresetTimer(0, 'none')" class="px-2.5 py-1 rounded-lg text-[10px] font-black ${!hasTimer ? 'bg-amber-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'} transition active:scale-95">No Timer</button>
-                            <button type="button" onclick="setPresetTimer(1, '1h')" class="px-2.5 py-1 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition active:scale-95">1 Hour</button>
-                            <button type="button" onclick="setPresetTimer(12, '12h')" class="px-2.5 py-1 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition active:scale-95">12 Hours</button>
-                            <button type="button" onclick="setPresetTimer(24, '24h')" class="px-2.5 py-1 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition active:scale-95">24 Hours</button>
-                            <button type="button" onclick="setPresetTimer(72, '3d')" class="px-2.5 py-1 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition active:scale-95">3 Days</button>
-                            <button type="button" onclick="setPresetTimer(168, '7d')" class="px-2.5 py-1 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition active:scale-95">7 Days</button>
-                        </div>
-
-                        <!-- Custom Date Time Input -->
-                        <div class="flex items-center gap-2 pt-1">
-                            <input id="pf-expiry-dt" type="datetime-local" value="${expiryInputVal}" class="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-800 outline-none focus:border-amber-500" />
-                            <button type="button" onclick="const dt = document.getElementById('pf-expiry-dt').value; if(dt){ savePublicFormExpiry(new Date(dt).getTime(), 'custom'); } else { showToast('Select date and time first'); }" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black active:scale-95 transition">
-                                Set
-                            </button>
-                            ${hasTimer ? `
-                            <button type="button" onclick="savePublicFormExpiry(0, 'none')" class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl text-xs font-black active:scale-95 transition" title="Clear Timer">
-                                Clear
-                            </button>
-                            ` : ''}
-                        </div>
-                    </div>
-
-                    <!-- Share URL Input & Copy -->
-                    <div class="space-y-2">
-                        <label class="text-[11px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                            <i class="fa-solid fa-link text-sky-600"></i> Public Form URL
+                    <!-- Registration Link Input + Copy Button -->
+                    <div class="w-full space-y-1.5">
+                        <label class="premium-label !text-[11px] !tracking-widest uppercase flex items-center gap-1.5 text-slate-600">
+                            <i class="fa-solid fa-link text-emerald-600"></i> Public Form Link
                         </label>
-                        <div class="flex items-center gap-2 p-1.5 rounded-2xl bg-slate-50 border border-slate-200 focus-within:border-sky-400 transition">
-                            <input id="public-share-link-input" type="text" readonly value="${shareUrl}" class="flex-1 bg-transparent px-3 py-2 text-xs font-bold text-slate-700 outline-none select-all font-mono" />
-                            <button type="button" onclick="copyShareFormLink()" class="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-sm shrink-0">
-                                <i class="fa-solid fa-copy"></i>
-                                <span>Copy</span>
+                        <div class="flex items-center gap-2">
+                            <input type="text" id="page-share-url-input" readonly value="${publicUrl}" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 text-xs font-mono text-slate-700 outline-none select-all focus:border-emerald-400 shadow-inner">
+                            <button type="button" id="btn-page-share-copy" onclick="copyShareFormPageUrl()" class="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition shadow-sm whitespace-nowrap">
+                                <i class="fa-solid fa-copy"></i> <span>Copy Link</span>
                             </button>
                         </div>
                     </div>
 
-                    <!-- Action Buttons: WhatsApp Share & Direct Open -->
-                    <div class="grid grid-cols-2 gap-3 pt-2">
-                        <button type="button" onclick="shareFormOnWhatsApp()" class="py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-2 transition active:scale-95 shadow-sm shadow-emerald-600/20">
-                            <i class="fa-brands fa-whatsapp text-base"></i>
-                            <span>Share on WhatsApp</span>
+                    <!-- Open Link & WhatsApp Share Buttons -->
+                    <div class="w-full grid grid-cols-2 gap-3">
+                        <button type="button" onclick="openShareFormUrlInNewTab()" class="w-full py-3.5 px-4 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-200 transition">
+                            <i class="fa-solid fa-arrow-up-right-from-square text-emerald-600 text-sm"></i> <span>Open Form</span>
                         </button>
-                        <button type="button" onclick="window.open('${directFormUrl}', '_blank')" class="py-3 px-4 rounded-2xl border border-slate-200 hover:border-sky-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-black flex items-center justify-center gap-2 transition active:scale-95 shadow-2xs">
-                            <i class="fa-solid fa-arrow-up-right-from-square text-sky-600"></i>
-                            <span>Open Form</span>
+                        <button type="button" onclick="shareFormOnWhatsApp()" class="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition shadow-sm">
+                            <i class="fa-brands fa-whatsapp text-base"></i> <span>Share WhatsApp</span>
+                        </button>
+                    </div>
+
+                    <!-- QR Code Card with Download Button -->
+                    <div class="w-full p-5 bg-slate-50/80 border border-slate-200/90 rounded-2xl flex flex-col items-center text-center space-y-4 shadow-xs">
+                        <div class="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                            <i class="fa-solid fa-qrcode text-emerald-600 text-sm"></i> Registration QR Code
+                        </div>
+                        <div class="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm inline-block">
+                            <img id="page-share-qr-img" src="${qrDataUrl}" alt="Registration Form QR Code" class="w-48 h-48 sm:w-56 sm:h-56 object-contain rounded-xl">
+                        </div>
+                        <p class="text-[11px] text-slate-500 font-medium max-w-sm">
+                            Scan with any smartphone camera or QR scanner to open the registration form directly.
+                        </p>
+                        <button type="button" onclick="downloadShareFormQrCode()" class="w-full max-w-xs py-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-2xl font-black text-xs flex items-center justify-center gap-2.5 transition-all shadow-md shadow-emerald-600/20 cursor-pointer">
+                            <i class="fa-solid fa-cloud-arrow-down text-base"></i> <span>Download QR Code (PNG)</span>
+                        </button>
+                    </div>
+
+                    <!-- Back to System Settings button -->
+                    <div class="w-full pt-1">
+                        <button type="button" onclick="closeStudentForm()" class="w-full py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition border border-slate-200">
+                            <i class="fa-solid fa-arrow-left"></i> <span>Back to System Settings</span>
                         </button>
                     </div>
                 </div>
-                `;
+            `;
+        }
+        window.buildShareFormHtml = buildShareFormHtml;
+
+        function updateShareFormBadge() {
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
+            const isActive = isSchoolPublicFormActive();
+            const badge = document.getElementById('share-form-status-badge');
+            if (badge) {
+                badge.className = `text-[10px] font-black px-2 py-0.5 rounded-full ${isActive ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-300'}`;
+                badge.innerText = isActive ? 'Active' : 'Deactivated';
             }
-            window.buildShareFormHtml = buildShareFormHtml;
+        }
+        window.updateShareFormBadge = updateShareFormBadge;
+
+        function updateShareFormPageUI() {
+            const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
+            const isActive = isSchoolPublicFormActive();
+            const hasTimer = Boolean(sc.publicFormExpiry && Number(sc.publicFormExpiry) > Date.now());
+
+            // 1. Icon before Form Link Status: Green when Active, Red when Deactivate
+            const statusIcon = document.getElementById('page-share-status-icon');
+            if (statusIcon) {
+                statusIcon.className = `w-10 h-10 rounded-2xl ${isActive ? 'bg-emerald-100 text-emerald-600 border border-emerald-300' : 'bg-rose-100 text-rose-600 border border-rose-300'} flex items-center justify-center font-bold text-base shadow-xs shrink-0 transition-colors`;
+            }
+
+            // 2. Single On/Off Toggle Switch & Label
+            const statusToggle = document.getElementById('page-share-status-toggle');
+            if (statusToggle) {
+                statusToggle.checked = isActive;
+            }
+            const statusToggleText = document.getElementById('page-share-status-toggle-text');
+            if (statusToggleText) {
+                statusToggleText.innerText = isActive ? 'ON' : 'OFF';
+                statusToggleText.className = `text-xs font-black ${isActive ? 'text-emerald-700' : 'text-slate-400'}`;
+            }
+
+            // Legacy button support if still in DOM
+            const statusBtn = document.getElementById('page-share-status-btn');
+            const statusDot = document.getElementById('page-share-status-dot');
+            const statusBtnText = document.getElementById('page-share-status-btn-text');
+            if (statusBtn && statusBtnText) {
+                if (isActive) {
+                    statusBtn.className = 'px-3.5 py-1.5 rounded-full font-black text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-xs select-none shrink-0 bg-emerald-100 text-emerald-800 border-2 border-emerald-300 hover:bg-emerald-200';
+                    if (statusDot) statusDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0';
+                    statusBtnText.innerText = 'Active';
+                } else {
+                    statusBtn.className = 'px-3.5 py-1.5 rounded-full font-black text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-xs select-none shrink-0 bg-rose-100 text-rose-800 border-2 border-rose-300 hover:bg-rose-200';
+                    if (statusDot) statusDot.className = 'w-2.5 h-2.5 rounded-full bg-rose-400 shrink-0';
+                    statusBtnText.innerText = 'Deactivated';
+                }
+            }
+
+            const timerContainer = document.getElementById('page-share-timer-container');
+            if (timerContainer) {
+                timerContainer.classList.toggle('hidden', !isActive);
+                timerContainer.classList.toggle('block', isActive);
+            }
+
+            const countdownEl = document.getElementById('page-share-timer-countdown');
+            if (countdownEl) {
+                countdownEl.innerText = hasTimer ? getTimerCountdownString(sc.publicFormExpiry) : 'No timer (Always Open)';
+            }
+
+            const timerBtnText = document.getElementById('share-timer-btn-text');
+            if (timerBtnText) {
+                timerBtnText.innerText = hasTimer && sc.timerPresetLabel ? sc.timerPresetLabel : (hasTimer ? 'Timer Active' : 'No Timer (Open until off)');
+            }
+
+            const timerSelect = document.getElementById('page-share-timer-select');
+            if (timerSelect) {
+                timerSelect.value = hasTimer && sc.timerPreset ? sc.timerPreset : (hasTimer ? 'active' : 'none');
+            }
+
+            const clearBtnWrap = document.getElementById('share-timer-clear-btn-wrap');
+            if (clearBtnWrap) {
+                clearBtnWrap.innerHTML = hasTimer ? `<button type="button" onclick="clearPublicFormTimer()" class="text-xs text-red-600 font-black px-2.5 py-1.5 rounded-xl hover:bg-red-50 border border-red-200 transition cursor-pointer" title="Clear Timer"><i class="fa-solid fa-xmark"></i></button>` : '';
+            }
+
+            // Entry Limit UI Updates
+            const limitContainer = document.getElementById('page-share-limit-container');
+            if (limitContainer) {
+                limitContainer.classList.toggle('hidden', !isActive);
+                limitContainer.classList.toggle('block', isActive);
+            }
+
+            const maxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
+            const currentEntries = Number(sc.publicFormEntryCount) || 0;
+            const isLimitReached = (sc.publicFormEntryLimitEnabled !== false && maxEntries > 0 && currentEntries >= maxEntries);
+            const progressPct = maxEntries > 0 ? Math.min(100, Math.round((currentEntries / maxEntries) * 100)) : 0;
+
+            const limitInput = document.getElementById('page-share-entry-limit-input');
+            if (limitInput) limitInput.value = maxEntries;
+
+            const limitToggle = document.getElementById('page-share-limit-toggle');
+            if (limitToggle) {
+                limitToggle.checked = (sc.publicFormEntryLimitEnabled !== false);
+            }
+            const isLimitEnabled = (sc.publicFormEntryLimitEnabled !== false);
+            const limitBadge = document.getElementById('page-share-limit-badge');
+            if (limitBadge) {
+                if (!isLimitEnabled) {
+                    limitBadge.className = 'text-[10px] font-black px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-400 border border-slate-200 shrink-0 font-mono';
+                    limitBadge.innerText = `${currentEntries} / ∞ Entries`;
+                } else {
+                    limitBadge.className = `text-[10px] font-black px-2.5 py-1.5 rounded-xl ${isLimitReached ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200'} shrink-0 font-mono`;
+                    limitBadge.innerText = `${currentEntries} / ${maxEntries} Entries`;
+                }
+            }
+
+            const limitProgress = document.getElementById('page-share-limit-progress');
+            if (limitProgress) {
+                const isLimitEnabled = (sc.publicFormEntryLimitEnabled !== false);
+                limitProgress.style.width = `${isLimitEnabled ? progressPct : 0}%`;
+                limitProgress.className = `h-full rounded-full transition-all duration-300 ${!isLimitEnabled ? 'bg-slate-300' : (isLimitReached ? 'bg-rose-500' : 'bg-blue-500')}`;
+            }
+
+            updateShareFormBadge();
+        }
+        window.updateShareFormPageUI = updateShareFormPageUI;
+
+        
+        async function toggleShareEntryLimitEnabled(enabled) {
+            const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
+            const isEnabled = Boolean(enabled);
+            sc.publicFormEntryLimitEnabled = isEnabled;
+            if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig !== sc) {
+                schoolConfig.publicFormEntryLimitEnabled = isEnabled;
+            }
+
+            try {
+                if (typeof CONFIG_KEY !== 'undefined') localStorage.setItem(CONFIG_KEY, JSON.stringify(sc));
+                else localStorage.setItem('schoolConfig', JSON.stringify(sc));
+                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) && typeof saveSchoolsList === 'function') {
+                    saveSchoolsList(schoolsList);
+                }
+            } catch(e){}
+
+            // Direct 0ms DOM toggle reflection
+            const limitToggle = document.getElementById('page-share-limit-toggle');
+            if (limitToggle) {
+                limitToggle.checked = isEnabled;
+            }
+
+            updateShareFormPageUI();
+            if (typeof triggerHapticFeedback === 'function') triggerHapticFeedback(5);
+            showToast(isEnabled ? 'Auto-Off entry limit enabled ✓' : 'Auto-Off entry limit disabled (Unlimited entries) ✓');
+
+            syncPublicFormConfigToFirebase(sc.publicFormActive, sc.publicFormExpiry, sc.timerPreset, sc.timerPresetLabel, sc.publicFormMaxEntries, sc.publicFormEntryCount, isEnabled).catch(err => {
+                console.warn("Background limit toggle sync error:", err);
+            });
+        }
+        window.toggleShareEntryLimitEnabled = toggleShareEntryLimitEnabled;
+
+        async function adjustShareEntryLimit(delta) {
+            const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
+            let currentMax = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 0;
+            let newMax = Math.max(0, currentMax + delta);
+            await saveShareEntryLimit(newMax);
+        }
+        window.adjustShareEntryLimit = adjustShareEntryLimit;
+
+        async function saveShareEntryLimitFromInput(val) {
+            let parsed = parseInt(val, 10);
+            if (isNaN(parsed) || parsed < 0) parsed = 0;
+            await saveShareEntryLimit(parsed);
+        }
+        window.saveShareEntryLimitFromInput = saveShareEntryLimitFromInput;
+        window.savePublicFormLimit = (enabled, val) => saveShareEntryLimitFromInput(val);
+
+        async function saveShareEntryLimit(newMax) {
+            const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
+            sc.publicFormMaxEntries = newMax;
+            sc.publicFormEntryLimitEnabled = true;
+            if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig !== sc) {
+                schoolConfig.publicFormMaxEntries = newMax;
+                schoolConfig.publicFormEntryLimitEnabled = true;
+            }
+
+            const currentEntries = Number(sc.publicFormEntryCount) || 0;
+            if (newMax > currentEntries && sc.publicFormActive === false) {
+                sc.publicFormActive = true;
+                sc.formActive = true;
+                sc.active = true;
+                if (typeof fb_form_active !== 'undefined') fb_form_active = true;
+                showToast(`Entry limit updated to ${newMax}. Form Link Activated! ✓`);
+            } else {
+                showToast(`Entry limit set to ${newMax} entries ✓`);
+            }
+
+            try {
+                if (typeof CONFIG_KEY !== 'undefined') localStorage.setItem(CONFIG_KEY, JSON.stringify(sc));
+                else localStorage.setItem('schoolConfig', JSON.stringify(sc));
+                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) && typeof saveSchoolsList === 'function') {
+                    saveSchoolsList(schoolsList);
+                }
+            } catch(e){}
+
+            updateShareFormPageUI();
+            if (typeof triggerHapticFeedback === 'function') triggerHapticFeedback(5);
+
+            syncPublicFormConfigToFirebase(sc.publicFormActive, sc.publicFormExpiry, sc.timerPreset, sc.timerPresetLabel, sc.publicFormMaxEntries, sc.publicFormEntryCount, true).catch(err => {
+                console.warn("Background limit sync error:", err);
+            });
+        }
+        window.saveShareEntryLimit = saveShareEntryLimit;
+
+        async function resetShareEntryCount() {
+            const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
+            sc.publicFormEntryCount = 0;
+            sc.publicFormMaxEntries = 0;
+            if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig !== sc) {
+                schoolConfig.publicFormEntryCount = 0;
+                schoolConfig.publicFormMaxEntries = 0;
+            }
+            if (sc.publicFormActive === false) {
+                sc.publicFormActive = true;
+                sc.formActive = true;
+                sc.active = true;
+                if (typeof fb_form_active !== 'undefined') fb_form_active = true;
+                showToast("Counter reset to 0. Form Link Activated! ✓");
+            } else {
+                showToast("Entry counter reset to 0 ✓");
+            }
+
+            try {
+                if (typeof CONFIG_KEY !== 'undefined') localStorage.setItem(CONFIG_KEY, JSON.stringify(sc));
+                else localStorage.setItem('schoolConfig', JSON.stringify(sc));
+                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) && typeof saveSchoolsList === 'function') {
+                    saveSchoolsList(schoolsList);
+                }
+            } catch(e){}
+
+            // Instant 0ms DOM UI reset:
+            const isLimitEnabled = (sc.publicFormEntryLimitEnabled !== false);
+            
+            // 1. Set the input between [- +] to 0
+            const limitInput = document.getElementById('page-share-entry-limit-input');
+            if (limitInput) {
+                limitInput.value = 0;
+            }
+
+            // 2. Set badge to 0 / 0 Entries
+            const limitBadge = document.getElementById('page-share-limit-badge');
+            if (limitBadge) {
+                limitBadge.className = 'text-[10px] font-black px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 shrink-0 font-mono';
+                limitBadge.innerText = `0 / ${isLimitEnabled ? 0 : '∞'} Entries`;
+            }
+
+            // 3. Set progress bar to 0%
+            const limitProgress = document.getElementById('page-share-limit-progress');
+            if (limitProgress) {
+                limitProgress.style.width = '0%';
+                limitProgress.className = 'h-full rounded-full transition-all duration-300 bg-blue-500';
+            }
+
+            updateShareFormPageUI();
+            if (typeof triggerHapticFeedback === 'function') triggerHapticFeedback(5);
+
+            syncPublicFormConfigToFirebase(sc.publicFormActive, sc.publicFormExpiry, sc.timerPreset, sc.timerPresetLabel, 0, 0, sc.publicFormEntryLimitEnabled).catch(err => {
+                console.warn("Background reset sync error:", err);
+            });
+        }
+        window.resetShareEntryCount = resetShareEntryCount;
+        window.resetPublicFormCount = resetShareEntryCount;
+
+        async function togglePublicFormActiveFromPage(isActive) {
+            const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
+            sc.publicFormActive = !!isActive;
+            sc.formActive = !!isActive;
+            sc.active = !!isActive;
+            if (typeof fb_form_active !== 'undefined') fb_form_active = !!isActive;
+            if (!isActive) {
+                sc.publicFormExpiry = 0;
+                sc.timerPreset = 'none';
+                sc.timerPresetLabel = 'No Timer (Open until off)';
+            } else {
+                const maxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
+                const currentEntries = Number(sc.publicFormEntryCount) || 0;
+                if (currentEntries >= maxEntries) {
+                    sc.publicFormMaxEntries = currentEntries + 60;
+                    showToast(`Form activated! Entry limit auto-expanded to ${sc.publicFormMaxEntries} (+60) ✓`);
+                }
+            }
+            if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig !== sc) {
+                schoolConfig.publicFormActive = sc.publicFormActive;
+                schoolConfig.formActive = sc.formActive;
+                schoolConfig.active = sc.active;
+                schoolConfig.publicFormExpiry = sc.publicFormExpiry;
+                schoolConfig.timerPreset = sc.timerPreset;
+                schoolConfig.timerPresetLabel = sc.timerPresetLabel;
+                if (sc.publicFormMaxEntries !== undefined) schoolConfig.publicFormMaxEntries = sc.publicFormMaxEntries;
+            }
+            try {
+                if (typeof CONFIG_KEY !== 'undefined') localStorage.setItem(CONFIG_KEY, JSON.stringify(sc));
+                else localStorage.setItem('schoolConfig', JSON.stringify(sc));
+                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) && typeof saveSchoolsList === 'function') {
+                    saveSchoolsList(schoolsList);
+                }
+            } catch(e){}
+
+            // Instant zero-lag UI feedback
+            updateShareFormPageUI();
+            if (typeof triggerHapticFeedback === 'function') triggerHapticFeedback(5);
+            showToast(isActive ? 'Public form link ACTIVATED ✓' : 'Public form link DEACTIVATED');
+
+            // Non-blocking background sync to Firebase
+            syncPublicFormConfigToFirebase(sc.publicFormActive, sc.publicFormExpiry, sc.timerPreset, sc.timerPresetLabel, sc.publicFormMaxEntries, sc.publicFormEntryCount).catch(err => {
+                console.warn("Background sync error:", err);
+            });
+        }
+        window.togglePublicFormActiveFromPage = togglePublicFormActiveFromPage;
+        window.togglePublicFormActive = togglePublicFormActiveFromPage;
+
+        async function handleShareFormStatusToggle(checked) {
+            await togglePublicFormActiveFromPage(Boolean(checked));
+        }
+        window.handleShareFormStatusToggle = handleShareFormStatusToggle;
+        window.handleShareFormStatusRadio = handleShareFormStatusToggle;
+
+        async function applyPublicFormTimer(val, label) {
+            const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
+            let durationMs = 0;
+            if (val === '30m') durationMs = 30 * 60 * 1000;
+            else if (val === '1h') durationMs = 60 * 60 * 1000;
+            else if (val === '2h') durationMs = 2 * 60 * 60 * 1000;
+            else if (val === '6h') durationMs = 6 * 60 * 60 * 1000;
+            else if (val === '12h') durationMs = 12 * 60 * 60 * 1000;
+            else if (val === '24h') durationMs = 24 * 60 * 60 * 1000;
+            else if (val === '48h') durationMs = 48 * 60 * 60 * 1000;
+            else if (val === '7d') durationMs = 7 * 24 * 60 * 60 * 1000;
+
+            const resolvedLabel = label || getTimerPresetLabel(val);
+
+            if (durationMs > 0) {
+                sc.publicFormActive = true;
+                sc.formActive = true;
+                sc.publicFormExpiry = Date.now() + durationMs;
+                sc.timerPreset = val;
+                sc.timerPresetLabel = resolvedLabel;
+                showToast(`Timer set: ${resolvedLabel} ✓`);
+            } else {
+                sc.publicFormExpiry = 0;
+                sc.timerPreset = 'none';
+                sc.timerPresetLabel = 'No Timer (Open until off)';
+                showToast('Timer cleared: link stays open ✓');
+            }
+
+            if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig !== sc) {
+                schoolConfig.publicFormActive = sc.publicFormActive;
+                schoolConfig.formActive = sc.formActive;
+                schoolConfig.publicFormExpiry = sc.publicFormExpiry;
+                schoolConfig.timerPreset = sc.timerPreset;
+                schoolConfig.timerPresetLabel = sc.timerPresetLabel;
+            }
+
+            try {
+                if (typeof CONFIG_KEY !== 'undefined') localStorage.setItem(CONFIG_KEY, JSON.stringify(sc));
+                else localStorage.setItem('schoolConfig', JSON.stringify(sc));
+                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) && typeof saveSchoolsList === 'function') {
+                    saveSchoolsList(schoolsList);
+                }
+            } catch(e){}
+
+            // Instant 0ms live countdown paint
+            const countdownEl = document.getElementById('page-share-timer-countdown');
+            if (countdownEl) {
+                if (durationMs > 0) {
+                    countdownEl.innerText = getTimerCountdownString(sc.publicFormExpiry);
+                    countdownEl.className = 'text-xs font-bold text-amber-700 font-mono bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-300 shrink-0';
+                } else {
+                    countdownEl.innerText = 'No timer (Always Open)';
+                    countdownEl.className = 'text-xs font-bold text-amber-700 font-mono bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200 shrink-0';
+                }
+            }
+            const timerBtnText = document.getElementById('share-timer-btn-text');
+            if (timerBtnText) timerBtnText.innerText = resolvedLabel;
+
+            // Instant zero-lag UI update
+            updateShareFormPageUI();
+            if (typeof triggerHapticFeedback === 'function') triggerHapticFeedback(5);
+
+            // Non-blocking background sync
+            syncPublicFormConfigToFirebase(sc.publicFormActive, sc.publicFormExpiry, sc.timerPreset, sc.timerPresetLabel, sc.publicFormMaxEntries, sc.publicFormEntryCount).catch(err => {
+                console.warn("Background timer sync error:", err);
+            });
+        }
+        window.applyPublicFormTimer = applyPublicFormTimer;
+        window.savePublicFormExpiry = (exp, preset) => applyPublicFormTimer(preset || 'custom', '');
+
+        async function clearPublicFormTimer() {
+            await applyPublicFormTimer('none', 'No Timer (Open until off)');
+        }
+        window.clearPublicFormTimer = clearPublicFormTimer;
+
+        async function syncPublicFormConfigToFirebase(isActive, expiry, timerPreset, timerPresetLabel, maxEntries, entryCount, limitEnabled) {
+            const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
+            sc.publicFormActive = !!isActive;
+            sc.formActive = !!isActive;
+            sc.publicFormExpiry = Number(expiry) || 0;
+            if (timerPreset !== undefined) sc.timerPreset = timerPreset;
+            if (timerPresetLabel !== undefined) sc.timerPresetLabel = timerPresetLabel;
+            if (maxEntries !== undefined) sc.publicFormMaxEntries = Number(maxEntries);
+            if (entryCount !== undefined) sc.publicFormEntryCount = Number(entryCount);
+            if (limitEnabled !== undefined) sc.publicFormEntryLimitEnabled = !!limitEnabled;
+
+            if (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig !== sc) {
+                schoolConfig.publicFormActive = sc.publicFormActive;
+                schoolConfig.formActive = sc.formActive;
+                schoolConfig.publicFormExpiry = sc.publicFormExpiry;
+                schoolConfig.timerPreset = sc.timerPreset;
+                schoolConfig.timerPresetLabel = sc.timerPresetLabel;
+                schoolConfig.publicFormMaxEntries = sc.publicFormMaxEntries;
+                schoolConfig.publicFormEntryCount = sc.publicFormEntryCount;
+                schoolConfig.publicFormEntryLimitEnabled = sc.publicFormEntryLimitEnabled;
+            }
+
+            try {
+                if (typeof CONFIG_KEY !== 'undefined') localStorage.setItem(CONFIG_KEY, JSON.stringify(sc));
+                else localStorage.setItem('schoolConfig', JSON.stringify(sc));
+                if (typeof schoolsList !== 'undefined' && Array.isArray(schoolsList) && typeof saveSchoolsList === 'function') {
+                    saveSchoolsList(schoolsList);
+                }
+            } catch(e){}
+
+            try {
+                if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.setDoc) {
+                    const scRef = window.firebaseAPI.doc(window.db, "system", "schoolConfig");
+                    window.firebaseAPI.setDoc(scRef, { 
+                        publicFormActive: !!isActive,
+                        formActive: !!isActive,
+                        publicFormExpiry: Number(expiry) || 0,
+                        timerPreset: sc.timerPreset || 'none',
+                        timerPresetLabel: sc.timerPresetLabel || 'No Timer (Open until off)',
+                        publicFormMaxEntries: sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60,
+                        publicFormEntryCount: Number(sc.publicFormEntryCount) || 0,
+                        publicFormEntryLimitEnabled: sc.publicFormEntryLimitEnabled !== false
+                    }, { merge: true }).catch(()=>{});
+                }
+            } catch(e){}
+
+            try {
+                if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.getDoc && window.firebaseAPI.setDoc) {
+                    const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
+                    const snap = await window.firebaseAPI.getDoc(schoolsDocRef);
+                    if (snap.exists() && Array.isArray(snap.data().list)) {
+                        const list = snap.data().list;
+                        const idx = list.findIndex(s => s && (
+                            (sc.id && String(s.id) === String(sc.id)) ||
+                            (sc.code && String(s.code).toLowerCase() === String(sc.code).toLowerCase())
+                        ));
+                        if (idx !== -1) {
+                            list[idx].publicFormActive = !!isActive;
+                            list[idx].formActive = !!isActive;
+                            list[idx].publicFormExpiry = Number(expiry) || 0;
+                            if (sc.timerPreset !== undefined) list[idx].timerPreset = sc.timerPreset;
+                            if (sc.timerPresetLabel !== undefined) list[idx].timerPresetLabel = sc.timerPresetLabel;
+                            list[idx].publicFormMaxEntries = sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60;
+                            list[idx].publicFormEntryCount = Number(sc.publicFormEntryCount) || 0;
+                            list[idx].publicFormEntryLimitEnabled = sc.publicFormEntryLimitEnabled !== false;
+                            await window.firebaseAPI.setDoc(schoolsDocRef, { list: list, updatedAt: Date.now() }, { merge: true });
+                        }
+                    }
+                }
+            } catch(e){
+                console.warn("Firebase system/schools update error:", e);
+            }
+
+            try {
+                if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.setDoc && sc.id) {
+                    const sDocRef = window.firebaseAPI.doc(window.db, "schools", String(sc.id));
+                    window.firebaseAPI.setDoc(sDocRef, {
+                        publicFormActive: !!isActive,
+                        formActive: !!isActive,
+                        publicFormExpiry: Number(expiry) || 0,
+                        timerPreset: sc.timerPreset || 'none',
+                        timerPresetLabel: sc.timerPresetLabel || 'No Timer (Open until off)',
+                        publicFormMaxEntries: sc.publicFormMaxEntries !== undefined ? Number(sc.publicFormMaxEntries) : 60,
+                        publicFormEntryCount: Number(sc.publicFormEntryCount) || 0,
+                        publicFormEntryLimitEnabled: sc.publicFormEntryLimitEnabled !== false,
+                        updatedAt: Date.now()
+                    }, { merge: true }).catch(()=>{});
+                }
+            } catch(e){}
+        }
+        window.syncPublicFormConfigToFirebase = syncPublicFormConfigToFirebase;
+
+        function copyShareFormPageUrl() {
+            const url = getPublicFormUrl();
+            const btn = document.getElementById('btn-page-share-copy');
+            const onCopied = () => {
+                if (btn) {
+                    btn.innerHTML = '<i class="fa-solid fa-check text-emerald-300"></i> <span>Copied!</span>';
+                    setTimeout(() => {
+                        btn.innerHTML = '<i class="fa-solid fa-copy"></i> <span>Copy Link</span>';
+                    }, 2000);
+                }
+                showToast('Registration link copied! ✓');
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).then(onCopied).catch(() => {
+                    const input = document.getElementById('page-share-url-input');
+                    if (input) { input.select(); document.execCommand('copy'); onCopied(); }
+                });
+            } else {
+                const input = document.getElementById('page-share-url-input');
+                if (input) { input.select(); document.execCommand('copy'); onCopied(); }
+            }
+        }
+        window.copyShareFormPageUrl = copyShareFormPageUrl;
+        window.copyShareFormLink = copyShareFormPageUrl;
+
+        function openShareFormUrlInNewTab() {
+            const url = getPublicFormUrl();
+            window.open(url, '_blank');
+        }
+        window.openShareFormUrlInNewTab = openShareFormUrlInNewTab;
+        window.openShareFormPreview = openShareFormUrlInNewTab;
+
+        function shareFormOnWhatsApp() {
+            const url = getPublicFormUrl();
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
+            const sName = sc.name || 'School';
+            const text = `*${sName}*\nStudent & Staff ID Card Registration Form\nPlease click the link below to submit details directly:\n${url}`;
+            const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+            window.open(waUrl, '_blank');
+        }
+        window.shareFormOnWhatsApp = shareFormOnWhatsApp;
+
+        function downloadShareFormQrCode() {
+            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {});
+            const publicUrl = getPublicFormUrl();
+            const qrDataUrl = (typeof generateStandardQRCodeDataURL === 'function') ? generateStandardQRCodeDataURL(publicUrl, 600, 'M') : `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(publicUrl)}`;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 700;
+            canvas.height = 840;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const schoolName = (sc && sc.name) ? sc.name : 'School';
+            ctx.fillStyle = '#0F172A';
+            ctx.font = 'bold 26px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(schoolName, canvas.width / 2, 50);
+
+            ctx.fillStyle = '#059669';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.fillText('Student & Staff Registration Form', canvas.width / 2, 85);
+
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function() {
+                const qrSize = 520;
+                const qrX = (canvas.width - qrSize) / 2;
+                const qrY = 120;
+                ctx.drawImage(img, qrX, qrY, qrSize, qrSize);
+
+                ctx.fillStyle = '#64748B';
+                ctx.font = '14px sans-serif';
+                ctx.fillText('Scan with smartphone camera to open form', canvas.width / 2, 690);
+
+                ctx.fillStyle = '#059669';
+                ctx.font = 'bold 13px monospace';
+                const dispUrl = publicUrl.length > 60 ? publicUrl.substring(0, 57) + '...' : publicUrl;
+                ctx.fillText(dispUrl, canvas.width / 2, 750);
+
+                const a = document.createElement('a');
+                const code = (sc && (sc.code || sc.id)) ? (sc.code || sc.id) : 'Registration';
+                a.download = `${code}_Registration_Form_QR.png`;
+                a.href = canvas.toDataURL('image/png');
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showToast('QR Code downloaded! ✓');
+            };
+            img.onerror = function() {
+                const a = document.createElement('a');
+                const code = (sc && (sc.code || sc.id)) ? (sc.code || sc.id) : 'Registration';
+                a.download = `${code}_Registration_Form_QR.png`;
+                a.href = qrDataUrl;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showToast('QR Code downloaded! ✓');
+            };
+            img.src = qrDataUrl;
+        }
+        window.downloadShareFormQrCode = downloadShareFormQrCode;
+
+        // Live countdown interval for timer (updates every second with live ticking)
+        if (window.shareFormTimerInterval) {
+            clearInterval(window.shareFormTimerInterval);
+        }
+        window.shareFormTimerInterval = setInterval(() => {
+            const countdownEl = document.getElementById('page-share-timer-countdown');
+            if (!countdownEl) return;
+            const sc = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : ((typeof loadSchoolConfig === 'function') ? loadSchoolConfig() : {}));
+            if (sc && sc.publicFormExpiry && Number(sc.publicFormExpiry) > 0) {
+                const diff = Number(sc.publicFormExpiry) - Date.now();
+                if (diff <= 0) {
+                    countdownEl.innerText = 'Expired (Form Closed)';
+                    countdownEl.className = 'text-xs font-bold text-rose-700 font-mono bg-rose-50 px-2.5 py-0.5 rounded-lg border border-rose-300 shrink-0';
+                    if (sc.publicFormActive) {
+                        togglePublicFormActiveFromPage(false);
+                    }
+                } else {
+                    countdownEl.innerText = getTimerCountdownString(sc.publicFormExpiry);
+                    countdownEl.className = 'text-xs font-bold text-amber-700 font-mono bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-300 shrink-0';
+                }
+            } else {
+                if (countdownEl.innerText !== 'No timer (Always Open)') {
+                    countdownEl.innerText = 'No timer (Always Open)';
+                    countdownEl.className = 'text-xs font-bold text-amber-700 font-mono bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200 shrink-0';
+                }
+            }
+        }, 1000);
 
 
             function buildDataInformationHtml() {
@@ -10176,8 +10893,6 @@
                             </div>
                         </div>
 
-                        
-
                         <!-- Added Logout Button -->
                         <div onclick="logoutUser()" class="system-card p-5 rounded-2xl flex items-center gap-4 clickable-card hover:border-rose-300 group">
                             <div class="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 group-hover:bg-rose-600 group-hover:text-white transition-all shadow-sm">
@@ -10432,8 +11147,8 @@
                                     <span class="text-xs font-black text-slate-700 uppercase tracking-wider select-none flex items-center gap-1.5">
                                         <i class="fa-solid fa-id-badge text-emerald-600 text-sm"></i> Staff
                                     </span>
-                                    <label class="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" id="fb_staff_enable" onchange="fb_toggleStaffActive(this.checked)" class="sr-only peer">
+                                    <label class="relative inline-flex items-center cursor-pointer select-none">
+                                        <input type="checkbox" id="fb_staff_enable" ${fb_staff_active ? 'checked' : ''} onclick="fb_toggleStaffActive(this.checked)" onchange="fb_toggleStaffActive(this.checked)" class="sr-only peer">
                                         <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
                                     </label>
                                 </div>
@@ -10441,7 +11156,7 @@
                         </div>
 
                         <!-- Separate Switcher Tile between Student Form and Staff Form -->
-                        <div id="fb_view_switcher" class="${(typeof fb_staff_active !== 'undefined' && fb_staff_active) ? 'flex' : 'hidden'} mb-4 system-card p-1.5 rounded-2xl border border-emerald-100 bg-emerald-50/60 shadow-sm items-center justify-between gap-2 transition-all duration-300 ease-in-out">
+                        <div id="fb_view_switcher" style="display: ${(typeof fb_staff_active !== 'undefined' && fb_staff_active) ? 'flex' : 'none'};" class="${(typeof fb_staff_active !== 'undefined' && fb_staff_active) ? 'flex' : 'hidden'} mb-4 system-card p-1.5 rounded-2xl border border-emerald-100 bg-emerald-50/60 shadow-sm items-center justify-between gap-2">
                             <button type="button" onclick="fb_switchView('student')" id="fb_tab_student" class="flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all ${(typeof fb_active_form_tab === 'undefined' || fb_active_form_tab === 'student') ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-emerald-700 bg-white/70'} flex items-center justify-center gap-1.5 active:scale-95">
                                 <i class="fa-solid fa-user-graduate text-[11px]"></i> <span>Student Form</span>
                             </button>
@@ -10643,10 +11358,17 @@
                         const inSclassEl = document.getElementById('in-sclass');
                         if (inSclassEl) inSclassEl.value = 'Class 1';
                     }
-                    const classOptions = fb_getStandardSelectOptions('sclass');
+                    const classOptions = fb_getStandardSelectOptions('sclass', isStaffActive);
                     const genderOptions = fb_getStandardSelectOptions('gender');
-                    let classOptionsWithCurrent = classOptions.includes(classValue) || !classValue ? classOptions : [...classOptions, classValue];
-                    if (!isStaffActive) {
+                    let classOptionsWithCurrent = [...classOptions];
+                    if (classValue && !classOptionsWithCurrent.some(c => c.toLowerCase() === classValue.toLowerCase())) {
+                        classOptionsWithCurrent.push(classValue);
+                    }
+                    if (isStaffActive) {
+                        if (!classOptionsWithCurrent.some(c => String(c).trim().toLowerCase() === 'staff')) {
+                            classOptionsWithCurrent.push('Staff');
+                        }
+                    } else {
                         classOptionsWithCurrent = classOptionsWithCurrent.filter(v => String(v).trim().toLowerCase() !== 'staff');
                     }
                     const genderOptionsWithCurrent = genderOptions.includes(genderValue) || !genderValue ? genderOptions : [...genderOptions, genderValue];
@@ -12061,19 +12783,49 @@
         }
 
         function fb_toggleStaffActive(checked) {
-            fb_staff_active = !!checked;
-            fb_syncToAppData();
-            fb_active_form_tab = fb_staff_active ? 'staff' : 'student';
-            fb_updateFormTabUI();
-            fb_renderForm();
-            if (typeof fb_renderStaffBuilderForm === 'function') fb_renderStaffBuilderForm();
-            fb_applySelectOptionsToHiddenInputs();
-            if (typeof renderClassTabs === 'function') renderClassTabs();
-            if (typeof filterRecords === 'function') filterRecords();
-            if (typeof renderCurrentRecordsPage === 'function' && typeof blankRecordMode !== 'undefined' && blankRecordMode === 'student') {
-                renderCurrentRecordsPage();
+            const isNowActive = !!checked;
+            if (fb_staff_active === isNowActive) return;
+            fb_staff_active = isNowActive;
+
+            // 1. INSTANT ZERO-LATENCY DOM PAINT (0ms):
+            const switcher = document.getElementById('fb_view_switcher');
+            if (switcher) {
+                switcher.style.setProperty('display', isNowActive ? 'flex' : 'none', 'important');
+                switcher.classList.toggle('hidden', !isNowActive);
+                switcher.classList.toggle('flex', isNowActive);
             }
-            showToast(checked ? 'Staff Form Enabled (Class -> Staff added)' : 'Staff Form Disabled (Class -> Staff removed)');
+            const staffEl = document.getElementById('fb_staff_enable');
+            if (staffEl && staffEl.checked !== isNowActive) {
+                staffEl.checked = isNowActive;
+            }
+            fb_active_form_tab = isNowActive ? 'staff' : 'student';
+            fb_updateFormTabUI();
+
+            // 2. Schedule heavy serialization, form building and network sync asynchronously
+            setTimeout(() => {
+                fb_syncToAppData();
+                fb_renderForm();
+                if (typeof fb_renderStaffBuilderForm === 'function') fb_renderStaffBuilderForm();
+                fb_applySelectOptionsToHiddenInputs();
+                if (typeof renderClassTabs === 'function') renderClassTabs();
+                if (typeof renderCurrentRecordsPage === 'function' && typeof blankRecordMode !== 'undefined' && blankRecordMode === 'student') {
+                    renderCurrentRecordsPage();
+                }
+                // Instant Firestore background sync
+                if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.setDoc) {
+                    try {
+                        const fbDocRef = window.firebaseAPI.doc(window.db, "system", "formBuilderConfig");
+                        window.firebaseAPI.setDoc(fbDocRef, { staffActive: fb_staff_active, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+                        const activeSchoolId = (typeof schoolConfig !== 'undefined' && schoolConfig && schoolConfig.id) ? schoolConfig.id : null;
+                        if (activeSchoolId) {
+                            const sDocRef = window.firebaseAPI.doc(window.db, "schools", String(activeSchoolId));
+                            window.firebaseAPI.setDoc(sDocRef, { "formBuilderConfig.staffActive": fb_staff_active, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+                        }
+                    } catch(e){}
+                }
+            }, 0);
+
+            showToast(isNowActive ? 'Staff Form Enabled (Class -> Staff added)' : 'Staff Form Disabled (Class -> Staff removed)');
         }
 
         function fb_resetBuilderView(silent = false) {
@@ -12154,7 +12906,13 @@
             if (typeof updateBlankRecordHeader === 'function') {
                 updateBlankRecordHeader('builder');
             }
-            fb_renderForm();
+            setTimeout(() => {
+                if (fb_active_form_tab === 'staff') {
+                    if (typeof fb_renderStaffBuilderForm === 'function') fb_renderStaffBuilderForm();
+                } else {
+                    fb_renderForm();
+                }
+            }, 0);
         }
 
         function fb_toggleView() {
@@ -12169,7 +12927,7 @@
 
             const switcher = document.getElementById('fb_view_switcher');
             if (switcher) {
-                switcher.style.display = fb_staff_active ? 'flex' : 'none';
+                switcher.style.setProperty('display', fb_staff_active ? 'flex' : 'none', 'important');
                 if (fb_staff_active) {
                     switcher.classList.remove('hidden');
                     switcher.classList.add('flex');
@@ -12178,6 +12936,9 @@
                     switcher.classList.remove('flex');
                 }
             }
+
+            const staffEl = document.getElementById('fb_staff_enable');
+            if (staffEl) staffEl.checked = !!fb_staff_active;
             
             const tabStudent = document.getElementById('fb_tab_student');
             const tabStaff = document.getElementById('fb_tab_staff');
