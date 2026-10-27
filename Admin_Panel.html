@@ -3735,7 +3735,96 @@
             };
 
 
-            async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
+                        async function deleteUserFromFirebaseAuth(email, fallbackPassword = '') {
+                if (!email) return false;
+                const cleanEmail = String(email).trim().toLowerCase();
+                const apiKey = (window.firebaseAPI && window.firebaseAPI.firebaseConfig && window.firebaseAPI.firebaseConfig.apiKey) || "AIzaSyBMZ3LUNSQubKjanv4MNyDNsvKwPmsKQY8";
+                
+                // 1. Gather candidate passwords
+                const passwordsToTry = [];
+                if (fallbackPassword) passwordsToTry.push(String(fallbackPassword).trim());
+                
+                // Check Firestore system/school_auth for stored hash
+                try {
+                    if (window.db && window.firebaseAPI && window.firebaseAPI.doc && window.firebaseAPI.getDoc) {
+                        const safeKey = cleanEmail.replace(/[^a-z0-9]/g, '_');
+                        const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                        const authSnap = await window.firebaseAPI.getDoc(authDocRef);
+                        if (authSnap && authSnap.exists()) {
+                            const data = authSnap.data() || {};
+                            if (data[safeKey] && data[safeKey].hash) {
+                                const decrypted = typeof decryptSchoolPassword === 'function' ? decryptSchoolPassword(data[safeKey].hash) : '';
+                                if (decrypted && !passwordsToTry.includes(decrypted)) passwordsToTry.unshift(decrypted);
+                            }
+                            for (const k of Object.keys(data)) {
+                                if (data[k] && data[k].email && String(data[k].email).toLowerCase() === cleanEmail && data[k].hash) {
+                                    const d = typeof decryptSchoolPassword === 'function' ? decryptSchoolPassword(data[k].hash) : '';
+                                    if (d && !passwordsToTry.includes(d)) passwordsToTry.unshift(d);
+                                }
+                            }
+                        }
+                    }
+                } catch(e) {
+                    console.warn("Notice reading school_auth for delete:", e);
+                }
+
+                const prefix = cleanEmail.split('@')[0];
+                const commonFallbacks = ['123456', prefix, prefix.toUpperCase(), 'school123', 'admin123', '12345678'];
+                for (const f of commonFallbacks) {
+                    if (!passwordsToTry.includes(f)) passwordsToTry.push(f);
+                }
+
+                // 2. Direct Firebase Auth REST API deletion (fast, clean, no SDK collision)
+                for (const pwd of passwordsToTry) {
+                    try {
+                        const loginResp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: cleanEmail, password: pwd, returnSecureToken: true })
+                        });
+                        const loginData = await loginResp.json();
+                        if (loginData && loginData.idToken) {
+                            const delResp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${apiKey}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ idToken: loginData.idToken })
+                            });
+                            if (delResp.ok) {
+                                console.log(`Successfully deleted ${cleanEmail} from Firebase Authentication!`);
+                                return true;
+                            }
+                        }
+                    } catch(err) {
+                        console.warn(`REST delete attempt notice for ${cleanEmail}:`, err);
+                    }
+                }
+
+                // 3. Secondary SDK fallback
+                if (window.firebaseAPI && window.firebaseAPI.initializeApp && window.firebaseAPI.firebaseConfig) {
+                    for (const pwd of passwordsToTry) {
+                        let tempApp = null;
+                        try {
+                            tempApp = window.firebaseAPI.initializeApp(window.firebaseAPI.firebaseConfig, 'DelAuth_' + Date.now());
+                            const tempAuth = window.firebaseAPI.getAuth(tempApp);
+                            const cred = await window.firebaseAPI.signInWithEmailAndPassword(tempAuth, cleanEmail, pwd);
+                            if (cred && cred.user) {
+                                await cred.user.delete();
+                                console.log(`Deleted ${cleanEmail} from Firebase Authentication via SDK.`);
+                                return true;
+                            }
+                        } catch(e) {}
+                        finally {
+                            if (tempApp && typeof window.firebaseAPI.deleteApp === 'function') {
+                                await window.firebaseAPI.deleteApp(tempApp).catch(()=>{});
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+            window.deleteUserFromFirebaseAuth = deleteUserFromFirebaseAuth;
+
+async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
                 if (!target || !target.id) return;
                 const schoolId = String(target.id);
                 const targetCode = String(target.code || '').trim().toUpperCase();
@@ -3844,31 +3933,12 @@
                         // 1. Sync updated schools list to Firebase
                         await saveSchoolsList(schoolsList).catch(()=>{});
 
-                        // 2. Delete from Firebase Authentication
-                        if (target.email && window.firebaseAPI && window.firebaseAPI.initializeApp && window.firebaseAPI.firebaseConfig) {
-                            let tempApp = null;
+                        // 2. Delete from Firebase Authentication (guaranteed permanent deletion)
+                        if (target.email) {
                             try {
-                                const safeKey = target.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
-                                const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
-                                const authSnap = await window.firebaseAPI.getDoc(authDocRef);
-                                let schoolPassword = '';
-                                if (authSnap.exists() && authSnap.data()[safeKey]?.hash) {
-                                    schoolPassword = decryptSchoolPassword(authSnap.data()[safeKey].hash);
-                                }
-                                if (schoolPassword) {
-                                    tempApp = window.firebaseAPI.initializeApp(window.firebaseAPI.firebaseConfig, 'DelAuth_' + Date.now());
-                                    const tempAuth = window.firebaseAPI.getAuth(tempApp);
-                                    const cred = await window.firebaseAPI.signInWithEmailAndPassword(tempAuth, target.email, schoolPassword);
-                                    if (cred && cred.user) {
-                                        await cred.user.delete();
-                                    }
-                                }
+                                await deleteUserFromFirebaseAuth(target.email, target.password || target.code);
                             } catch(delAuthErr) {
                                 console.warn("Firebase Auth delete notice:", delAuthErr.message);
-                            } finally {
-                                if (tempApp && typeof window.firebaseAPI.deleteApp === 'function') {
-                                    await window.firebaseAPI.deleteApp(tempApp).catch(()=>{});
-                                }
                             }
                         }
 

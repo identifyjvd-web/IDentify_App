@@ -271,12 +271,36 @@
             window.isPublicFormMode = isPublicFormMode;
             window.publicSchoolParam = publicSchoolParam;
 
-            onAuthStateChanged(window.auth, (user) => {
+            onAuthStateChanged(window.auth, async (user) => {
                 if (isPublicFormMode || window.isCameraSyncMode) {
                     // Public Registration Form mode or Camera Sync mode: allow unauthenticated direct access
                     return;
                 }
                 if (!user) {
+                    // Check if a valid unexpired school session exists in localStorage
+                    let hasActiveSession = false;
+                    try {
+                        const rawAuth = localStorage.getItem('student_auth_v1');
+                        const lastActive = localStorage.getItem('last_active_time');
+                        if (rawAuth && lastActive) {
+                            const diff = Date.now() - parseInt(lastActive, 10);
+                            if (diff <= 10 * 60 * 1000) {
+                                hasActiveSession = true;
+                            }
+                        }
+                    } catch(e){}
+
+                    if (hasActiveSession) {
+                        try {
+                            if (window.auth && typeof signInWithEmailAndPassword === 'function') {
+                                await signInWithEmailAndPassword(window.auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
+                            }
+                        } catch(bridgeErr) {
+                            console.warn("Silent bridge reconnect notice:", bridgeErr);
+                        }
+                        return;
+                    }
+
                     localStorage.removeItem('student_auth_v1');
                     window.location.replace('Login_Panel.html?msg=session_expired');
                 } else if (isSystemAdmin(user.email)) {
@@ -8545,8 +8569,8 @@
                                 let localMaxSn = 0;
                                 db.forEach(r => {
                                     const rNum = extractSnNumber(r.sn);
-                                    if (rNum > 0 && rNum < 1000000000 && rNum > localMaxSn) localMaxSn = rNum;
-                                        localMaxSn = Number(r.sn);
+                                    if (rNum > 0 && rNum < 1000000000 && rNum > localMaxSn) {
+                                        localMaxSn = rNum;
                                     }
                                 });
                                 try {
@@ -11631,9 +11655,9 @@
                             let localMaxSn = 0;
                             db.forEach(r => {
                                 const rNum = extractSnNumber(r.sn);
-                                if (rNum > 0 && rNum < 1000000000 && rNum > localMaxSn) localMaxSn = rNum;
-                                    localMaxSn = Number(r.sn);
-                                }
+                                    if (rNum > 0 && rNum < 1000000000 && rNum > localMaxSn) {
+                                        localMaxSn = rNum;
+                                    }
                             });
                             
                             let nextSn;

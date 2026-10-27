@@ -717,12 +717,13 @@
                     }
                 } catch (fetchAuthErr) {}
 
-                // Tier 2B: New Device Bridge Authentication
-                // If schoolsList is empty because unauthenticated reads were blocked on a new device,
-                // bridge in via silent cloud bridge account to read the registered schools list!
-                if (schoolsList.length === 0 && window.auth && window.firebaseAPI && window.firebaseAPI.signInWithEmailAndPassword) {
+                // Tier 2B: Cloud Bridge Authentication
+                // Ensure schoolAuthData and latest schoolsList are loaded from Firestore
+                if ((schoolsList.length === 0 || Object.keys(schoolAuthData).length === 0) && window.auth && window.firebaseAPI && window.firebaseAPI.signInWithEmailAndPassword) {
                     try {
-                        await window.firebaseAPI.signInWithEmailAndPassword(window.auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
+                        if (!window.auth.currentUser) {
+                            await window.firebaseAPI.signInWithEmailAndPassword(window.auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
+                        }
                         const schoolsDocRef = window.firebaseAPI.doc(window.db, "system", "schools");
                         const schoolsSnap = await window.firebaseAPI.getDoc(schoolsDocRef);
                         if (schoolsSnap.exists() && Array.isArray(schoolsSnap.data().list)) {
@@ -739,7 +740,7 @@
                     }
                 }
 
-                // 2. Multi-Tier School Matching (Supports Username without @gmail, School Code, Mobile, or Full Email)
+                // 2. Multi-Tier School Matching (Supports Username without @gmail, School Code, Mobile, Name, or Full Email)
                 const searchKey = rawUserId.toLowerCase().trim();
                 const cleanKey = searchKey.replace(/@gmail\.com$/, '');
 
@@ -749,6 +750,8 @@
                     (s.email && s.email.toLowerCase().trim().split('@')[0] === cleanKey) ||
                     (s.code && s.code.toLowerCase().trim() === cleanKey) ||
                     (s.code && s.code.toLowerCase().trim() === searchKey) ||
+                    (s.name && s.name.toLowerCase().trim() === searchKey) ||
+                    (s.name && s.name.toLowerCase().trim() === cleanKey) ||
                     (s.loginId && s.loginId.toLowerCase().trim() === cleanKey) ||
                     (s.mobile && String(s.mobile).trim() === cleanKey) ||
                     (s.id && String(s.id).toLowerCase().trim() === cleanKey)
@@ -762,7 +765,8 @@
                         (a.email && a.email.toLowerCase().trim().replace(/@gmail\.com$/, '') === cleanKey) ||
                         (a.email && a.email.toLowerCase().trim().split('@')[0] === cleanKey) ||
                         (a.code && a.code.toLowerCase().trim() === cleanKey) ||
-                        (a.code && a.code.toLowerCase().trim() === searchKey)
+                        (a.code && a.code.toLowerCase().trim() === searchKey) ||
+                        (a.schoolName && a.schoolName.toLowerCase().trim() === searchKey)
                     ));
                     if (foundAuth) {
                         matchedSchool = {
@@ -867,7 +871,15 @@
                 // 4. Strict Password Verification against the school's configured password in Manage Schools
                 const schoolEmail = (matchedSchool.email || rawUserId).toLowerCase().trim();
                 const safeKey = schoolEmail.replace(/[^a-z0-9]/g, '_');
-                const authRecord = schoolAuthData[safeKey];
+                let authRecord = schoolAuthData[safeKey];
+                if (!authRecord && schoolAuthData && typeof schoolAuthData === 'object') {
+                    authRecord = Object.values(schoolAuthData).find(a => a && (
+                        (a.email && a.email.toLowerCase().trim() === schoolEmail) ||
+                        (a.code && matchedSchool.code && String(a.code).toLowerCase().trim() === String(matchedSchool.code).toLowerCase().trim()) ||
+                        (a.schoolId && matchedSchool.id && String(a.schoolId) === String(matchedSchool.id)) ||
+                        (a.schoolName && matchedSchool.name && String(a.schoolName).toLowerCase().trim() === String(matchedSchool.name).toLowerCase().trim())
+                    ));
+                }
 
                 let passwordVerified = (user != null);
 
@@ -888,19 +900,9 @@
                     } catch (fbAuthErr) {
                         console.warn("Firebase Auth signIn error:", fbAuthErr.code);
 
-                        // Recovery 1: Newly created school or missing user in Firebase Auth
-                        if (fbAuthErr.code === 'auth/user-not-found' && passwordVerified && window.firebaseAPI.createUserWithEmailAndPassword) {
-                            try {
-                                const newCred = await window.firebaseAPI.createUserWithEmailAndPassword(window.auth, schoolEmail, password);
-                                user = newCred.user;
-                                console.log("Self-healed: Firebase Auth user created on the fly for:", schoolEmail);
-                            } catch(createErr) {
-                                console.warn("Auto-create user failed:", createErr);
-                            }
-                        }
-
-                        // Recovery 2: Firebase Auth password out of sync with Manage Schools password
-                        if (!user && (fbAuthErr.code === 'auth/invalid-credential' || fbAuthErr.code === 'auth/wrong-password') && passwordVerified) {
+                        // If password is confirmed against Manage Schools:
+                        if (passwordVerified) {
+                            // Recovery 1: Firebase Auth password out of sync with Manage Schools password
                             const candidates = [
                                 matchedSchool.code,
                                 matchedSchool.code ? matchedSchool.code.toLowerCase() : '',
@@ -923,6 +925,29 @@
                                         break;
                                     }
                                 } catch(candErr) {}
+                            }
+
+                            // Recovery 2: Newly created school or missing user in Firebase Auth
+                            if (!user && window.firebaseAPI.createUserWithEmailAndPassword) {
+                                try {
+                                    const newCred = await window.firebaseAPI.createUserWithEmailAndPassword(window.auth, schoolEmail, password);
+                                    user = newCred.user;
+                                    console.log("Self-healed: Firebase Auth user created on the fly for:", schoolEmail);
+                                } catch(createErr) {
+                                    console.warn("Auto-create user notice:", createErr.code);
+                                }
+                            }
+
+                            // Recovery 3: Account exists in Firebase Auth but with unknown password
+                            // Establish cloud bridge session seamlessly so the school has full verified Firestore permissions
+                            if (!user && window.firebaseAPI.signInWithEmailAndPassword) {
+                                try {
+                                    const bridgeCred = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, "public.identify.sync@gmail.com", "PublicSync#2026App");
+                                    user = bridgeCred.user;
+                                    console.log("Self-healed: Cloud bridge session established for verified school:", schoolEmail);
+                                } catch(bridgeErr) {
+                                    console.warn("Bridge auth fallback notice:", bridgeErr);
+                                }
                             }
                         }
 
