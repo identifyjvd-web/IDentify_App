@@ -508,6 +508,7 @@
                                 onclick="toggleFilterMenu('class', this)">
                                 <span id="filterClassText" class="filter-class-text-container">All Class</span>
                             </button>
+                            <div id="filterClassMenu" class="filter-menu"></div>
                         </div>
 
                         <button id="btn-all-data" class="school-filter-btn active shrink-0"
@@ -544,7 +545,7 @@
 
                 <!-- Records List View -->
                 <div id="records-list-view" class="pt-1 flex-1 flex flex-col min-h-0 overflow-hidden relative" ontouchstart="handleHomeTouchStart(event)" ontouchend="handleHomeTouchEnd(event)">
-                    <div class="flex-1 overflow-y-auto custom-scroll system-scroll px-4 pt-1 pb-6" ontouchstart="handleHomeTouchStart(event)" ontouchend="handleHomeTouchEnd(event)">
+                    <div class="flex-1 overflow-y-auto custom-scroll system-scroll px-4 pt-1 pb-6">
                         <div id="records-list-container" class="system-card rounded-3xl overflow-hidden">
                             <!-- Premium Skeleton Loading Animation -->
                             <div id="skeleton-loader" class="divide-y divide-gray-50 bg-white">
@@ -6449,18 +6450,29 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
 
             function toggleFilterMenu(type, anchorOverride) {
                 closeYearMenu();
-                const menu = document.getElementById(`filter${type.charAt(0).toUpperCase() + type.slice(1)}Menu`);
+                let menu = document.getElementById(`filter${type.charAt(0).toUpperCase() + type.slice(1)}Menu`);
                 const btn = anchorOverride || document.getElementById(`filter${type.charAt(0).toUpperCase() + type.slice(1)}Btn`);
+                if (!menu) {
+                    menu = document.createElement('div');
+                    menu.id = `filter${type.charAt(0).toUpperCase() + type.slice(1)}Menu`;
+                    menu.className = 'filter-menu';
+                    document.body.appendChild(menu);
+                }
                 if (!menu || !btn) return;
                 const willShow = !menu.classList.contains('show');
                 closeFilterMenus();
                 if (willShow) {
+                    if (type === 'class' && typeof populateFilters === 'function') {
+                        populateFilters();
+                    }
                     menu.classList.add('show');
                     positionFloatingMenu(menu, btn, { align: 'left', gap: 6, minWidth: btn.offsetWidth || 140, fixed: true });
                     bindMenuAutoHide(menu);
                     scheduleMenuAutoHide();
                 }
             }
+            window.toggleFilterMenu = toggleFilterMenu;
+            window.closeFilterMenus = closeFilterMenus;
             function closeFilterMenus() {
                 clearMenuAutoHideTimer();
                 isMouseOverMenu = false;
@@ -6731,6 +6743,8 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
                 }
                 filterRecords();
             }
+            window.setFilterValue = setFilterValue;
+            window.populateFilters = populateFilters;
 
             function toggleYearMenu() {
                 const menu = document.getElementById('chart-year-menu');
@@ -12148,6 +12162,7 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
             }            function setChipFilter(type, value) {
                 if (type === 'status') {
                     activeStatusFilter = value;
+                    try { window.activeStatusFilter = value; } catch(e) {}
                     if (value === 'all') {
                         showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">database</span> All Data Selected');
                     } else if (value === 'verified') {
@@ -12316,9 +12331,14 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
             }
 
             function populateFilters(classesOverride) {
-                const classMenu = document.getElementById('filterClassMenu');
+                let classMenu = document.getElementById('filterClassMenu');
                 const classText = document.getElementById('filterClassText');
-                if (!classMenu) return;
+                if (!classMenu) {
+                    classMenu = document.createElement('div');
+                    classMenu.id = 'filterClassMenu';
+                    classMenu.className = 'filter-menu';
+                    document.body.appendChild(classMenu);
+                }
 
                 const preferredOrder = ['Nursery', 'KG-1', 'KG-2', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'];
 
@@ -15872,6 +15892,7 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
     <script>
     let _homeTouchStartX = 0;
     let _homeTouchStartY = 0;
+    let _lastFilterSwipeTime = 0;
 
     function handleHomeTouchStart(e) {
         if (e && e.touches && e.touches[0]) {
@@ -15882,6 +15903,11 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
     window.handleHomeTouchStart = handleHomeTouchStart;
 
     function handleFilterSwipe(direction) {
+        // Cooldown: prevent rapid multi-triggers in single swipe gesture
+        const now = Date.now();
+        if (now - _lastFilterSwipeTime < 320) return;
+        _lastFilterSwipeTime = now;
+
         // Prevent swipe filter change during form entry, modals, or multi-selection
         if (typeof blankRecordMode !== 'undefined' && blankRecordMode !== 'none') return;
         if (typeof bulkSelectActive !== 'undefined' && bulkSelectActive) return;
@@ -15891,23 +15917,39 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
         const customModal = document.getElementById('custom-modal');
         if (customModal && !customModal.classList.contains('hidden')) return;
 
+        // All status filters in standard visual sequence
         const filterOrder = ['all', 'verified', 'unverified', 'pending'];
-        const currentFilter = (typeof activeStatusFilter !== 'undefined' && activeStatusFilter) ? activeStatusFilter : 'all';
-        const currentIndex = filterOrder.indexOf(currentFilter);
-        const validIndex = currentIndex >= 0 ? currentIndex : 0;
+        const binBtn = document.getElementById('btn-recycle-bin');
+        if (binBtn && binBtn.style.display !== 'none' && !binBtn.classList.contains('hidden')) {
+            filterOrder.push('recycleBin');
+        }
+
+        // Determine currently active status filter accurately
+        let currentFilter = (typeof window.activeStatusFilter !== 'undefined' && window.activeStatusFilter)
+            ? window.activeStatusFilter
+            : ((typeof activeStatusFilter !== 'undefined' && activeStatusFilter) ? activeStatusFilter : 'all');
+
+        let currentIndex = filterOrder.indexOf(currentFilter);
+        if (currentIndex < 0) {
+            if (document.getElementById('btn-verified')?.classList.contains('active')) currentIndex = filterOrder.indexOf('verified');
+            else if (document.getElementById('btn-unverified')?.classList.contains('active')) currentIndex = filterOrder.indexOf('unverified');
+            else if (document.getElementById('btn-pending')?.classList.contains('active')) currentIndex = filterOrder.indexOf('pending');
+            else if (document.getElementById('btn-recycle-bin')?.classList.contains('active')) currentIndex = filterOrder.indexOf('recycleBin');
+            else currentIndex = 0;
+        }
 
         if (direction === 'left') {
-            // Swipe Left -> Next filter in sequence (All -> Verified -> Unverified -> Pending)
-            if (validIndex < filterOrder.length - 1) {
-                const nextFilter = filterOrder[validIndex + 1];
+            // Swipe Left -> Next filter in sequence
+            if (currentIndex < filterOrder.length - 1) {
+                const nextFilter = filterOrder[currentIndex + 1];
                 if (typeof setChipFilter === 'function') {
                     setChipFilter('status', nextFilter);
                 }
             }
         } else if (direction === 'right') {
-            // Swipe Right -> Previous filter in sequence (Pending -> Unverified -> Verified -> All)
-            if (validIndex > 0) {
-                const prevFilter = filterOrder[validIndex - 1];
+            // Swipe Right -> Previous filter in sequence
+            if (currentIndex > 0) {
+                const prevFilter = filterOrder[currentIndex - 1];
                 if (typeof setChipFilter === 'function') {
                     setChipFilter('status', prevFilter);
                 }
@@ -15918,11 +15960,14 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
 
     function handleHomeTouchEnd(e) {
         if (!e || !e.changedTouches || !e.changedTouches[0]) return;
+        if (e.stopPropagation) e.stopPropagation();
         const diffX = e.changedTouches[0].clientX - _homeTouchStartX;
         const diffY = e.changedTouches[0].clientY - _homeTouchStartY;
+        _homeTouchStartX = 0;
+        _homeTouchStartY = 0;
 
-        // Snappy horizontal threshold: at least 45px horizontal movement, dominating vertical scroll
-        if (Math.abs(diffX) > 45 && Math.abs(diffX) > Math.abs(diffY) * 1.25) {
+        // Snappy horizontal threshold: at least 40px horizontal movement, dominating vertical scroll
+        if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY) * 1.25) {
             if (diffX < 0) {
                 // Swiped Left -> Next filter
                 handleFilterSwipe('left');
