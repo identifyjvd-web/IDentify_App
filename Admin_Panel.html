@@ -1445,6 +1445,7 @@
                     }
                     
                     saveAuthUser(authUser);
+                    try { sessionStorage.setItem('admin_session_auth_pwd', password); if (typeof encryptSchoolPassword === 'function') { localStorage.setItem('admin_verified_pass_cache', encryptSchoolPassword(password)); } } catch(e){}
                     resetAutoLogoutTimer();
                     showLoginOverlay(false);
                     showTab('records');
@@ -3697,12 +3698,55 @@
             }
             window.backFromSchoolForm = backFromSchoolForm;
 
-            async function verifyAdminSecurityCredential(enteredInput) {
+            async function verifyAdminSecurityCredential(enteredInput, targetSchool = null) {
                 try {
                     const entered = (enteredInput || '').trim();
                     if (!entered) return false;
 
-                    // 1. Candidate Admin Emails for Live Firebase Verification
+                    // 1. Direct Live Firebase Firestore Verification (Instant Server Fetch from system/school_auth)
+                    try {
+                        if (window.db && window.firebaseAPI && typeof window.firebaseAPI.getDoc === 'function' && typeof window.firebaseAPI.doc === 'function') {
+                            const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
+                            const authSnap = await window.firebaseAPI.getDoc(authDocRef);
+                            if (authSnap && authSnap.exists()) {
+                                const data = authSnap.data() || {};
+                                
+                                // Check all Admin keys in Firestore
+                                const adminKeys = ['admin', 'identify_jvd_gmail_com', 'system_admin'];
+                                for (const k of adminKeys) {
+                                    if (data[k] && data[k].hash && typeof decryptSchoolPassword === 'function') {
+                                        const dec = decryptSchoolPassword(data[k].hash);
+                                        if (dec && dec === entered) {
+                                            try {
+                                                sessionStorage.setItem('admin_session_auth_pwd', entered);
+                                                if (typeof encryptSchoolPassword === 'function') {
+                                                    localStorage.setItem('admin_verified_pass_cache', encryptSchoolPassword(entered));
+                                                }
+                                            } catch(e) {}
+                                            return true;
+                                        }
+                                    }
+                                }
+
+                                // Check target school or current school credentials if provided
+                                const schoolObj = targetSchool || (typeof getActiveShareSchool === 'function' ? getActiveShareSchool() : null) || (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
+                                if (schoolObj && schoolObj.email) {
+                                    const safeKey = String(schoolObj.email).toLowerCase().replace(/[^a-z0-9]/g, '_');
+                                    if (data[safeKey] && data[safeKey].hash && typeof decryptSchoolPassword === 'function') {
+                                        const dec = decryptSchoolPassword(data[safeKey].hash);
+                                        if (dec && dec === entered) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch(fsErr) {
+                        console.warn("Firestore school_auth live check notice:", fsErr);
+                    }
+
+                    // 2. Direct Live Firebase Authentication REST API Verification (Instant Server Validation)
+                    const apiKey = (window.firebaseAPI?.firebaseConfig?.apiKey) || "AIzaSyBMZ3LUNSQubKjanv4MNyDNsvKwPmsKQY8";
                     const candidateEmails = new Set();
                     candidateEmails.add('identify.jvd@gmail.com');
                     if (window.auth && window.auth.currentUser && window.auth.currentUser.email) {
@@ -3714,8 +3758,6 @@
                         if (ce !== 'public.identify.sync@gmail.com' && ce.includes('@')) candidateEmails.add(ce);
                     }
 
-                    // 2. Direct Live Firebase Authentication REST API Verification (Instant Server Validation)
-                    const apiKey = (window.firebaseAPI?.firebaseConfig?.apiKey) || "AIzaSyBMZ3LUNSQubKjanv4MNyDNsvKwPmsKQY8";
                     for (const email of candidateEmails) {
                         try {
                             const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
@@ -3740,53 +3782,21 @@
                         }
                     }
 
-                    // 3. Secondary Firebase SDK App Verification (if REST fetch was blocked by network/CORS)
-                    if (window.firebaseAPI && typeof window.firebaseAPI.initializeApp === 'function' && typeof window.firebaseAPI.getAuth === 'function' && typeof window.firebaseAPI.signInWithEmailAndPassword === 'function') {
-                        let tempApp = null;
+                    // 3. Native Firebase Auth Re-authentication (if user is currently signed in)
+                    if (window.auth && window.auth.currentUser && window.auth.currentUser.email && window.firebaseAPI) {
                         try {
-                            tempApp = window.firebaseAPI.initializeApp(window.firebaseAPI.firebaseConfig, 'admin_verify_' + Date.now());
-                            const tempAuth = window.firebaseAPI.getAuth(tempApp);
-                            for (const email of candidateEmails) {
-                                try {
-                                    const cred = await window.firebaseAPI.signInWithEmailAndPassword(tempAuth, email, entered);
-                                    if (cred && cred.user) {
-                                        try {
-                                            sessionStorage.setItem('admin_session_auth_pwd', entered);
-                                            if (typeof encryptSchoolPassword === 'function') {
-                                                localStorage.setItem('admin_verified_pass_cache', encryptSchoolPassword(entered));
-                                            }
-                                        } catch(e) {}
-                                        return true;
-                                    }
-                                } catch(e2) {}
+                            const { EmailAuthProvider, reauthenticateWithCredential } = window.firebaseAPI;
+                            if (EmailAuthProvider && reauthenticateWithCredential) {
+                                const cred = EmailAuthProvider.credential(window.auth.currentUser.email, entered);
+                                await reauthenticateWithCredential(window.auth.currentUser, cred);
+                                return true;
                             }
-                        } catch(e) {
-                        } finally {
-                            if (tempApp && typeof window.firebaseAPI.deleteApp === 'function') {
-                                await window.firebaseAPI.deleteApp(tempApp).catch(() => {});
-                            }
+                        } catch(reauthErr) {
+                            console.warn("Firebase reauthentication notice:", reauthErr);
                         }
                     }
 
-                    // 4. Check Firestore system/school_auth for stored Admin hash
-                    try {
-                        if (window.db && window.firebaseAPI && typeof window.firebaseAPI.getDoc === 'function' && typeof window.firebaseAPI.doc === 'function') {
-                            const authDocRef = window.firebaseAPI.doc(window.db, "system", "school_auth");
-                            const authSnap = await window.firebaseAPI.getDoc(authDocRef);
-                            if (authSnap && authSnap.exists()) {
-                                const data = authSnap.data() || {};
-                                const adminKeys = ['identify_jvd_gmail_com', 'admin', 'system_admin'];
-                                for (const k of adminKeys) {
-                                    if (data[k] && data[k].hash && typeof decryptSchoolPassword === 'function') {
-                                        const dec = decryptSchoolPassword(data[k].hash);
-                                        if (dec && dec === entered) return true;
-                                    }
-                                }
-                            }
-                        }
-                    } catch(e) {}
-
-                    // 5. Match against active verified Admin session password (entered during this admin login)
+                    // 4. Match against active verified Admin session password
                     try {
                         const sessionPwd = sessionStorage.getItem('admin_session_auth_pwd');
                         if (sessionPwd && entered === sessionPwd.trim()) return true;
@@ -3798,7 +3808,6 @@
                         }
                     } catch(e) {}
 
-                    // No bypass, no PINs, no school passwords. Only verified Admin password allowed!
                     return false;
                 } catch (fatalErr) {
                     console.warn("verifyAdminSecurityCredential error:", fatalErr);
@@ -13797,7 +13806,7 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
                     }
                 }
                 
-                document.getElementById('modal-title').textContent = title;
+                const titleEl = document.getElementById('modal-title'); if (titleEl) { if (typeof title === 'string' && title.includes('<') && title.includes('>')) { titleEl.innerHTML = title; } else { titleEl.textContent = title || ''; } }
                 
                 const msgEl = document.getElementById('modal-msg');
                 if (msgEl) {
