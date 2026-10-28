@@ -665,6 +665,12 @@
                     user = userCredential.user;
                     authUser = { userId: 'admin', name: 'Admin', role: 'teacher', viewMode: 'all', email: user.email || adminEmail };
                     saveAuthUser(authUser);
+                    try {
+                        sessionStorage.setItem('admin_session_auth_pwd', password);
+                        if (typeof encryptSchoolPassword === 'function') {
+                            localStorage.setItem('admin_verified_pass_cache', encryptSchoolPassword(password));
+                        }
+                    } catch(e) {}
 
                     // Pre-fetch registered schools from all Firestore sources so Admin_Panel immediately knows all schools
                     try {

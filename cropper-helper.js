@@ -1,6 +1,21 @@
 let cropperInstance = null;
 let currentlyCroppingCustomIdx = null; // 1-indexed (1 to 5) or null for student photo
 
+function setCropAspectRatio(ratio, btn) {
+    if (!cropperInstance) return;
+    cropperInstance.setAspectRatio(ratio);
+    const buttons = document.querySelectorAll('.crop-ratio-btn');
+    buttons.forEach(b => {
+        b.classList.remove('bg-emerald-600', 'text-white');
+        b.classList.add('bg-slate-100', 'text-slate-700');
+    });
+    if (btn) {
+        btn.classList.remove('bg-slate-100', 'text-slate-700');
+        btn.classList.add('bg-emerald-600', 'text-white');
+    }
+}
+window.setCropAspectRatio = setCropAspectRatio;
+
 function openCropModal() {
     currentlyCroppingCustomIdx = null;
     const img = document.getElementById('blank-photo-preview-img');
@@ -16,14 +31,27 @@ function openCropModal() {
     const pMeta = (typeof fb_standard_meta !== 'undefined' ? fb_standard_meta['photo'] : null) || (typeof schoolConfig !== 'undefined' && schoolConfig.formMeta && schoolConfig.formMeta['photo']) || {};
     const cWidth = pMeta.width || 600;
     const cHeight = pMeta.height || 800;
+    const defaultRatio = (cWidth && cHeight) ? (cWidth / cHeight) : (3 / 4);
 
     if (cropperInstance) { cropperInstance.destroy(); }
     cropperInstance = new Cropper(cropImg, {
-        aspectRatio: cWidth / cHeight,
+        aspectRatio: defaultRatio,
         viewMode: 1,
         autoCropArea: 1,
     });
     window.cropperInstance = cropperInstance;
+
+    // Reset crop ratio buttons active state to 3:4 default
+    const buttons = document.querySelectorAll('.crop-ratio-btn');
+    buttons.forEach((b, idx) => {
+        if (idx === 0) {
+            b.classList.remove('bg-slate-100', 'text-slate-700');
+            b.classList.add('bg-emerald-600', 'text-white');
+        } else {
+            b.classList.remove('bg-emerald-600', 'text-white');
+            b.classList.add('bg-slate-100', 'text-slate-700');
+        }
+    });
 }
 
 function openCustomCropModal(idx) {
@@ -67,15 +95,14 @@ function applyCrop() {
     
     if (currentlyCroppingCustomIdx !== null) {
         const idx = currentlyCroppingCustomIdx;
-        const field = (typeof fb_fields !== 'undefined' && fb_fields[idx - 1]) || {};
-        const imgWidth = field.width || 600;
-        const imgHeight = field.height || 800;
         const canvas = cropperInstance.getCroppedCanvas({
-            width: imgWidth,
-            height: imgHeight,
+            maxWidth: 1200,
+            maxHeight: 1200,
+            imageSmoothingEnabled: true,
+            imageSmoothingQuality: 'high',
         });
         if (canvas) {
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             if (typeof syncBlankField === 'function') {
                 syncBlankField(`in-customField${idx}`, dataUrl);
             }
@@ -127,15 +154,14 @@ function applyCrop() {
             if (typeof renderCurrentRecordsPage === 'function') renderCurrentRecordsPage();
         }
     } else {
-        const pMeta = (typeof fb_standard_meta !== 'undefined' ? fb_standard_meta['photo'] : null) || (typeof schoolConfig !== 'undefined' && schoolConfig.formMeta && schoolConfig.formMeta['photo']) || {};
-        const cWidth = pMeta.width || 600;
-        const cHeight = pMeta.height || 800;
         const canvas = cropperInstance.getCroppedCanvas({
-            width: cWidth,
-            height: cHeight,
+            maxWidth: 1200,
+            maxHeight: 1200,
+            imageSmoothingEnabled: true,
+            imageSmoothingQuality: 'high',
         });
         if (canvas) {
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             if (typeof window.setPhotoData === 'function') {
                 window.setPhotoData(dataUrl);
             }
@@ -145,6 +171,30 @@ function applyCrop() {
             if (typeof showPhotoPreview === 'function') {
                 showPhotoPreview(dataUrl);
             }
+            if (typeof pendingUploadedDocument !== 'undefined') {
+                pendingUploadedDocument = null;
+            }
+            if (typeof previewRecord !== 'undefined' && previewRecord) {
+                previewRecord.photoData = dataUrl;
+                previewRecord._displayPhotoSrc = dataUrl;
+                previewRecord.docUrl = '';
+                previewRecord.docFileId = '';
+            }
+
+            // Save cropped blob to IndexedDB attachments for background sync to Firebase Storage
+            const editIdEl = document.getElementById('edit-id');
+            const activeRecId = (typeof previewRecord !== 'undefined' && previewRecord && previewRecord.id) 
+                ? previewRecord.id 
+                : (editIdEl && editIdEl.value ? editIdEl.value : (typeof draftServerRecordId !== 'undefined' ? draftServerRecordId : ''));
+            if (activeRecId && window.idbPut && typeof dataUrlToBlob === 'function') {
+                try {
+                    const blob = dataUrlToBlob(dataUrl);
+                    if (blob) {
+                        idbPut('attachments', { id: `${activeRecId}::photo`, blob: blob, savedAt: Date.now() }).catch(() => {});
+                    }
+                } catch(e) {}
+            }
+
             if (typeof queueServerDraftSync === 'function') queueServerDraftSync();
             if (typeof renderCurrentRecordsPage === 'function') renderCurrentRecordsPage();
         }

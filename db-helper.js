@@ -248,6 +248,11 @@ const appSyncChannel = (typeof BroadcastChannel !== 'undefined') ? new Broadcast
 if (appSyncChannel) {
     appSyncChannel.onmessage = (event) => {
         if (event && event.data && event.data.type === 'RECORD_SYNC_EVENT') {
+            const activeSchoolId = (typeof getActiveSchoolId === 'function' ? getActiveSchoolId() : (localStorage.getItem('identify_active_school_id') || ''));
+            // Tenant isolation: if event specifies a schoolId and it does not match current active school, ignore
+            if (event.data.schoolId && activeSchoolId && String(event.data.schoolId) !== String(activeSchoolId)) {
+                return;
+            }
             console.log('[BroadcastChannel] Instant sync event received:', event.data.action);
             if (typeof loadAllData === 'function') {
                 loadAllData();
@@ -256,12 +261,14 @@ if (appSyncChannel) {
     };
 }
 
-function broadcastAppSync(action, payload) {
+function broadcastAppSync(action, payload, schoolId) {
     if (appSyncChannel) {
         try {
+            const currentSchoolId = schoolId || (typeof getActiveSchoolId === 'function' ? getActiveSchoolId() : (localStorage.getItem('identify_active_school_id') || ''));
             appSyncChannel.postMessage({
                 type: 'RECORD_SYNC_EVENT',
                 action: action,
+                schoolId: currentSchoolId,
                 payload: (payload && payload.id) ? payload.id : payload,
                 timestamp: Date.now()
             });
@@ -606,7 +613,9 @@ function prepareRecordForFirestore(data) {
         if (!cleanData.photoData) cleanData.photoData = cleanData.photo;
         delete cleanData.photo;
     }
-    if (cleanData.docUrl && String(cleanData.docUrl).startsWith('data:image') && cleanData.photoData && String(cleanData.photoData).startsWith('data:image')) {
+    if (cleanData.photoData && String(cleanData.photoData).startsWith('data:image')) {
+        cleanData.docUrl = '';
+    } else if (cleanData.docUrl && String(cleanData.docUrl).startsWith('data:image') && cleanData.photoData && String(cleanData.photoData).startsWith('data:image')) {
         cleanData.docUrl = '';
     }
     return cleanData;
