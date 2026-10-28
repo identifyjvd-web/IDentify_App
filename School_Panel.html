@@ -62,6 +62,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+    <script>window.QRious || document.write('<script src="qrious.min.js"><\/script>');</script>
     <script>
         // ISO/IEC 18004 Standard QR Code Quiet Zone & Centering Patch for QRious
         (function() {
@@ -3836,6 +3837,7 @@
             function refreshUiAfterLoad(classesOverride) {
                 try {
                     applyPendingRecordUpdates();
+                    if (typeof autoPurgeExpiredRecycleBinRecords === 'function') autoPurgeExpiredRecycleBinRecords();
                     populateFilters(classesOverride);
                     renderHomeAnalysis();
                     filterRecords();
@@ -6919,6 +6921,60 @@
                 updateBulkHeader();
             }
 
+            async function autoPurgeExpiredRecycleBinRecords() {
+                if (!Array.isArray(db) || db.length === 0) return;
+                const now = Date.now();
+                const AUTO_PURGE_MS = 24 * 60 * 60 * 1000; // 24 Hours in milliseconds
+                
+                const expiredRecords = [];
+                db.forEach(r => {
+                    if (!r) return;
+                    const isDel = (r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true');
+                    if (!isDel) return;
+                    
+                    if (!r.deletedAt) {
+                        r.deletedAt = new Date(now).toISOString();
+                        try { serverCallSilent('deleteRecord', [r], ()=>{}, ()=>{}); } catch(e){}
+                        return;
+                    }
+                    
+                    const delTime = (typeof r.deletedAt === 'number') ? r.deletedAt : new Date(r.deletedAt).getTime();
+                    if (isNaN(delTime)) return;
+                    
+                    if ((now - delTime) >= AUTO_PURGE_MS) {
+                        expiredRecords.push(r);
+                    }
+                });
+                
+                if (expiredRecords.length === 0) return;
+                
+                console.log(`[Recycle Bin Auto-Purge] Automatically permanently deleting ${expiredRecords.length} records expired > 24 hours...`);
+                
+                const expiredIds = new Set(expiredRecords.map(r => String(r.id)));
+                
+                db = db.filter(r => r && !expiredIds.has(String(r.id)));
+                bin = bin.filter(r => r && !expiredIds.has(String(r.id)));
+                if (typeof currentRenderedRecords !== 'undefined' && Array.isArray(currentRenderedRecords)) {
+                    currentRenderedRecords = currentRenderedRecords.filter(r => r && !expiredIds.has(String(r.id)));
+                }
+                
+                expiredRecords.forEach(r => {
+                    try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, r.id).catch(()=>{}); } catch(e){}
+                    try { serverCallSilent('permanentDelete', [r], ()=>{}, ()=>{}); } catch(e){}
+                });
+                
+                if (typeof syncMaxSnAfterDeletion === 'function') syncMaxSnAfterDeletion();
+                if (typeof persistLocalUnverified === 'function') persistLocalUnverified();
+                if (typeof updateBinBadge === 'function') updateBinBadge();
+                if (typeof renderHomeAnalysis === 'function') renderHomeAnalysis();
+                if (typeof filterRecords === 'function') filterRecords();
+                if (typeof renderRecycleBin === 'function' && typeof activeStatusFilter !== 'undefined' && activeStatusFilter === 'recycleBin') {
+                    renderRecycleBin();
+                }
+            }
+            window.autoPurgeExpiredRecycleBinRecords = autoPurgeExpiredRecycleBinRecords;
+            setInterval(autoPurgeExpiredRecycleBinRecords, 5 * 60 * 1000);
+
             function renderRecycleBin() {
                 const container = document.getElementById('bin-content');
                 if (!container) return;
@@ -6944,6 +7000,14 @@
                         const photoSrc = fixDriveImageUrl(x.docUrl || x.photoData || '');
                         const hasDoc = x.docUrl || x.photoData;
                         const isRecVerified = x.verified === true || String(x.verified).toLowerCase() === 'true';
+                        
+                        const delTime = x.deletedAt ? ((typeof x.deletedAt === 'number') ? x.deletedAt : new Date(x.deletedAt).getTime()) : Date.now();
+                        const msLeft = (24 * 60 * 60 * 1000) - (Date.now() - delTime);
+                        const hoursLeft = Math.max(0, Math.ceil(msLeft / (60 * 60 * 1000)));
+                        const timeBadge = hoursLeft > 0 
+                            ? `<span class="text-[9.5px] font-bold text-amber-600 bg-amber-50 border border-amber-200/60 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0" title="Auto-deletes permanently after 24 hours"><i class="fa-regular fa-clock text-[9px]"></i>${hoursLeft}h left</span>`
+                            : `<span class="text-[9.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200/60 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0"><i class="fa-solid fa-hourglass-end text-[9px]"></i>Expiring</span>`;
+
                         const rowClasses = ['flex', 'items-stretch', 'border-b', 'border-gray-100', 'h-[72px]', 'transition', 'cursor-pointer', 'hover:bg-slate-50/50', 'active:bg-emerald-50/40', 'bin-selection-zone', 'select-none', 'overflow-hidden'];
                         if (idx === 0) rowClasses.push('rounded-t-3xl');
                         if (idx === bin.length - 1) rowClasses.push('rounded-b-3xl', 'last:border-0');
@@ -6960,9 +7024,12 @@
                                         <div class="text-[11.5px] text-slate-500 font-bold truncate whitespace-nowrap">${['female', 'girl', 'f'].some(g => (x.gender || '').toLowerCase().includes(g)) ? 'D/o' : (['male', 'boy', 'm'].some(g => (x.gender || '').toLowerCase().includes(g)) ? 'S/o' : 'F:')}: ${sanitizeHTML(x.fatherName || '-')}</div>
                                     </div>
                                 </div>
-                                <div class="px-4 flex items-center justify-end gap-3 min-w-[120px]">
+                                <div class="px-4 flex items-center justify-end gap-3 min-w-[130px]">
                                     <div class="flex flex-col items-end justify-center gap-0.5">
-                                        <div class="text-[12px] font-black text-emerald-600 uppercase tracking-tight">${sanitizeHTML(x.sclass || '-')}</div>
+                                        <div class="flex items-center gap-1.5">
+                                            <div class="text-[12px] font-black text-emerald-600 uppercase tracking-tight">${sanitizeHTML(x.sclass || '-')}</div>
+                                            ${timeBadge}
+                                        </div>
                                         <div class="flex items-center gap-1 opacity-60">
                                             ${isRecVerified ? '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">verified</span>' : ''}
                                             ${isRecVerified ? '' : (hasDoc ? '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">unpublished</span>' : '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">no_photography</span>')}
@@ -6987,6 +7054,7 @@
             }
 
             function openRecycleBin() {
+                if (typeof autoPurgeExpiredRecycleBinRecords === 'function') autoPurgeExpiredRecycleBinRecords();
                 activateRecycleBinFilter();
             }
 
@@ -7092,37 +7160,24 @@
             }
 
             function deleteRow(id) {
-                showModal('confirm', 'Delete Record?', 'Are you sure you want to permanently delete this record from system and cloud?', () => {
+                showModal('confirm', 'Delete Record?', 'Move this record to Recycle Bin?', () => {
                     const deleted = findRecordById(db, id);
                     if (deleted) {
-                        const copyToDelete = { ...deleted };
                         addActivity('DELETE', deleted);
-                        db = db.filter(r => r && String(r.id) !== String(id));
-                        currentRenderedRecords = currentRenderedRecords.filter(r => r && String(r.id) !== String(id));
-                        try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
-                        persistLocalUnverified();
-
-                        // Immediate direct Firestore cloud deletion
-                        if (window.db && window.firebaseAPI && window.firebaseAPI.deleteDoc && window.firebaseAPI.doc) {
-                            const recId = String(id);
-                            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {};
-                            const scId = String(sc.id || deleted.schoolId || (sc.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
-                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", recId)).catch(()=>{});
-                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", recId)).catch(()=>{});
-                            if (sc.code) {
-                                window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", recId)).catch(()=>{});
-                            }
-                        }
-
-                        serverCallSilent('permanentDelete', [copyToDelete], ()=>{}, ()=>{});
-                        syncMaxSnAfterDeletion();
-                        showToast('Record permanently deleted from system and cloud ✓');
-                        renderCurrentRecordsPage();
+                        deleted.isDeleted = true;
+                        deleted.deletedAt = new Date().toISOString();
+                        storeRecordInDb(deleted);
+                        if (typeof window.queueServerDraftSync === 'function') window.queueServerDraftSync();
+                        try { if (window.idbPut) idbPut(IDB_STORE_RECORDS, deleted).catch(()=>{}); } catch(e){}
+                        serverCallSilent('deleteRecord', [deleted], ()=>{}, ()=>{});
+                        showToast('Record moved to Recycle Bin ✓');
+                        updateBinBadge();
+                        renderHomeAnalysis();
                         filterRecords();
                     } else {
                         showModal('error', 'Failed', 'Record not found.');
                     }
-                }, 'Delete Permanently');
+                }, 'Move to Bin');
             }
 
             function confirmDeleteAllSystemData() {
@@ -8690,39 +8745,30 @@
                 syncSelectedRecordsSection();
                 if (selectedRecords.size === 0) return;
                 
-                showModal('confirm', 'Delete Selected?', `Are you sure you want to permanently delete ${selectedRecords.size} records from system and cloud?`, () => {
+                showModal('confirm', 'Delete Selected?', `Move ${selectedRecords.size} records to Recycle Bin?`, () => {
                     const idsToDelete = Array.from(selectedRecords);
                     idsToDelete.forEach(id => {
-                        const rec = findRecordById(db, id) || findRecordById(bin, id);
-                        const copyToDelete = rec ? { ...rec } : { id };
-                        if(rec) {
+                        const rec = findRecordById(db, id);
+                        if (rec) {
                             addActivity('DELETE', rec);
+                            rec.isDeleted = true;
+                            rec.deletedAt = new Date().toISOString();
+                            storeRecordInDb(rec);
+                            try { if (window.idbPut) idbPut(IDB_STORE_RECORDS, rec).catch(()=>{}); } catch(e){}
+                            serverCallSilent('deleteRecord', [rec], ()=>{}, ()=>{});
                         }
-                        db = db.filter(r => r && String(r.id) !== String(id));
-                        currentRenderedRecords = currentRenderedRecords.filter(r => r && String(r.id) !== String(id));
-                        try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, id).catch(()=>{}); } catch(e){}
-
-                        if (window.db && window.firebaseAPI && typeof window.firebaseAPI.deleteDoc === 'function') {
-                            const sc = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : {};
-                            const scId = String(sc.id || copyToDelete.schoolId || (sc.code ? 'school_' + sc.code.toLowerCase() : 'school_dps'));
-                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", scId, "records", id)).catch(()=>{});
-                            window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "records", id)).catch(()=>{});
-                            if (sc.code) {
-                                window.firebaseAPI.deleteDoc(window.firebaseAPI.doc(window.db, "schools", "school_" + sc.code.toLowerCase(), "records", id)).catch(()=>{});
-                            }
-                        }
-
-                        serverCallSilent('permanentDelete', [copyToDelete], ()=>{}, ()=>{});
                     });
                     persistLocalUnverified();
                     syncMaxSnAfterDeletion();
 
-                    showToast(`${idsToDelete.length} records permanently deleted ✓`);
+                    showToast(`${idsToDelete.length} records moved to Recycle Bin ✓`);
                     selectedRecords.clear();
+                    isSelectionMode = false;
                     filterRecords();
                     renderHomeAnalysis();
                     updateBulkHeader();
-                }, 'Delete Permanently');
+                    updateBinBadge();
+                }, 'Move to Bin');
             }
 
             function sendToIdentifyFromPreview() {
@@ -8760,8 +8806,9 @@
                         }
                     });
                     
-                    const qrEnabled = localStorage.getItem('identify_qr_enabled') === 'true';
-                    const savedQrFields = JSON.parse(localStorage.getItem('identify_qr_fields') || '["id"]');
+                    const qrEnabled = localStorage.getItem('identify_qr_enabled') !== 'false';
+                    const rawSavedQr = localStorage.getItem('identify_qr_fields');
+                    const savedQrFields = rawSavedQr ? JSON.parse(rawSavedQr) : null;
                     const schoolName = (typeof schoolConfig !== 'undefined' && schoolConfig && (schoolConfig.name || schoolConfig.schoolName)) ? (schoolConfig.name || schoolConfig.schoolName) : 'Delhi Public School';
                     let schoolCode = 'DPS';
                     if (typeof schoolConfig !== 'undefined' && schoolConfig) {
@@ -8776,49 +8823,102 @@
                     
                     for (let i = 0; i < recordsToExport.length; i++) {
                         const rec = recordsToExport[i];
-                        
-                        const safeClass = (rec.sclass || 'General').replace(/[^a-zA-Z0-9\s]/g, '_').trim();
-                        const safeName = (rec.studentName || 'Unknown_Name').replace(/[^a-zA-Z0-9\s]/g, '_').trim();
-                        const baseFilename = `${safeClass}_${safeName}`;
+                        const isStaffRec = (rec.recordType === 'staff' || String(rec.sclass || '').trim().toLowerCase() === 'staff');
+                        const safeClass = (rec.sclass || (isStaffRec ? 'Staff' : 'General')).replace(/[^a-zA-Z0-9\s]/g, '_').trim();
+                        const safeName = (rec.studentName || rec.staffName || 'Unknown_Name').replace(/[^a-zA-Z0-9\s]/g, '_').trim();
+                        const baseFilename = (typeof getExportPhotoBaseName === 'function') ? getExportPhotoBaseName(rec, recordsToExport) : `${safeClass}_${safeName}`;
                         
                         let qrFileName = "";
                         if (qrEnabled) {
                             try {
-                                let qrLines = [];
-                                savedQrFields.forEach(f => {
-                                    let label = f;
-                                    let val = '';
-                                    if (f === '_schoolName') {
-                                        label = 'School Name';
-                                        val = schoolName;
-                                    } else if (f === '_appName') {
-                                        label = 'App Name';
-                                        val = appName;
-                                    } else if (f === 'id') {
-                                        label = 'System ID';
-                                        val = rec.id || '';
-                                    } else if (f === 'sn') {
-                                        label = 'SN';
-                                        val = typeof formatRecordSn === 'function' ? formatRecordSn(rec) : (rec.sn || '');
-                                    } else if (typeof FB_STANDARD_FIELDS !== 'undefined' && FB_STANDARD_FIELDS.some(sf => sf.id === f)) {
-                                        label = typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel(f, FB_STANDARD_FIELDS.find(sf => sf.id === f).label) : FB_STANDARD_FIELDS.find(sf => sf.id === f).label;
-                                        val = rec[f] || '';
-                                    } else if (typeof fb_fields !== 'undefined' && fb_fields.some(cf => cf.id === f)) {
-                                        label = fb_fields.find(cf => cf.id === f).label || f;
-                                        val = rec[f] || '';
+                                const lines = [];
+                                lines.push(`School Name: ${schoolName}`);
+                                lines.push(`App Name: ${appName}`);
+
+                                const snVal = typeof formatRecordSn === 'function' ? formatRecordSn(rec) : (rec.sn || '');
+                                if (snVal) lines.push(`SN: ${snVal}`);
+
+                                if (savedQrFields && Array.isArray(savedQrFields) && savedQrFields.length > 0 && !(savedQrFields.length === 1 && savedQrFields[0] === 'id')) {
+                                    savedQrFields.forEach(f => {
+                                        if (f === '_schoolName' || f === '_appName' || f === 'sn') return;
+                                        let label = f;
+                                        let val = '';
+                                        if (f === 'id') {
+                                            label = 'System ID';
+                                            val = rec.id || '';
+                                        } else if (typeof FB_STANDARD_FIELDS !== 'undefined' && FB_STANDARD_FIELDS.some(sf => sf.id === f)) {
+                                            label = typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel(f, FB_STANDARD_FIELDS.find(sf => sf.id === f).label) : FB_STANDARD_FIELDS.find(sf => sf.id === f).label;
+                                            val = rec[f] || '';
+                                        } else if (typeof fb_fields !== 'undefined' && fb_fields.some(cf => cf.id === f)) {
+                                            label = fb_fields.find(cf => cf.id === f).label || f;
+                                            val = rec[f] || '';
+                                        } else {
+                                            val = rec[f] || '';
+                                        }
+                                        if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '-') {
+                                            lines.push(`${label}: ${String(val).trim()}`);
+                                        }
+                                    });
+                                } else {
+                                    if (isStaffRec) {
+                                        const sName = rec.staffName || rec.studentName || '';
+                                        if (sName) lines.push(`Staff Name: ${sName}`);
+                                        const fhName = rec.fatherHusbandName || rec.fatherName || '';
+                                        if (fhName) lines.push(`Father / Husband Name: ${fhName}`);
+                                        const desig = rec.staff_designation || rec.designation || rec.sclass || '';
+                                        if (desig && desig.toLowerCase() !== 'staff') lines.push(`Designation: ${desig}`);
+                                        else lines.push(`Category: Staff`);
+                                        if (rec.mobile) lines.push(`Mobile: ${rec.mobile}`);
+                                        if (rec.dob) lines.push(`Date of Birth: ${rec.dob}`);
+                                        if (rec.gender) lines.push(`Gender: ${rec.gender}`);
+                                        if (rec.aadhar) lines.push(`Aadhar: ${rec.aadhar}`);
+                                        if (rec.address) lines.push(`Address: ${rec.address}`);
+                                        if (rec.bloodGroup || rec.blood_group) lines.push(`Blood Group: ${rec.bloodGroup || rec.blood_group}`);
                                     } else {
-                                        val = rec[f] || '';
+                                        const stdList = [
+                                            { id: 'studentName', defaultLabel: 'Student Name', val: rec.studentName },
+                                            { id: 'fatherName', defaultLabel: "Father's Name", val: rec.fatherName },
+                                            { id: 'motherName', defaultLabel: "Mother's Name", val: rec.motherName },
+                                            { id: 'sclass', defaultLabel: 'Class', val: rec.sclass },
+                                            { id: 'section', defaultLabel: 'Section', val: rec.section },
+                                            { id: 'rollNo', defaultLabel: 'Roll No', val: rec.rollNo || rec.roll_no },
+                                            { id: 'admissionNo', defaultLabel: 'Admission No', val: rec.admissionNo || rec.admission_no },
+                                            { id: 'dob', defaultLabel: 'Date of Birth', val: rec.dob },
+                                            { id: 'gender', defaultLabel: 'Gender', val: rec.gender },
+                                            { id: 'mobile', defaultLabel: 'Mobile', val: rec.mobile },
+                                            { id: 'aadhar', defaultLabel: 'Aadhar', val: rec.aadhar },
+                                            { id: 'bloodGroup', defaultLabel: 'Blood Group', val: rec.bloodGroup || rec.blood_group },
+                                            { id: 'address', defaultLabel: 'Address', val: rec.address }
+                                        ];
+                                        stdList.forEach(sf => {
+                                            const label = typeof fb_getStandardLabel === 'function' ? fb_getStandardLabel(sf.id, sf.defaultLabel) : sf.defaultLabel;
+                                            if (sf.val !== undefined && sf.val !== null && String(sf.val).trim() !== '' && String(sf.val).trim() !== '-') {
+                                                lines.push(`${label}: ${String(sf.val).trim()}`);
+                                            }
+                                        });
                                     }
-                                    if (val !== undefined && val !== null && String(val).trim() !== '') {
-                                        qrLines.push(`${label}: ${String(val).trim()}`);
+
+                                    const activeCustomList = isStaffRec ? (typeof fb_staff_fields !== 'undefined' ? fb_staff_fields : fb_fields) : fb_fields;
+                                    if (typeof activeCustomList !== 'undefined' && Array.isArray(activeCustomList)) {
+                                        activeCustomList.forEach((cf, idx) => {
+                                            if (cf && cf.label && cf.type !== 'section' && cf.type !== 'image' && cf.id !== 'photo') {
+                                                const cVal = rec[cf.id] || rec[`customField${idx + 1}`] || '';
+                                                if (cVal && String(cVal).trim() !== '' && String(cVal).trim() !== '-') {
+                                                    lines.push(`${cf.label}: ${String(cVal).trim()}`);
+                                                }
+                                            }
+                                        });
                                     }
-                                });
-                                let qrVal = qrLines.length > 0 ? qrLines.join('\n') : String(rec.id || 'NID');
-                                const qrDataUrl = generateStandardQRCodeDataURL(qrVal, 400, 'M', 'png');
+                                }
+
+                                const qrVal = lines.length > 0 ? lines.join('\n') : String(rec.id || 'NID');
+                                const qrDataUrl = generateStandardQRCodeDataURL(qrVal, 400, 'M', 'jpg');
                                 const qrBase64 = qrDataUrl ? qrDataUrl.split(',')[1] : '';
                                 if (qrBase64) {
-                                    qrFileName = `QR_${baseFilename}.png`;
-                                    zip.file(`QR_Codes/${qrFileName}`, qrBase64, {base64: true});
+                                    qrFileName = `${baseFilename}.jpg`;
+                                    const qrFolder = isStaffRec ? 'Staff_QR_Codes' : 'QR_Codes';
+                                    zip.file(`${qrFolder}/${qrFileName}`, qrBase64, {base64: true});
+                                    zip.file(`${qrFolder}/QR_${qrFileName}`, qrBase64, {base64: true});
                                 }
                             } catch(e) { console.error("QR Error", e); }
                         }
@@ -8827,16 +8927,17 @@
                         let photoUrl = rec.docUrl || rec.photoData;
                         if (photoUrl) {
                             photoFileName = `${baseFilename}.jpg`;
+                            const photoFolder = isStaffRec ? 'Staff_Photos' : 'Photos';
                             try {
                                 if (photoUrl.startsWith('data:image')) {
                                     const base64Data = photoUrl.split(',')[1];
-                                    zip.file(`Photos/${photoFileName}`, base64Data, {base64: true});
+                                    zip.file(`${photoFolder}/${photoFileName}`, base64Data, {base64: true});
                                 } else {
                                     photoUrl = fixDriveImageUrl(photoUrl);
                                     const response = await fetch(photoUrl, { mode: 'cors' });
                                     if (response.ok) {
                                         const blob = await response.blob();
-                                        zip.file(`Photos/${photoFileName}`, blob);
+                                        zip.file(`${photoFolder}/${photoFileName}`, blob);
                                     } else {
                                         console.warn("Failed to fetch photo for", baseFilename);
                                     }
@@ -8852,10 +8953,11 @@
                         }
                         
                         const rowData = {
+                            "SN": typeof formatRecordSn === 'function' ? formatRecordSn(rec) : (rec.sn || ""),
                             "ID": rec.id || "",
-                            "Student Name": rec.studentName || "",
+                            "Student Name": rec.studentName || rec.staffName || "",
                             "Class": rec.sclass || "",
-                            "Father Name": rec.fatherName || "",
+                            "Father Name": rec.fatherName || rec.fatherHusbandName || "",
                             "Gender": rec.gender || "",
                             "DOB": rec.dob || "",
                             "Mobile": rec.mobile || "",
@@ -12098,6 +12200,124 @@
                 w.document.close();
             }
 
+            function decryptSchoolPassword(encoded) {
+                if (!encoded) return '';
+                try {
+                    const raw = atob(encoded);
+                    const key = 'IdentifySecretKey_2024';
+                    let res = '';
+                    for (let i = 0; i < raw.length; i++) {
+                        res += String.fromCharCode(raw.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+                    }
+                    return res;
+                } catch(e) {
+                    return '';
+                }
+            }
+            window.decryptSchoolPassword = decryptSchoolPassword;
+
+            async function verifyAdminSecurityCredential(enteredInput, targetSchool = null) {
+                const entered = (enteredInput || '').trim();
+                if (!entered || entered.length < 4) return false;
+
+                const apiKey = (window.firebaseAPI?.firebaseConfig?.apiKey) || "AIzaSyBMZ3LUNSQubKjanv4MNyDNsvKwPmsKQY8";
+                
+                // 1. Gather real Admin & School account emails to verify against
+                const candidateEmails = new Set();
+                
+                if (typeof SYSTEM_ADMIN_EMAILS !== 'undefined' && Array.isArray(SYSTEM_ADMIN_EMAILS)) {
+                    SYSTEM_ADMIN_EMAILS.forEach(em => { 
+                        if (em && em !== 'admin') candidateEmails.add(em.toLowerCase().trim()); 
+                    });
+                }
+                candidateEmails.add('identify.jvd@gmail.com');
+
+                if (typeof currentUser !== 'undefined' && currentUser && currentUser.email) {
+                    const ce = String(currentUser.email).toLowerCase().trim();
+                    if (ce !== 'public.identify.sync@gmail.com' && ce.includes('@')) candidateEmails.add(ce);
+                }
+                try {
+                    const savedAuth = JSON.parse(localStorage.getItem('student_auth_v1') || '{}');
+                    if (savedAuth && savedAuth.email) {
+                        const se = String(savedAuth.email).toLowerCase().trim();
+                        if (se !== 'public.identify.sync@gmail.com' && se.includes('@')) candidateEmails.add(se);
+                    }
+                } catch(e) {}
+
+                const schoolObj = targetSchool || (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
+                if (schoolObj && schoolObj.email) {
+                    const schEmail = String(schoolObj.email).toLowerCase().trim();
+                    if (schEmail !== 'public.identify.sync@gmail.com' && schEmail.includes('@')) candidateEmails.add(schEmail);
+                }
+
+                // 2. Direct Firebase Authentication REST API Verification against real Admin credentials
+                for (const email of candidateEmails) {
+                    if (!email || !email.includes('@')) continue;
+                    try {
+                        const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: email, password: entered, returnSecureToken: true })
+                        });
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            if (data && data.idToken) {
+                                return true;
+                            }
+                        }
+                    } catch(netErr) {
+                        console.warn("REST verify notice for", email, netErr);
+                    }
+                }
+
+                // 3. Check against real configured password of the school (from encrypted hash in Firestore school_auth)
+                if (schoolObj) {
+                    if (schoolObj.password && entered === String(schoolObj.password).trim() && entered.length >= 6) {
+                        return true;
+                    }
+                    if (schoolObj.email) {
+                        const safeKey = String(schoolObj.email).toLowerCase().replace(/[^a-z0-9]/g, '_');
+                        try {
+                            if (typeof schoolAuthData !== 'undefined' && schoolAuthData && schoolAuthData[safeKey]?.hash) {
+                                const dec = typeof decryptSchoolPassword === 'function' ? decryptSchoolPassword(schoolAuthData[safeKey].hash) : '';
+                                if (dec && dec === entered) return true;
+                            }
+                        } catch(e) {}
+                    }
+                }
+
+                // 4. Secondary SDK Fallback if REST was blocked
+                if (window.firebaseAPI && typeof window.firebaseAPI.signInWithEmailAndPassword === 'function' && window.auth) {
+                    for (const email of candidateEmails) {
+                        if (!email || !email.includes('@')) continue;
+                        try {
+                            if (typeof window.firebaseAPI.initializeApp === 'function' && window.firebaseAPI.firebaseConfig) {
+                                let tempApp = null;
+                                try {
+                                    tempApp = window.firebaseAPI.initializeApp(window.firebaseAPI.firebaseConfig, 'AuthVerify_' + Date.now());
+                                    const tempAuth = window.firebaseAPI.getAuth(tempApp);
+                                    const cred = await window.firebaseAPI.signInWithEmailAndPassword(tempAuth, email, entered);
+                                    if (cred && cred.user) {
+                                        return true;
+                                    }
+                                } catch(e) {
+                                } finally {
+                                    if (tempApp && typeof window.firebaseAPI.deleteApp === 'function') {
+                                        await window.firebaseAPI.deleteApp(tempApp).catch(()=>{});
+                                    }
+                                }
+                            } else if (window.auth.currentUser && window.auth.currentUser.email === email) {
+                                const cred = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, email, entered);
+                                if (cred && cred.user) return true;
+                            }
+                        } catch(e) {}
+                    }
+                }
+
+                return false;
+            }
+            window.verifyAdminSecurityCredential = verifyAdminSecurityCredential;
+
             function showModal(type, title, msg, onConfirm = null, confirmLabel = 'Yes, Delete', subtitle = '') {
                 const modal = document.getElementById('custom-modal');
                 const iconDiv = document.getElementById('modal-icon');
@@ -12154,27 +12374,61 @@
                 } else if (type === 'delete-all') {
                     iconDiv.className = "w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center bg-rose-100 text-rose-500";
                     iconDiv.innerHTML = '<i data-lucide="alert-triangle"></i>';
-                    let html = `<div class="mb-4 mt-2 text-left w-full"><label class="text-[11px] font-black text-slate-700 uppercase tracking-widest mb-1.5 block">Admin Password</label><input type="password" id="modal-delete-password" class="w-full h-11 bg-white border-2 border-slate-200 text-slate-800 rounded-xl px-4 font-bold text-sm outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10 transition-all placeholder:font-normal placeholder:text-slate-400" placeholder="Enter dashboard password"></div>`;
+                    let html = `
+                        <div class="mb-4 mt-2 text-left w-full">
+                            <label class="text-[11px] font-black text-slate-700 uppercase tracking-widest mb-1.5 block">Admin Password</label>
+                            <div class="relative">
+                                <input type="password" id="modal-delete-password" class="w-full h-11 bg-white border-2 border-slate-200 text-slate-800 rounded-xl px-4 pr-11 font-bold text-sm outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10 transition-all placeholder:font-normal placeholder:text-slate-400" placeholder="Enter your Admin Password" maxlength="100" autocomplete="off">
+                                <button type="button" onclick="const inp=document.getElementById('modal-delete-password'); inp.type = inp.type==='password'?'text':'password';" class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition" title="Show/Hide Password">
+                                    <i class="fa-solid fa-eye text-xs"></i>
+                                </button>
+                            </div>
+                            <p class="text-[10.5px] text-slate-400 mt-1 pl-1">Enter your real Admin Account password to confirm deletion</p>
+                        </div>
+                    `;
                     actions.innerHTML = html + `<div class="flex items-center gap-2.5 w-full"><button onclick="closeModal()" class="w-28 flex-shrink-0 py-3 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition"><i class="fa-solid fa-xmark text-sm"></i> Cancel</button><button id="modal-confirm-btn" class="flex-1 py-3 px-3 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-sm shadow-rose-600/20 whitespace-nowrap"><i data-lucide="trash-2" class="w-4 h-4 flex-shrink-0"></i> ${confirmLabel}</button></div>`;
+                    
+                    setTimeout(() => {
+                        const pwdInp = document.getElementById('modal-delete-password');
+                        if (pwdInp) {
+                            pwdInp.focus();
+                            pwdInp.addEventListener('keydown', (e) => {
+                                if (e.key === 'Enter') {
+                                    const confirmBtn = document.getElementById('modal-confirm-btn');
+                                    if (confirmBtn) confirmBtn.click();
+                                }
+                            });
+                        }
+                    }, 50);
+
                     document.getElementById('modal-confirm-btn').onclick = async () => { 
                         const btn = document.getElementById('modal-confirm-btn');
                         const originalText = btn.innerHTML;
-                        const pwd = document.getElementById('modal-delete-password').value;
+                        const pwd = (document.getElementById('modal-delete-password')?.value || '').trim();
                         if (!pwd) {
-                            showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Please enter your password', true);
+                            showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Please enter your Admin Password', true);
                             return;
                         }
                         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
                         btn.disabled = true;
                         btn.classList.add('opacity-70');
                         try {
-                            const user = window.auth?.currentUser;
-                            if (!user || !user.email) throw new Error('Not logged in');
-                            await window.firebaseAPI.signInWithEmailAndPassword(window.auth, user.email, pwd);
-                            closeModal(); 
-                            if (onConfirm) onConfirm(); 
+                            const scTarget = (typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : null;
+                            const isValid = await verifyAdminSecurityCredential(pwd, scTarget);
+
+                            if (isValid) {
+                                closeModal(); 
+                                if (onConfirm) onConfirm(); 
+                            } else {
+                                showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Incorrect Admin Password', true);
+                                btn.innerHTML = originalText;
+                                btn.disabled = false;
+                                btn.classList.remove('opacity-70');
+                                const pwdInp = document.getElementById('modal-delete-password');
+                                if (pwdInp) { pwdInp.value = ''; pwdInp.focus(); }
+                            }
                         } catch (err) {
-                            showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Incorrect Password', true);
+                            showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Verification error. Please try again.', true);
                             btn.innerHTML = originalText;
                             btn.disabled = false;
                             btn.classList.remove('opacity-70');

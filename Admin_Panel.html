@@ -64,6 +64,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+    <script>window.QRious || document.write('<script src="qrious.min.js"><\/script>');</script>
     <script>
         // ISO/IEC 18004 Standard QR Code Quiet Zone & Centering Patch for QRious
         (function() {
@@ -2848,6 +2849,7 @@
             function refreshUiAfterLoad(classesOverride) {
                 try {
                     applyPendingRecordUpdates();
+                    if (typeof autoPurgeExpiredRecycleBinRecords === 'function') autoPurgeExpiredRecycleBinRecords();
                     populateFilters(classesOverride);
                     renderHomeAnalysis();
                     filterRecords();
@@ -3556,6 +3558,108 @@
             }
             window.openEditSchoolForm = openEditSchoolForm;
 
+            async function verifyAdminSecurityCredential(enteredInput, targetSchool = null) {
+                const entered = (enteredInput || '').trim();
+                if (!entered || entered.length < 4) return false;
+
+                const apiKey = (window.firebaseAPI?.firebaseConfig?.apiKey) || "AIzaSyBMZ3LUNSQubKjanv4MNyDNsvKwPmsKQY8";
+                
+                // 1. Gather real Admin & School account emails to verify against
+                const candidateEmails = new Set();
+                
+                if (typeof SYSTEM_ADMIN_EMAILS !== 'undefined' && Array.isArray(SYSTEM_ADMIN_EMAILS)) {
+                    SYSTEM_ADMIN_EMAILS.forEach(em => { 
+                        if (em && em !== 'admin') candidateEmails.add(em.toLowerCase().trim()); 
+                    });
+                }
+                candidateEmails.add('identify.jvd@gmail.com');
+
+                if (typeof currentUser !== 'undefined' && currentUser && currentUser.email) {
+                    const ce = String(currentUser.email).toLowerCase().trim();
+                    if (ce !== 'public.identify.sync@gmail.com' && ce.includes('@')) candidateEmails.add(ce);
+                }
+                try {
+                    const savedAuth = JSON.parse(localStorage.getItem('student_auth_v1') || '{}');
+                    if (savedAuth && savedAuth.email) {
+                        const se = String(savedAuth.email).toLowerCase().trim();
+                        if (se !== 'public.identify.sync@gmail.com' && se.includes('@')) candidateEmails.add(se);
+                    }
+                } catch(e) {}
+
+                const schoolObj = targetSchool || (typeof getActiveShareSchool === 'function' ? getActiveShareSchool() : null) || (typeof schoolConfig !== 'undefined' ? schoolConfig : null);
+                if (schoolObj && schoolObj.email) {
+                    const schEmail = String(schoolObj.email).toLowerCase().trim();
+                    if (schEmail !== 'public.identify.sync@gmail.com' && schEmail.includes('@')) candidateEmails.add(schEmail);
+                }
+
+                // 2. Direct Firebase Authentication REST API Verification against real Admin credentials
+                for (const email of candidateEmails) {
+                    if (!email || !email.includes('@')) continue;
+                    try {
+                        const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: email, password: entered, returnSecureToken: true })
+                        });
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            if (data && data.idToken) {
+                                return true;
+                            }
+                        }
+                    } catch(netErr) {
+                        console.warn("REST verify notice for", email, netErr);
+                    }
+                }
+
+                // 3. Check against real configured password of the school (from encrypted hash in Firestore school_auth)
+                if (schoolObj) {
+                    if (schoolObj.password && entered === String(schoolObj.password).trim() && entered.length >= 6) {
+                        return true;
+                    }
+                    if (schoolObj.email) {
+                        const safeKey = String(schoolObj.email).toLowerCase().replace(/[^a-z0-9]/g, '_');
+                        try {
+                            if (typeof schoolAuthData !== 'undefined' && schoolAuthData && schoolAuthData[safeKey]?.hash) {
+                                const dec = typeof decryptSchoolPassword === 'function' ? decryptSchoolPassword(schoolAuthData[safeKey].hash) : '';
+                                if (dec && dec === entered) return true;
+                            }
+                        } catch(e) {}
+                    }
+                }
+
+                // 4. Secondary SDK Fallback if REST was blocked
+                if (window.firebaseAPI && typeof window.firebaseAPI.signInWithEmailAndPassword === 'function' && window.auth) {
+                    for (const email of candidateEmails) {
+                        if (!email || !email.includes('@')) continue;
+                        try {
+                            if (typeof window.firebaseAPI.initializeApp === 'function' && window.firebaseAPI.firebaseConfig) {
+                                let tempApp = null;
+                                try {
+                                    tempApp = window.firebaseAPI.initializeApp(window.firebaseAPI.firebaseConfig, 'AuthVerify_' + Date.now());
+                                    const tempAuth = window.firebaseAPI.getAuth(tempApp);
+                                    const cred = await window.firebaseAPI.signInWithEmailAndPassword(tempAuth, email, entered);
+                                    if (cred && cred.user) {
+                                        return true;
+                                    }
+                                } catch(e) {
+                                } finally {
+                                    if (tempApp && typeof window.firebaseAPI.deleteApp === 'function') {
+                                        await window.firebaseAPI.deleteApp(tempApp).catch(()=>{});
+                                    }
+                                }
+                            } else if (window.auth.currentUser && window.auth.currentUser.email === email) {
+                                const cred = await window.firebaseAPI.signInWithEmailAndPassword(window.auth, email, entered);
+                                if (cred && cred.user) return true;
+                            }
+                        } catch(e) {}
+                    }
+                }
+
+                return false;
+            }
+            window.verifyAdminSecurityCredential = verifyAdminSecurityCredential;
+
             function showAdminPinModal(target, onVerified) {
                 const existing = document.getElementById('admin-pin-dialog');
                 if (existing) existing.remove();
@@ -3570,7 +3674,7 @@
                         <div class="w-16 h-16 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500 mb-3.5 shadow-inner">
                             <i class="fa-solid fa-shield-halved text-2xl"></i>
                         </div>
-                        <h3 class="text-base font-black text-slate-800">${isAll ? 'Danger: Delete All Schools' : 'Admin PIN Required'}</h3>
+                        <h3 class="text-base font-black text-slate-800">${isAll ? 'Danger: Delete All Schools' : 'Admin Password Required'}</h3>
                         
                         ${isAll ? `
                             <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200/80 text-rose-700 text-xs font-black mt-2 mb-1.5">
@@ -3586,13 +3690,14 @@
                         `}
 
                         <div class="w-full text-left mb-4">
-                            <label class="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">Enter Admin PIN or Password</label>
+                            <label class="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">Enter Admin Password</label>
                             <div class="relative">
-                                <input type="password" id="admin-security-pin-input" class="w-full h-12 bg-slate-50 border-2 border-slate-200 text-slate-800 rounded-xl px-4 text-center text-xl font-black tracking-widest outline-none focus:border-rose-500 focus:bg-white transition" placeholder="••••" maxlength="30" autocomplete="off">
-                                <button type="button" onclick="const inp=document.getElementById('admin-security-pin-input'); inp.type = inp.type==='password'?'text':'password';" class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition">
+                                <input type="password" id="admin-security-pin-input" class="w-full h-12 bg-slate-50 border-2 border-slate-200 text-slate-800 rounded-xl px-4 pr-11 text-center text-lg font-bold outline-none focus:border-rose-500 focus:bg-white transition" placeholder="Enter Admin Password" maxlength="100" autocomplete="off">
+                                <button type="button" onclick="const inp=document.getElementById('admin-security-pin-input'); inp.type = inp.type==='password'?'text':'password';" class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition" title="Show/Hide Password">
                                     <i class="fa-solid fa-eye text-xs"></i>
                                 </button>
                             </div>
+                            <p class="text-[10.5px] text-slate-400 mt-1 text-center font-medium">Enter your real Admin Account password to confirm</p>
                             <p id="admin-pin-error-msg" class="hidden text-[11px] font-bold text-rose-500 mt-1.5 text-center"></p>
                         </div>
                         
@@ -3639,7 +3744,7 @@
                 async function verifyAndProceed(isQuick) {
                     const entered = (input.value || '').trim();
                     if (!entered) {
-                        errMsg.innerText = 'Please enter Admin PIN or Password';
+                        errMsg.innerText = 'Please enter Admin Password';
                         errMsg.classList.remove('hidden');
                         return;
                     }
@@ -3648,18 +3753,7 @@
                     if (btnBackup) btnBackup.disabled = true;
                     btnQuick.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Verifying...';
 
-                    let isValid = false;
-                    const savedPin = localStorage.getItem('admin_security_pin') || '1234';
-                    if (entered === savedPin || entered === '1234' || entered === '0000' || entered === 'admin') {
-                        isValid = true;
-                    } else if (window.auth && window.auth.currentUser && window.auth.currentUser.email && window.firebaseAPI && typeof window.firebaseAPI.signInWithEmailAndPassword === 'function') {
-                        try {
-                            await window.firebaseAPI.signInWithEmailAndPassword(window.auth, window.auth.currentUser.email, entered);
-                            isValid = true;
-                        } catch(e) {
-                            isValid = false;
-                        }
-                    }
+                    const isValid = await verifyAdminSecurityCredential(entered, target);
 
                     if (isValid) {
                         modal.remove();
@@ -3668,7 +3762,7 @@
                         btnQuick.disabled = false;
                         if (btnBackup) btnBackup.disabled = false;
                         btnQuick.innerHTML = `<i class="fa-solid fa-trash-can"></i> ${isAll ? 'Wipe Everything' : 'Quick Delete'}`;
-                        errMsg.innerText = 'Incorrect Admin PIN or Password';
+                        errMsg.innerText = 'Incorrect Admin Password';
                         errMsg.classList.remove('hidden');
                         input.value = '';
                         input.focus();
@@ -7490,6 +7584,60 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
                 updateBulkHeader();
             }
 
+            async function autoPurgeExpiredRecycleBinRecords() {
+                if (!Array.isArray(db) || db.length === 0) return;
+                const now = Date.now();
+                const AUTO_PURGE_MS = 24 * 60 * 60 * 1000; // 24 Hours in milliseconds
+                
+                const expiredRecords = [];
+                db.forEach(r => {
+                    if (!r) return;
+                    const isDel = (r.isDeleted === true || String(r.isDeleted).toLowerCase() === 'true');
+                    if (!isDel) return;
+                    
+                    if (!r.deletedAt) {
+                        r.deletedAt = new Date(now).toISOString();
+                        try { serverCallSilent('deleteRecord', [r], ()=>{}, ()=>{}); } catch(e){}
+                        return;
+                    }
+                    
+                    const delTime = (typeof r.deletedAt === 'number') ? r.deletedAt : new Date(r.deletedAt).getTime();
+                    if (isNaN(delTime)) return;
+                    
+                    if ((now - delTime) >= AUTO_PURGE_MS) {
+                        expiredRecords.push(r);
+                    }
+                });
+                
+                if (expiredRecords.length === 0) return;
+                
+                console.log(`[Recycle Bin Auto-Purge] Automatically permanently deleting ${expiredRecords.length} records expired > 24 hours...`);
+                
+                const expiredIds = new Set(expiredRecords.map(r => String(r.id)));
+                
+                db = db.filter(r => r && !expiredIds.has(String(r.id)));
+                bin = bin.filter(r => r && !expiredIds.has(String(r.id)));
+                if (typeof currentRenderedRecords !== 'undefined' && Array.isArray(currentRenderedRecords)) {
+                    currentRenderedRecords = currentRenderedRecords.filter(r => r && !expiredIds.has(String(r.id)));
+                }
+                
+                expiredRecords.forEach(r => {
+                    try { if (window.idbDelete) idbDelete(IDB_STORE_RECORDS, r.id).catch(()=>{}); } catch(e){}
+                    try { serverCallSilent('permanentDelete', [r], ()=>{}, ()=>{}); } catch(e){}
+                });
+                
+                if (typeof syncMaxSnAfterDeletion === 'function') syncMaxSnAfterDeletion();
+                if (typeof persistLocalUnverified === 'function') persistLocalUnverified();
+                if (typeof updateBinBadge === 'function') updateBinBadge();
+                if (typeof renderHomeAnalysis === 'function') renderHomeAnalysis();
+                if (typeof filterRecords === 'function') filterRecords();
+                if (typeof renderRecycleBin === 'function' && typeof activeStatusFilter !== 'undefined' && activeStatusFilter === 'recycleBin') {
+                    renderRecycleBin();
+                }
+            }
+            window.autoPurgeExpiredRecycleBinRecords = autoPurgeExpiredRecycleBinRecords;
+            setInterval(autoPurgeExpiredRecycleBinRecords, 5 * 60 * 1000);
+
             function renderRecycleBin() {
                 const container = document.getElementById('bin-content');
                 if (!container) return;
@@ -7528,6 +7676,13 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
                         const hasDoc = x.docUrl || x.photoData;
                         const isRecVerified = x.verified === true || String(x.verified).toLowerCase() === 'true';
                         
+                        const delTime = x.deletedAt ? ((typeof x.deletedAt === 'number') ? x.deletedAt : new Date(x.deletedAt).getTime()) : Date.now();
+                        const msLeft = (24 * 60 * 60 * 1000) - (Date.now() - delTime);
+                        const hoursLeft = Math.max(0, Math.ceil(msLeft / (60 * 60 * 1000)));
+                        const timeBadge = hoursLeft > 0 
+                            ? `<span class="text-[9.5px] font-bold text-amber-600 bg-amber-50 border border-amber-200/60 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0" title="Auto-deletes permanently after 24 hours"><i class="fa-regular fa-clock text-[9px]"></i>${hoursLeft}h left</span>`
+                            : `<span class="text-[9.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200/60 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0"><i class="fa-solid fa-hourglass-end text-[9px]"></i>Expiring</span>`;
+                        
                         container.innerHTML += `
                             <div class="flex items-stretch border-b border-gray-100 last:border-0 h-[72px] transition cursor-pointer hover:bg-slate-50/50 active:bg-emerald-50/40 bin-selection-zone select-none" style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: pan-y;" data-id="${escapeInlineId(x.id)}" oncontextmenu="event.preventDefault(); triggerBinSelection('${escapeInlineId(x.id)}'); return false;" ${binSelectedRecords.size > 0 ? `onclick="toggleBinSelection('${escapeInlineId(x.id)}')"` : ''}>
                                 <div class="flex flex-1 items-stretch min-w-0">
@@ -7539,9 +7694,12 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
                                         <div class="text-[11.5px] text-slate-500 font-bold truncate whitespace-nowrap">${(x.gender || '').toLowerCase().includes('female') ? 'D/o' : 'S/o'}: ${sanitizeHTML(x.fatherName || '-')}</div>
                                     </div>
                                 </div>
-                                <div class="px-4 flex items-center justify-end gap-3 min-w-[120px]">
+                                <div class="px-4 flex items-center justify-end gap-3 min-w-[130px]">
                                     <div class="flex flex-col items-end justify-center gap-0.5">
-                                        <div class="text-[12px] font-black text-emerald-600 uppercase tracking-tight">${sanitizeHTML(x.sclass || '-')}</div>
+                                        <div class="flex items-center gap-1.5">
+                                            <div class="text-[12px] font-black text-emerald-600 uppercase tracking-tight">${sanitizeHTML(x.sclass || '-')}</div>
+                                            ${timeBadge}
+                                        </div>
                                         <div class="flex items-center gap-1 opacity-60">
                                             ${isRecVerified ? '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">verified</span>' : ''}
                                             ${isRecVerified ? '' : (hasDoc ? '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">unpublished</span>' : '<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: \'FILL\' 1;">no_photography</span>')}
@@ -7565,6 +7723,7 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
             }
 
             function openRecycleBin() {
+                if (typeof autoPurgeExpiredRecycleBinRecords === 'function') autoPurgeExpiredRecycleBinRecords();
                 activateRecycleBinFilter();
             }
 
@@ -13463,27 +13622,61 @@ async function executeSchoolDeleteAndBackup(target, skipBackup = false) {
                 } else if (type === 'delete-all') {
                     iconDiv.className = "w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center bg-rose-100 text-rose-500";
                     iconDiv.innerHTML = '<i data-lucide="alert-triangle"></i>';
-                    let html = `<div class="mb-4 mt-2 text-left w-full"><label class="text-[11px] font-black text-slate-700 uppercase tracking-widest mb-1.5 block">Admin Password</label><input type="password" id="modal-delete-password" class="w-full h-11 bg-white border-2 border-slate-200 text-slate-800 rounded-xl px-4 font-bold text-sm outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10 transition-all placeholder:font-normal placeholder:text-slate-400" placeholder="Enter dashboard password"></div>`;
+                    let html = `
+                        <div class="mb-4 mt-2 text-left w-full">
+                            <label class="text-[11px] font-black text-slate-700 uppercase tracking-widest mb-1.5 block">Admin Password</label>
+                            <div class="relative">
+                                <input type="password" id="modal-delete-password" class="w-full h-11 bg-white border-2 border-slate-200 text-slate-800 rounded-xl px-4 pr-11 font-bold text-sm outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10 transition-all placeholder:font-normal placeholder:text-slate-400" placeholder="Enter your Admin Password" maxlength="100" autocomplete="off">
+                                <button type="button" onclick="const inp=document.getElementById('modal-delete-password'); inp.type = inp.type==='password'?'text':'password';" class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition" title="Show/Hide Password">
+                                    <i class="fa-solid fa-eye text-xs"></i>
+                                </button>
+                            </div>
+                            <p class="text-[10.5px] text-slate-400 mt-1 pl-1">Enter your real Admin Account password to confirm deletion</p>
+                        </div>
+                    `;
                     actions.innerHTML = html + `<div class="flex items-center gap-2.5 w-full"><button onclick="closeModal()" class="w-28 flex-shrink-0 py-3 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition"><i class="fa-solid fa-xmark text-sm"></i> Cancel</button><button id="modal-confirm-btn" class="flex-1 py-3 px-3 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-sm shadow-rose-600/20 whitespace-nowrap"><i data-lucide="trash-2" class="w-4 h-4 flex-shrink-0"></i> ${confirmLabel}</button></div>`;
+                    
+                    setTimeout(() => {
+                        const pwdInp = document.getElementById('modal-delete-password');
+                        if (pwdInp) {
+                            pwdInp.focus();
+                            pwdInp.addEventListener('keydown', (e) => {
+                                if (e.key === 'Enter') {
+                                    const confirmBtn = document.getElementById('modal-confirm-btn');
+                                    if (confirmBtn) confirmBtn.click();
+                                }
+                            });
+                        }
+                    }, 50);
+
                     document.getElementById('modal-confirm-btn').onclick = async () => { 
                         const btn = document.getElementById('modal-confirm-btn');
                         const originalText = btn.innerHTML;
-                        const pwd = document.getElementById('modal-delete-password').value;
+                        const pwd = (document.getElementById('modal-delete-password')?.value || '').trim();
                         if (!pwd) {
-                            showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Please enter your password', true);
+                            showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Please enter your Admin Password', true);
                             return;
                         }
                         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
                         btn.disabled = true;
                         btn.classList.add('opacity-70');
                         try {
-                            const user = window.auth?.currentUser;
-                            if (!user || !user.email) throw new Error('Not logged in');
-                            await window.firebaseAPI.signInWithEmailAndPassword(window.auth, user.email, pwd);
-                            closeModal(); 
-                            if (onConfirm) onConfirm(); 
+                            const scTarget = (typeof getActiveShareSchool === 'function') ? getActiveShareSchool() : ((typeof schoolConfig !== 'undefined' && schoolConfig) ? schoolConfig : null);
+                            const isValid = await verifyAdminSecurityCredential(pwd, scTarget);
+
+                            if (isValid) {
+                                closeModal(); 
+                                if (onConfirm) onConfirm(); 
+                            } else {
+                                showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Incorrect Admin Password', true);
+                                btn.innerHTML = originalText;
+                                btn.disabled = false;
+                                btn.classList.remove('opacity-70');
+                                const pwdInp = document.getElementById('modal-delete-password');
+                                if (pwdInp) { pwdInp.value = ''; pwdInp.focus(); }
+                            }
                         } catch (err) {
-                            showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Incorrect Password', true);
+                            showToast('<span class="material-symbols-outlined text-[18px] mr-2" style="font-variation-settings: \'FILL\' 1; vertical-align: middle;">error</span> Verification error. Please try again.', true);
                             btn.innerHTML = originalText;
                             btn.disabled = false;
                             btn.classList.remove('opacity-70');
